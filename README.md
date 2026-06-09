@@ -16,6 +16,7 @@
   [![VS Code Marketplace](https://img.shields.io/badge/VS%20Marketplace-install-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=BurtsonLabs.bandit-stealth)
   [![Open VSX](https://img.shields.io/open-vsx/v/BurtsonLabs/bandit-stealth?label=Open%20VSX)](https://open-vsx.org/extension/BurtsonLabs/bandit-stealth)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+  [![CI](https://github.com/Burtson-Labs/bandit-agent-framework/actions/workflows/pr-checks.yaml/badge.svg)](https://github.com/Burtson-Labs/bandit-agent-framework/actions/workflows/pr-checks.yaml)
 
   **<img src="https://api.iconify.design/lucide/book-open.svg?color=%23a60ee5&width=16" align="absmiddle"> Full documentation: [docs.burtson.ai](https://docs.burtson.ai)**
 
