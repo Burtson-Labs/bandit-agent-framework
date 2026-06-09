@@ -1105,7 +1105,7 @@ ollama pull gemma4:26b         # best balance for 32 GB+ Macs
   &quot;permissions&quot;: { &quot;deny&quot;: [&quot;run_command:rm *&quot;], &quot;ask&quot;: [&quot;run_command&quot;] }
 }
 </code></pre>
-<p>Same format and behavior as the <a href="../bandit-cli/README.md#settings-file--hooks-permissions-security-guard">CLI</a> — settings written once apply to both the IDE and the terminal.</p>
+<p>Same format and behavior as the <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/README.md#settings-file--hooks-permissions-security-guard" target="_blank" rel="noopener noreferrer">CLI</a> — settings written once apply to both the IDE and the terminal.</p>
 <h3>Telemetry (opt-in, off by default)</h3>
 <p>Bandit is <strong>telemetry-capable but ships with it off</strong>. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. <strong>Prompt and response text are never sent</strong>; only metadata, run through secret redaction.</p>
 <ul>
@@ -1121,7 +1121,7 @@ ollama pull gemma4:26b         # best balance for 32 GB+ Macs
   }
 }
 </code></pre>
-<p>See the <a href="../bandit-cli/README.md#telemetry-opt-in">CLI telemetry docs</a> for the full reference.</p>
+<p>See the <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/README.md#telemetry-opt-in" target="_blank" rel="noopener noreferrer">CLI telemetry docs</a> for the full reference.</p>
 <h3>Remote GPU</h3>
 <p>Running a bigger model on a remote Ollama instance? Set <code>banditStealth.ollamaNodeUrl</code> to the remote endpoint and <code>banditStealth.ollamaModel</code> to your larger model. Requests route to the remote node; everything else stays local.</p>
 <h4>Rented GPU (RunPod / <a href="http://Vast.ai">Vast.ai</a> / Lambda)</h4>
@@ -1173,6 +1173,7 @@ ollama pull gemma4:26b         # best balance for 32 GB+ Macs
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-stealth" target="_blank" rel="noopener">View source on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>

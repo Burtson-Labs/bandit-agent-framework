@@ -251,6 +251,30 @@ const PAGES = SECTIONS.flatMap((s) => s.items);
 // Canonical host for SEO + per-page OG card URLs (rich link unfurls in
 // Slack / Teams / iMessage). Every page gets its own card at /og/<slug>.png.
 const BASE_URL = "https://docs.burtson.ai";
+// The (now public) source repo — docs link to the real files: a package's src/ for
+// package pages, the page's own markdown otherwise.
+const REPO_URL = "https://github.com/Burtson-Labs/bandit-agent-framework";
+
+// Rewrite relative repo-file links in rendered markdown (e.g. a README's
+// `test/foo.test.ts`) to absolute GitHub source URLs — otherwise they 404 on the
+// docs site. Doc cross-links (*.html), in-page anchors, and external URLs are left alone.
+const defaultLinkOpen = md.renderer.rules.link_open || ((t, i, o, _e, s) => s.renderToken(t, i, o));
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const hi = token.attrIndex("href");
+  const dir = env && env.sourceDir;
+  if (hi >= 0 && dir) {
+    const href = token.attrs[hi][1];
+    if (href && !/^(https?:|mailto:|tel:|#|\/)/i.test(href) && !/\.html(#|$)/i.test(href)) {
+      const resolved = path.posix.normalize(path.posix.join(dir, href));
+      const kind = /\.[a-z0-9]+$/i.test(resolved) ? "blob" : "tree";
+      token.attrs[hi][1] = `${REPO_URL}/${kind}/main/${resolved}`;
+      token.attrSet("target", "_blank");
+      token.attrSet("rel", "noopener noreferrer");
+    }
+  }
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
 
 // ── HTML template ──────────────────────────────────────────────────────────
 //
@@ -933,6 +957,12 @@ function renderShell({ title, description, activeSlug, body }) {
   const pageUrl = activeSlug === "index" ? `${BASE_URL}/` : `${BASE_URL}/${activeSlug}.html`;
   const ogType = activeSlug === "index" ? "website" : "article";
   const ogImg = `${BASE_URL}/og/${activeSlug}.png`;
+  const srcReadme = PAGES.find((p) => p.slug === activeSlug)?.readme;
+  const isPkg = !!srcReadme && srcReadme.endsWith("/README.md");
+  const sourceUrl = !srcReadme ? REPO_URL
+    : isPkg ? `${REPO_URL}/tree/main/${srcReadme.replace(/\/README\.md$/, "")}`
+    : `${REPO_URL}/blob/main/${srcReadme}`;
+  const sourceLabel = isPkg || !srcReadme ? "View source on GitHub" : "Edit this page on GitHub";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1012,6 +1042,7 @@ ${body}
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
+        <p><a href="${sourceUrl}" target="_blank" rel="noopener">${sourceLabel} →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>
@@ -1138,7 +1169,7 @@ function renderPage(pkg) {
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`README not found: ${sourcePath}`);
   }
-  const body = md.render(fs.readFileSync(sourcePath, "utf8"), { glossaryLink: true, slug: pkg.slug });
+  const body = md.render(fs.readFileSync(sourcePath, "utf8"), { glossaryLink: true, slug: pkg.slug, sourceDir: path.posix.dirname(pkg.readme) });
   return renderShell({
     title: `${pkg.name} — Bandit Agent Framework`,
     description: `Documentation for ${pkg.name}, part of the Bandit Agent Framework.`,
