@@ -714,7 +714,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
   </a>
 <h1>@burtson-labs/agent-adapters</h1>
 <p><strong>Adapter layer for the things Bandit talks to outside its own runtime.</strong></p>
-<p><a href="./glossary.html#llm" class="glossary-link" title="Glossary">LLM</a> providers, <a href="./glossary.html#embedding" class="glossary-link" title="Glossary">embedding</a> models, vector stores, GitHub, the VS Code extension API, and the web — intentionally thin shims that normalize one external API surface into the shape <a href="../agent-core/"><code>@burtson-labs/agent-core</code></a> expects.</p>
+<p><a href="./glossary.html#llm" class="glossary-link" title="Glossary">LLM</a> providers, <a href="./glossary.html#embedding" class="glossary-link" title="Glossary">embedding</a> models, vector stores, GitHub, the VS Code extension API, and the web — intentionally thin shims that normalize one external API surface into the shape <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/agent-core</code></a> expects.</p>
 </div>
 <hr>
 <h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
@@ -752,7 +752,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 </tbody>
 </table>
 <h2><img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status</h2>
-<p>Stable. Adding a new provider goes here; adding a new tool generally does NOT (that’s <a href="../agent-core/"><code>@burtson-labs/agent-core</code></a> or <a href="../host-kit/"><code>@burtson-labs/host-kit</code></a>).</p>
+<p>Stable. Adding a new provider goes here; adding a new tool generally does NOT (that’s <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/agent-core</code></a> or <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/host-kit/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/host-kit</code></a>).</p>
 <h2><img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> When to extend this package</h2>
 <ul>
 <li><strong>New LLM provider</strong> — add a class under <code>provider/</code> that implements the <code>ChatProvider</code> shape from <code>@burtson-labs/agent-core</code>. See <code>OllamaProvider</code> for the reference implementation.</li>
@@ -760,7 +760,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <li><strong>New host adapter</strong> — only if you’re writing a new top-level host (a JetBrains plugin, a Slack bot, etc.). Discuss in an issue first; we’d rather absorb the use case into an existing adapter than fork a new subdirectory.</li>
 </ul>
 <h2>License</h2>
-<p><a href="../../LICENSE">Apache License 2.0</a> — Copyright 2026 Burtson Labs.</p>
+<p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a> — Copyright 2026 Burtson Labs.</p>
 
       <footer class="footer">
         <div class="cobrand">
@@ -771,6 +771,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-adapters" target="_blank" rel="noopener">View source on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>

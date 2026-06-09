@@ -835,56 +835,56 @@ const report = await runtime.report();
 <tbody>
 <tr>
 <td>Constructor options merged into runtime</td>
-<td><a href="test/constructorOptionsContract.test.ts">test/constructorOptionsContract.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/constructorOptionsContract.test.ts" target="_blank" rel="noopener noreferrer">test/constructorOptionsContract.test.ts</a></td>
 </tr>
 <tr>
 <td>“Claim without doing” detectors (false-completion, partial-completion, announce-then-stall)</td>
-<td><a href="test/claimWithoutDoingDetectors.test.ts">test/claimWithoutDoingDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/claimWithoutDoingDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/claimWithoutDoingDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>“Structured output instead of tool” detectors (code-fence, JSON-todo auto-promote)</td>
-<td><a href="test/structuredOutputDetectors.test.ts">test/structuredOutputDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/structuredOutputDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/structuredOutputDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Loop detectors (prose-loop, todo-churn)</td>
-<td><a href="test/loopDetectors.test.ts">test/loopDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/loopDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/loopDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Malformed/empty recovery (empty-retry, thinking-off-recovery, parse-retry)</td>
-<td><a href="test/malformedEmptyDetectors.test.ts">test/malformedEmptyDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/malformedEmptyDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/malformedEmptyDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Hallucinated <code>&lt;tool_result&gt;</code> recovery</td>
-<td><a href="test/hallucinationDetectors.test.ts">test/hallucinationDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/hallucinationDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/hallucinationDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Subagent coordination (fired-and-forgotten)</td>
-<td><a href="test/subagentCoordinationDetectors.test.ts">test/subagentCoordinationDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/subagentCoordinationDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/subagentCoordinationDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Tool execution edge cases (dedup, cap, repeat-breaker, not-found, error, todo-progress)</td>
-<td><a href="test/toolExecutionDetectors.test.ts">test/toolExecutionDetectors.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/toolExecutionDetectors.test.ts" target="_blank" rel="noopener noreferrer">test/toolExecutionDetectors.test.ts</a></td>
 </tr>
 <tr>
 <td>Cancellation contract</td>
-<td><a href="test/cancellationContract.test.ts">test/cancellationContract.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/cancellationContract.test.ts" target="_blank" rel="noopener noreferrer">test/cancellationContract.test.ts</a></td>
 </tr>
 <tr>
 <td>Compaction + goal-anchor contract</td>
-<td><a href="test/compactionContract.test.ts">test/compactionContract.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/compactionContract.test.ts" target="_blank" rel="noopener noreferrer">test/compactionContract.test.ts</a></td>
 </tr>
 <tr>
 <td>Real-trace replay</td>
-<td><a href="test/turnReplay.test.ts">test/turnReplay.test.ts</a></td>
+<td><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/turnReplay.test.ts" target="_blank" rel="noopener noreferrer">test/turnReplay.test.ts</a></td>
 </tr>
 </tbody>
 </table>
 <h3>Adding a regression fixture from a real failure trace</h3>
-<p>When you see a weird agent behavior in a real run, drop the turn-log fixture into the test suite so a future loop change can’t silently regress it. <strong>See <a href="test/fixtures/turns/README.md">test/fixtures/turns/README.md</a></strong> for the full guide — replay-completeness limits, naming conventions, what to assert, and a copy-paste test template.</p>
+<p>When you see a weird agent behavior in a real run, drop the turn-log fixture into the test suite so a future loop change can’t silently regress it. <strong>See <a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/fixtures/turns/README.md" target="_blank" rel="noopener noreferrer">test/fixtures/turns/README.md</a></strong> for the full guide — replay-completeness limits, naming conventions, what to assert, and a copy-paste test template.</p>
 <h2><img src="https://api.iconify.design/lucide/book-open.svg?color=%23a60ee5&width=22" align="absmiddle"> Conventions</h2>
 <ul>
 <li><strong>Every detector is one-shot per turn.</strong> Each <code>tool_loop:*_nudge</code> event fires at most once before the loop terminates or the model recovers. Adding a new detector means adding the gate flag + a contract test.</li>
-<li><strong>Constructor options must flow through to runtime.</strong> <code>ToolUseLoopOptions</code> set at construction time apply to every <code>runWithMessages</code> call. The merge happens in <code>runWithMessages</code> — see <code>effectiveOptions = { ...defaultOptions, ...perCall }</code>. New options need a corresponding entry in <a href="test/constructorOptionsContract.test.ts">test/constructorOptionsContract.test.ts</a> (the file’s exhaustiveness check fails build if you forget).</li>
+<li><strong>Constructor options must flow through to runtime.</strong> <code>ToolUseLoopOptions</code> set at construction time apply to every <code>runWithMessages</code> call. The merge happens in <code>runWithMessages</code> — see <code>effectiveOptions = { ...defaultOptions, ...perCall }</code>. New options need a corresponding entry in <a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/constructorOptionsContract.test.ts" target="_blank" rel="noopener noreferrer">test/constructorOptionsContract.test.ts</a> (the file’s exhaustiveness check fails build if you forget).</li>
 <li><strong>Helpers go in <code>test/_helpers.ts</code>; the replay harness in <code>test/_replay.ts</code>.</strong> Both file names start with <code>_</code> so they’re excluded from vitest’s <code>test/**/*.test.ts</code> glob.</li>
 </ul>
 <h2><img src="https://api.iconify.design/lucide/network.svg?color=%23a60ee5&width=22" align="absmiddle"> Position in the framework</h2>
@@ -904,7 +904,7 @@ const report = await runtime.report();
 </code></pre>
 <p>The loop is host-agnostic. Hosts wire up the chat function (with their own watchdogs / streaming / auth) and supply a tool registry; the loop owns iteration, retry/fallback policy, compaction, output-budget serialization, and the detector contract.</p>
 <h2>License</h2>
-<p><a href="../../LICENSE">Apache License 2.0</a> — Copyright 2026 Burtson Labs.</p>
+<p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a> — Copyright 2026 Burtson Labs.</p>
 
       <footer class="footer">
         <div class="cobrand">
@@ -915,6 +915,7 @@ const report = await runtime.report();
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core" target="_blank" rel="noopener">View source on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>
