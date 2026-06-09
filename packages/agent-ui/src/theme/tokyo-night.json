@@ -1,0 +1,23 @@
+{
+  "label": "Tokyo Night",
+  "appearance": "dark",
+  "palette": {
+    "background": "#1a1b26",
+    "surface": "#24283b",
+    "panel": "#16161e",
+    "card": "#1f2335",
+    "border": "#2d3149",
+    "accent": "#7aa2f7",
+    "textPrimary": "#c0caf5",
+    "textSecondary": "#a9b1d6",
+    "textMuted": "#7a85ad",
+    "success": "#9ece6a",
+    "error": "#f7768e",
+    "buttonContrast": "#0d0e16",
+    "focusRing": "#bb9af7",
+    "codeBackground": "#16161e",
+    "codeText": "#c0caf5",
+    "codeBorder": "#2d3149",
+    "codeAccent": "#7dcfff"
+  }
+}

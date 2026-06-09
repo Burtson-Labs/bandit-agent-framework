@@ -1,0 +1,23 @@
+{
+  "label": "Stealth Light",
+  "appearance": "light",
+  "palette": {
+    "background": "#f6f7fb",
+    "surface": "#f1f5f9",
+    "panel": "#ffffff",
+    "card": "#ffffff",
+    "border": "#cbd5e1",
+    "accent": "#2563eb",
+    "textPrimary": "#0f172a",
+    "textSecondary": "#1e293b",
+    "textMuted": "#64748b",
+    "success": "#10b981",
+    "error": "#ef4444",
+    "buttonContrast": "#f8fafc",
+    "focusRing": "#3b82f6",
+    "codeBackground": "#f1f5f9",
+    "codeText": "#1e293b",
+    "codeBorder": "#d4dbe8",
+    "codeAccent": "#2563eb"
+  }
+}

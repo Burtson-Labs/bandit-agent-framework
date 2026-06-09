@@ -1,0 +1,23 @@
+{
+  "label": "Nord",
+  "appearance": "dark",
+  "palette": {
+    "background": "#2e3440",
+    "surface": "#3b4252",
+    "panel": "#272b35",
+    "card": "#434c5e",
+    "border": "#4c566a",
+    "accent": "#88c0d0",
+    "textPrimary": "#eceff4",
+    "textSecondary": "#d8dee9",
+    "textMuted": "#7b8696",
+    "success": "#a3be8c",
+    "error": "#bf616a",
+    "buttonContrast": "#1c1f27",
+    "focusRing": "#81a1c1",
+    "codeBackground": "#272b35",
+    "codeText": "#e5e9f0",
+    "codeBorder": "#4c566a",
+    "codeAccent": "#8fbcbb"
+  }
+}

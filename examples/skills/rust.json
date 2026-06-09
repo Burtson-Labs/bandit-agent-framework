@@ -1,0 +1,43 @@
+{
+  "id": "lang/rust",
+  "name": "Rust Toolchain",
+  "version": "1.0.0",
+  "description": "Check, test, lint, and format Rust code using Cargo + Clippy + rustfmt.",
+  "instructions": "Prefer cargo_check for fast compile-only verification, cargo_clippy for lint-level issues, and cargo_test for the full suite. Run cargo_fmt_check before claiming the work is done. Scope tests with a filter argument when iterating on a specific module.",
+  "activation": "auto",
+  "triggerPatterns": [
+    "\\.rs\\b",
+    "\\bcargo\\s+(check|test|build|fmt|clippy|run)\\b",
+    "\\bclippy\\b",
+    "\\brustfmt\\b",
+    "\\brust\\b"
+  ],
+  "tools": [
+    {
+      "name": "cargo_check",
+      "description": "Run `cargo check` — fast compile-only verification of the current workspace.",
+      "parameters": [],
+      "command": "cargo check --all-targets"
+    },
+    {
+      "name": "cargo_test",
+      "description": "Run `cargo test` with an optional filter (substring matched against test names).",
+      "parameters": [
+        { "name": "filter", "description": "Test name filter, empty runs all tests", "required": false }
+      ],
+      "command": "cargo test {{filter}}"
+    },
+    {
+      "name": "cargo_clippy",
+      "description": "Run Clippy with warnings treated as errors.",
+      "parameters": [],
+      "command": "cargo clippy --all-targets -- -D warnings"
+    },
+    {
+      "name": "cargo_fmt_check",
+      "description": "Check formatting without applying changes (fails if files are not formatted).",
+      "parameters": [],
+      "command": "cargo fmt --all -- --check"
+    }
+  ]
+}

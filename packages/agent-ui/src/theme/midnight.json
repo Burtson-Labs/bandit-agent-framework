@@ -1,0 +1,23 @@
+{
+  "label": "Midnight",
+  "appearance": "dark",
+  "palette": {
+    "background": "#0f111a",
+    "surface": "#161a2a",
+    "panel": "#101321",
+    "card": "#1b1d29",
+    "border": "#2e3245",
+    "accent": "#4b9fea",
+    "textPrimary": "#e0e6ff",
+    "textSecondary": "#b7c1ff",
+    "textMuted": "#6c7393",
+    "success": "#6be1a6",
+    "error": "#ff9090",
+    "buttonContrast": "#05060b",
+    "focusRing": "#4b9fea",
+    "codeBackground": "#151b2f",
+    "codeText": "#d7dcff",
+    "codeBorder": "#232a42",
+    "codeAccent": "#88c8ff"
+  }
+}

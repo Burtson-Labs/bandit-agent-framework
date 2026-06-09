@@ -1,0 +1,4097 @@
+:root,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+:root {
+  /* Bandit palette uses VS Code theme variables so the panel blends with
+     whatever theme the user has. Fallbacks preserve the branded navy look
+     when VS Code variables are unavailable (dev preview, non-VSCode hosts). */
+  --bandit-background: var(--vscode-editor-background, #1e1e1e);
+  --bandit-background-rgb: 30, 30, 30;
+  --bandit-surface: var(--vscode-sideBar-background, #252526);
+  --bandit-surface-rgb: 37, 37, 38;
+  --bandit-panel: var(--vscode-editor-background, #1e1e1e);
+  --bandit-panel-rgb: 30, 30, 30;
+  --bandit-card: var(--vscode-input-background, #3c3c3c);
+  --bandit-card-rgb: 60, 60, 60;
+  --bandit-border: var(--vscode-panel-border, #454545);
+  --bandit-border-rgb: 69, 69, 69;
+  --bandit-accent: var(--vscode-button-background, #0e639c);
+  --bandit-accent-rgb: 14, 99, 156;
+  --bandit-text-primary: var(--vscode-foreground, #cccccc);
+  --bandit-text-primary-rgb: 204, 204, 204;
+  --bandit-text-secondary: var(--vscode-foreground, #cccccc);
+  --bandit-text-secondary-rgb: 204, 204, 204;
+  --bandit-text-muted: var(--vscode-descriptionForeground, #9d9d9d);
+  --bandit-text-muted-rgb: 157, 157, 157;
+  --bandit-success: var(--vscode-testing-iconPassed, #4ade80);
+  --bandit-success-rgb: 74, 222, 128;
+  --bandit-error: var(--vscode-errorForeground, #f87171);
+  --bandit-error-rgb: 248, 113, 113;
+  --bandit-warning-rgb: 255, 216, 130;
+  --bandit-focus-ring: var(--vscode-focusBorder, #007fd4);
+  --bandit-focus-ring-rgb: 0, 127, 212;
+  --bandit-button-contrast: var(--vscode-button-foreground, #ffffff);
+  --bandit-code-background: var(--vscode-textCodeBlock-background, #1e1e1e);
+  --bandit-code-background-rgb: 30, 30, 30;
+  --bandit-code-text: var(--vscode-editor-foreground, #d4d4d4);
+  --bandit-code-text-rgb: 212, 212, 212;
+  --bandit-code-border: var(--vscode-panel-border, #454545);
+  --bandit-code-border-rgb: 69, 69, 69;
+  --bandit-code-accent: var(--vscode-textLink-foreground, #3794ff);
+  --bandit-code-accent-rgb: 55, 148, 255;
+}
+
+body {
+  background: var(--bandit-background);
+  color: var(--bandit-text-primary);
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  display: flex;
+}
+
+body.bandit-theme-light {
+  --bandit-background: #f6f7fb;
+  --bandit-background-rgb: 246, 247, 251;
+  --bandit-surface: #f1f5f9;
+  --bandit-surface-rgb: 241, 245, 249;
+  --bandit-panel: #ffffff;
+  --bandit-panel-rgb: 255, 255, 255;
+  --bandit-card: #ffffff;
+  --bandit-card-rgb: 255, 255, 255;
+  --bandit-border: #cbd5e1;
+  --bandit-border-rgb: 203, 213, 225;
+  --bandit-accent: #2563eb;
+  --bandit-accent-rgb: 37, 99, 235;
+  --bandit-text-primary: #0f172a;
+  --bandit-text-primary-rgb: 15, 23, 42;
+  --bandit-text-secondary: #1e293b;
+  --bandit-text-secondary-rgb: 30, 41, 59;
+  --bandit-text-muted: #64748b;
+  --bandit-text-muted-rgb: 100, 116, 139;
+  --bandit-success: #10b981;
+  --bandit-success-rgb: 16, 185, 129;
+  --bandit-error: #ef4444;
+  --bandit-error-rgb: 239, 68, 68;
+  --bandit-warning-rgb: 234, 179, 8;
+  --bandit-focus-ring: #3b82f6;
+  --bandit-focus-ring-rgb: 59, 130, 246;
+  --bandit-button-contrast: #f8fafc;
+  --bandit-code-background: #f1f5f9;
+  --bandit-code-background-rgb: 241, 245, 249;
+  --bandit-code-text: #1e293b;
+  --bandit-code-text-rgb: 30, 41, 59;
+  --bandit-code-border: #d4dbe8;
+  --bandit-code-border-rgb: 212, 219, 232;
+  --bandit-code-accent: #2563eb;
+  --bandit-code-accent-rgb: 37, 99, 235;
+}
+
+body.bandit-theme-midnight {
+  --bandit-background: #0f111a;
+  --bandit-background-rgb: 15, 17, 26;
+  --bandit-surface: #161a2a;
+  --bandit-surface-rgb: 22, 26, 42;
+  --bandit-panel: #101321;
+  --bandit-panel-rgb: 16, 19, 33;
+  --bandit-card: #1b1d29;
+  --bandit-card-rgb: 27, 29, 41;
+  --bandit-border: #2e3245;
+  --bandit-border-rgb: 46, 50, 69;
+  --bandit-accent: #4b9fea;
+  --bandit-accent-rgb: 75, 159, 234;
+  --bandit-text-primary: #e0e6ff;
+  --bandit-text-primary-rgb: 224, 230, 255;
+  --bandit-text-secondary: #b7c1ff;
+  --bandit-text-secondary-rgb: 183, 193, 255;
+  --bandit-text-muted: #6c7393;
+  --bandit-text-muted-rgb: 108, 115, 147;
+  --bandit-success: #6be1a6;
+  --bandit-success-rgb: 107, 225, 166;
+  --bandit-error: #ff9090;
+  --bandit-error-rgb: 255, 144, 144;
+  --bandit-warning-rgb: 255, 216, 130;
+  --bandit-focus-ring: #4b9fea;
+  --bandit-focus-ring-rgb: 75, 159, 234;
+  /* Button labels on the accent fill stay light — pre-2026-04-22 this
+     was near-black (#05060b) which rendered Save URL / Save token as
+     dark text against the blue fill and looked out of step with the
+     composer send button (hardcoded white) and every other action
+     button on midnight. White-on-accent matches the light theme's
+     visual weight and the user's expectation across components. */
+  --bandit-button-contrast: #f8fafc;
+  --bandit-code-background: #151b2f;
+  --bandit-code-background-rgb: 21, 27, 47;
+  --bandit-code-text: #d7dcff;
+  --bandit-code-text-rgb: 215, 220, 255;
+  --bandit-code-border: #232a42;
+  --bandit-code-border-rgb: 35, 42, 66;
+  --bandit-code-accent: #88c8ff;
+  --bandit-code-accent-rgb: 136, 200, 255;
+}
+
+.theme-dark {
+  --agent-ui-bg: rgb(var(--bandit-background-rgb));
+  --agent-ui-panel-bg: rgba(var(--bandit-panel-rgb), 0.92);
+  --agent-ui-panel-border: rgba(var(--bandit-border-rgb), 0.55);
+  --agent-ui-text-primary: rgb(var(--bandit-text-primary-rgb));
+  --agent-ui-text-muted: rgba(var(--bandit-text-muted-rgb), 0.85);
+  --agent-ui-text-dim: rgba(var(--bandit-text-muted-rgb), 0.65);
+  --agent-ui-pill-bg: rgba(var(--bandit-panel-rgb), 0.75);
+  --agent-ui-pill-color: rgb(var(--bandit-text-secondary-rgb));
+  --agent-ui-card-bg: rgba(var(--bandit-card-rgb), 0.9);
+  --agent-ui-card-border: rgba(var(--bandit-border-rgb), 0.5);
+  --agent-ui-card-selected: rgba(var(--bandit-success-rgb), 0.25);
+  --agent-ui-accent: rgb(var(--bandit-accent-rgb));
+  --agent-ui-accent-strong: rgba(var(--bandit-accent-rgb), 0.95);
+  --agent-ui-success: rgb(var(--bandit-success-rgb));
+  --agent-ui-warn: rgba(250, 204, 21, 0.95);
+  --agent-ui-error: rgb(var(--bandit-error-rgb));
+  --agent-ui-plan-line: rgba(var(--bandit-success-rgb), 0.5);
+  --agent-ui-plan-pending-bg: rgba(var(--bandit-panel-rgb), 0.4);
+  --agent-ui-plan-active-bg: rgba(var(--bandit-success-rgb), 0.18);
+  --agent-ui-plan-done-bg: rgba(var(--bandit-success-rgb), 0.25);
+  --agent-ui-plan-error-bg: rgba(var(--bandit-error-rgb), 0.18);
+  --agent-ui-plan-warn-bg: rgba(250, 204, 21, 0.2);
+}
+
+.theme-light {
+  --agent-ui-bg: rgb(var(--bandit-background-rgb));
+  --agent-ui-panel-bg: rgba(var(--bandit-panel-rgb), 0.98);
+  --agent-ui-panel-border: rgba(var(--bandit-border-rgb), 0.6);
+  --agent-ui-text-primary: rgb(var(--bandit-text-primary-rgb));
+  --agent-ui-text-muted: rgba(var(--bandit-text-muted-rgb), 0.9);
+  --agent-ui-text-dim: rgba(var(--bandit-text-secondary-rgb), 0.75);
+  --agent-ui-pill-bg: rgba(var(--bandit-surface-rgb), 0.8);
+  --agent-ui-pill-color: rgb(var(--bandit-text-primary-rgb));
+  --agent-ui-card-bg: rgba(var(--bandit-card-rgb), 0.98);
+  --agent-ui-card-border: rgba(var(--bandit-border-rgb), 0.45);
+  --agent-ui-card-selected: rgba(var(--bandit-accent-rgb), 0.18);
+  --agent-ui-accent: rgb(var(--bandit-accent-rgb));
+  --agent-ui-accent-strong: rgba(var(--bandit-accent-rgb), 0.9);
+  --agent-ui-success: rgb(var(--bandit-success-rgb));
+  --agent-ui-warn: rgba(234, 179, 8, 0.95);
+  --agent-ui-error: rgb(var(--bandit-error-rgb));
+  --agent-ui-plan-line: rgba(var(--bandit-accent-rgb), 0.45);
+  --agent-ui-plan-pending-bg: rgba(var(--bandit-panel-rgb), 0.4);
+  --agent-ui-plan-active-bg: rgba(var(--bandit-success-rgb), 0.22);
+  --agent-ui-plan-done-bg: rgba(var(--bandit-success-rgb), 0.28);
+  --agent-ui-plan-error-bg: rgba(var(--bandit-error-rgb), 0.25);
+  --agent-ui-plan-warn-bg: rgba(234, 179, 8, 0.2);
+}
+
+#root {
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex: 1;
+}
+
+.stealth-shell {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.stealth-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.stealth-toolbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+.stealth-toolbar__logo {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.stealth-toolbar__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.stealth-toolbar__title {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.stealth-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-text-muted-rgb), 0.4);
+  background: rgba(var(--bandit-surface-rgb), 0.65);
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-button.active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.65);
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+}
+
+/* Muted state — used by toolbar icons to signal "this mode isn't
+   reachable from where you are right now" (e.g. clock + edit while
+   settings is open). Stays visible so the layout doesn't shift, but
+   visually de-emphasised and pointer-events neutralised via the
+   button's own `disabled` attribute. */
+.icon-button.is-muted {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+.stealth-action {
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.4);
+  background: rgba(var(--bandit-surface-rgb), 0.6);
+  color: inherit;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.stealth-action.secondary {
+  border-color: rgba(var(--bandit-text-muted-rgb), 0.35);
+}
+
+.stealth-action.is-active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.8);
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+}
+
+.stealth-layout {
+  flex: 1;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.stealth-layout--single {
+  grid-template-columns: 1fr;
+}
+
+.stealth-chat-panel,
+.stealth-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 0;
+}
+
+.stealth-chat-panel {
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding-bottom: 0.9rem;
+}
+
+.stealth-inspector,
+.stealth-history-panel {
+  overflow: auto;
+}
+
+@media (max-width: 1200px) {
+  .stealth-shell {
+    max-width: 100%;
+  }
+
+  .stealth-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stealth-inspector,
+  .stealth-history-panel {
+    max-height: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .stealth-shell {
+    padding: 0.75rem;
+  }
+}
+
+.scroll-to-bottom-button {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.6);
+  background: rgba(var(--bandit-surface-rgb), 0.98);
+  color: rgba(var(--bandit-text-primary-rgb), 0.95);
+  box-shadow: 0 8px 24px rgba(var(--bandit-panel-rgb), 0.9);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scroll-to-bottom-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.scroll-to-bottom-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(var(--bandit-panel-rgb), 0.8);
+}
+
+.scroll-to-bottom-button:focus-visible {
+  outline: 2px solid rgba(var(--bandit-accent-rgb), 0.8);
+  outline-offset: 2px;
+}
+
+.settings-panel {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.6);
+  border-radius: 18px;
+  padding: 1.25rem 1.5rem 1.5rem;
+  background: rgba(var(--bandit-panel-rgb), 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  /* Cap the panel to the viewport so the Account tab's stacked cards
+     (profile, usage, voice, API key, etc.) scroll within instead of
+     overflowing under the footer. The viewport minus ~3rem gives the
+     outer .stealth-shell padding room. The body — .settings-panel__content
+     — owns the scroll so the header/tabs/footer stay fixed. */
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+}
+
+.settings-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  /* Hard floor on the header height so the row below (the icon-tab
+     strip) can never visually nest under the Conversation pill on
+     narrow side-panels, which is what the Account tab was hitting
+     when the inner content forced the panel to its narrowest layout. */
+  min-height: 2.6rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(var(--bandit-border-rgb), 0.25);
+}
+
+.settings-panel__eyebrow {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.settings-panel__header h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.settings-panel__notice {
+  border-radius: 10px;
+  background: rgba(var(--bandit-error-rgb), 0.15);
+  border: 1px solid rgba(var(--bandit-error-rgb), 0.35);
+  padding: 0.85rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+
+.settings-tabs {
+  /* Was inline-flex with wide letter-spacing — 4 tabs (Account,
+     Providers, Workspace, Appearance) overflowed the parent container
+     on narrow sidebars (observed 2026-04-22: Appearance tab poked
+     through the card's rounded border). Switch to flex + wrap so tabs
+     drop to a second row when needed, and tighten per-tab whitespace
+     so all four fit single-row at typical widths. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  border-bottom: 1px solid rgba(var(--bandit-border-rgb), 0.4);
+  padding-bottom: 0.4rem;
+  max-width: 100%;
+}
+
+.settings-tab {
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.settings-tab.is-active {
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.5);
+  opacity: 1;
+}
+
+/* Icon-mode tab strip — used by the settings panel to keep tabs in
+   a single row even on narrow side panels. The active tab name is
+   already shown as the panel header on the right ("ACCOUNT", etc),
+   so the tabs themselves are pure icons + tooltip; no labels. With
+   labels gone every tab is ~30px so 6 tabs fit easily — we no
+   longer need an x-axis scrollbar at all. The previous version
+   left `overflow-x: auto` on which made browsers paint a janky
+   1-2px scroll nub even when there was no overflow. Switched to
+   `nowrap` + `min-width: 0` and let tabs that genuinely don't fit
+   (impossible for icon-only) wrap rather than scroll. */
+.settings-tabs--icons {
+  flex-wrap: nowrap;
+  /* `visible` so the tooltip rendered above each icon (a `::after`
+     pseudo-element on the button) isn't clipped by the strip's own
+     box. Was `hidden` to kill a phantom scrollbar — with icon-only
+     tabs the strip never overflows (six 30px icons fit any sidebar
+     width), so we don't need clipping anymore. The tooltip from the
+     active tab was getting cut off without this. */
+  overflow: visible;
+  padding-top: 0.5rem;
+  padding-bottom: 0.7rem;
+  margin-top: 0.4rem;
+  margin-bottom: 0.5rem;
+  min-width: 0;
+}
+.settings-tabs--icons::-webkit-scrollbar { display: none; }
+.settings-tab--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.55rem;
+  flex: 0 0 auto;
+}
+.settings-tab--icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+/* Force the active pill to icon-width — overrides the .settings-tab
+   base styles that pad based on label width, which was leaving the
+   active "ACCOUNT" pill twice as wide as the rest because the
+   sr-only label still fed into flex sizing pre-render. */
+.settings-tab--icon.is-active {
+  padding: 0.4rem 0.55rem;
+  gap: 0;
+}
+/* Active-tab label is rendered for accessibility (screen readers
+   still announce the selection) but visually hidden — the panel
+   header already shows the verbose name. */
+.settings-tab--icon .settings-tab__label-active {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.settings-panel__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Nudge the scrollbar inside the panel's padding so content text
+     doesn't slide under a scrollbar gutter when cards first hydrate. */
+  padding-right: 0.35rem;
+  margin-right: -0.35rem;
+}
+
+/* Subtle scrollbar that matches the panel chrome — the default OS
+   scrollbar is too loud against the dark panel background, and the
+   webview gets stuck with a platform default unless we style it. */
+.settings-panel__content::-webkit-scrollbar {
+  width: 10px;
+}
+.settings-panel__content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.settings-panel__content::-webkit-scrollbar-thumb {
+  background: rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.settings-panel__content::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--bandit-accent-rgb), 0.55);
+  background-clip: padding-box;
+}
+
+.settings-panel__footer {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  text-align: center;
+  flex-wrap: wrap;
+}
+
+.settings-panel__footer svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.settings-panel__footer-brand,
+.settings-panel__footer-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.settings-panel__footer-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+
+.settings-panel__footer-divider {
+  opacity: 0.65;
+}
+
+.settings-panel__footer-credit svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.settings-panel__footer-version {
+  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.85em;
+  opacity: 0.6;
+  letter-spacing: 0.02em;
+}
+
+.settings-card {
+  border-radius: 16px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  background: rgba(var(--bandit-card-rgb), 0.6);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.settings-card--muted {
+  opacity: 0.8;
+}
+
+.settings-card--error {
+  border-color: rgba(var(--bandit-error-rgb), 0.7);
+  background: rgba(var(--bandit-error-rgb), 0.15);
+}
+
+.settings-card-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.stealth-button {
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.9);
+  background: rgba(var(--bandit-accent-rgb), 0.95);
+  color: var(--bandit-button-contrast);
+  border-radius: 999px;
+  padding: 0.4rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.stealth-button:hover:not(:disabled) {
+  background: rgba(var(--bandit-accent-rgb), 1);
+}
+
+.stealth-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stealth-button--ghost {
+  background: transparent;
+  border-color: rgba(var(--bandit-border-rgb), 0.6);
+  color: rgb(var(--bandit-text-primary-rgb));
+}
+
+.stealth-button--ghost:hover:not(:disabled) {
+  background: rgba(var(--bandit-border-rgb), 0.15);
+}
+
+.stealth-button--danger {
+  background: rgba(var(--bandit-error-rgb), 0.15);
+  border-color: rgba(var(--bandit-error-rgb), 0.6);
+  color: rgb(var(--bandit-error-rgb));
+}
+
+.stealth-button--danger:hover:not(:disabled) {
+  background: rgba(var(--bandit-error-rgb), 0.25);
+}
+
+.settings-account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-account-card__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(var(--bandit-accent-rgb), 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--bandit-accent-rgb));
+}
+
+.settings-account-card__avatar svg {
+  width: 38px;
+  height: 38px;
+}
+
+.settings-account-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.settings-account-card__title {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-account-card__subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  opacity: 0.8;
+}
+
+.settings-account-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 0.35rem;
+  align-items: flex-start;
+}
+
+.settings-account-card__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings-label {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.settings-value {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.settings-admin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(var(--bandit-success-rgb), 0.18);
+  border: 1px solid rgba(var(--bandit-success-rgb), 0.55);
+  color: rgb(var(--bandit-success-rgb));
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.settings-admin-pill svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.settings-admin-pill--badge {
+  font-size: 0.68rem;
+  letter-spacing: 0.15em;
+  padding: 0.2rem 0.85rem;
+}
+
+.settings-account-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-preference {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
+}
+
+.settings-preference:first-of-type {
+  border-top: none;
+}
+
+.settings-preference p {
+  margin: 0;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.settings-actions--end {
+  justify-content: flex-end;
+}
+/* Compact inline label used above an input inside a settings-card. The
+   parent card is a flex column with gap: 0.65rem — so we don't set our
+   own vertical margins, otherwise they stack on top of the flex gap and
+   push rows so far apart they visually overflow the card (observed
+   2026-04-22 on the Ollama Endpoint card). Negative margin-bottom pulls
+   the label tight to its input instead. */
+.settings-inline-label {
+  display: block;
+  margin: 0 0 -0.4rem 0;
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* Provider switcher — two-button segmented control used on the Providers
+   settings tab. Same visual vocabulary as the existing .stealth-button
+   but expressive enough to show "active" state clearly so users know
+   which backend is selected before they read the label. */
+.provider-switcher {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.provider-switcher__option {
+  flex: 1 1 180px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  background: rgba(var(--bandit-panel-rgb), 0.35);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.provider-switcher__option:hover:not(.is-active) {
+  border-color: rgba(var(--bandit-accent-rgb), 0.55);
+  background: rgba(var(--bandit-panel-rgb), 0.55);
+}
+.provider-switcher__option.is-active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.9);
+  background: rgba(var(--bandit-accent-rgb), 0.12);
+  box-shadow: 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.35) inset;
+}
+.provider-switcher__option:active {
+  transform: scale(0.99);
+}
+.provider-switcher__label {
+  font-weight: 600;
+  font-size: 0.95em;
+}
+.provider-switcher__sub {
+  font-size: 0.78em;
+  opacity: 0.65;
+  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+}
+
+.stealth-chat-feed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.chat-window-control {
+  display: flex;
+  justify-content: center;
+  padding: 0.35rem 0 0.55rem;
+}
+
+.chat-window-control__button {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 8px;
+  background: rgba(var(--bandit-panel-rgb), 0.72);
+  color: rgba(var(--bandit-text-rgb), 0.78);
+  cursor: pointer;
+  font: 600 0.76rem "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  padding: 0.32rem 0.58rem;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.chat-window-control__button:hover {
+  border-color: rgba(var(--bandit-accent-rgb), 0.72);
+  background: rgba(var(--bandit-accent-rgb), 0.12);
+  color: rgb(var(--bandit-text-rgb));
+}
+
+.chat-input-container {
+  position: sticky;
+  bottom: 0;
+  background: transparent;
+  padding: 0.45rem 0 0.25rem;
+  z-index: 5;
+}
+
+.pinned-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.pinned-widgets .summary-card {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.45);
+  background: rgba(var(--bandit-panel-rgb), 0.9);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.2);
+}
+
+.summary-card {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  border-radius: 18px;
+  background: rgba(var(--bandit-panel-rgb), 0.92);
+  padding: 0.7rem 0.85rem;
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.3);
+}
+
+.summary-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.summary-card__title {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.summary-card__meta {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.summary-card__expand {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  background: rgba(var(--bandit-border-rgb), 0.15);
+  color: rgba(var(--bandit-text-primary-rgb), 0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.summary-card__expand svg {
+  width: 16px;
+  height: 16px;
+}
+
+.summary-card__progress {
+  margin-top: 0.55rem;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--bandit-border-rgb), 0.25);
+  overflow: hidden;
+}
+
+.summary-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(var(--bandit-accent-rgb), 0.95);
+}
+
+.goal-file-card {
+  margin-top: 0.75rem;
+}
+
+.goal-file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.goal-file-chip {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.45);
+  background: rgba(var(--bandit-panel-rgb), 0.9);
+  color: var(--bandit-text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.goal-file-chip svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.files-summary-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.45);
+  border-radius: 18px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(var(--bandit-panel-rgb), 0.9);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.2);
+}
+
+.files-summary-card__left {
+  flex: 1;
+}
+
+.files-summary-card__title {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.files-summary-card__delta {
+  margin: 0.15rem 0 0;
+  font-size: 0.92rem;
+  display: flex;
+  gap: 0.6rem;
+}
+
+.files-summary-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.files-summary-card__actions button {
+  border: none;
+  background: none;
+  color: rgba(var(--bandit-accent-rgb), 0.9);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.files-summary-card__expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.files-summary-card__expand svg {
+  width: 14px;
+  height: 14px;
+}
+
+.files-summary-card__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.summary-card__meta .delta-added,
+.files-summary__header .delta-added,
+.files-summary-card__meta .delta-added {
+  color: rgba(var(--bandit-success-rgb), 0.95);
+}
+
+.summary-card__meta .delta-removed,
+.files-summary__header .delta-removed,
+.files-summary-card__meta .delta-removed {
+  color: rgba(var(--bandit-error-rgb), 0.95);
+}
+
+.stealth-shell .composer {
+  background: rgba(var(--bandit-panel-rgb), 0.65);
+  border-color: rgba(var(--bandit-border-rgb), 0.55);
+  color: rgb(var(--bandit-text-primary-rgb));
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  /* Even padding all around — the send button floats absolute at the
+     bottom-right (see .composer-actions below) so we no longer need
+     to reserve 2.4rem on the right just for the button. Textarea
+     now goes full width. */
+  padding: 0.5rem 0.55rem 0.5rem 0.55rem;
+  min-height: 52px;
+  border-radius: 14px;
+  overflow: visible;
+  position: relative;
+}
+/* Float the send button at the bottom-right corner so the textarea
+   above can claim the full composer width. .composer-actions holds
+   only the send button now — the edit-auto pill moved into
+   .composer-controls next to the slash button. */
+.stealth-shell .composer-actions {
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 2;
+}
+
+.theme-light .composer {
+  background: rgba(var(--bandit-panel-rgb), 0.9);
+}
+
+.stealth-shell .composer:focus-within {
+  border-color: rgba(var(--bandit-accent-rgb), 0.7);
+  box-shadow: none;
+}
+
+.stealth-shell .composer-textarea {
+  color: inherit;
+}
+
+.stealth-shell .composer-textarea::placeholder {
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+/* "N queued" pill rendered just below the textarea while the user has
+   typed messages behind an in-flight agent turn. Subtle accent fill so
+   it's visible without dominating the composer. */
+.stealth-shell .composer-queued-pill {
+  align-self: flex-start;
+  margin: 0.25rem 0 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(var(--bandit-accent-rgb), 1);
+  background: rgba(var(--bandit-accent-rgb), 0.12);
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.3);
+}
+
+/* Per-message queued pills — one row per queued submission with a
+   short preview + ✕ to cancel that specific message. Pill stack
+   appears below the textarea while messages are queued. */
+.stealth-shell .composer-queued-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.25rem 0 0;
+  max-width: 100%;
+}
+
+.stealth-shell .composer-queued-pill.is-cancellable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.45rem 0.2rem 0.6rem;
+  cursor: default;
+}
+
+.stealth-shell .composer-queued-pill__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.stealth-shell .composer-queued-pill__attachments {
+  margin-left: 0.35rem;
+  opacity: 0.7;
+  font-size: 0.7rem;
+}
+
+.stealth-shell .composer-queued-pill__cancel {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.12s, background-color 0.12s;
+}
+
+.stealth-shell .composer-queued-pill__cancel:hover {
+  opacity: 1;
+  background: rgba(var(--bandit-accent-rgb), 0.22);
+}
+
+.stealth-shell .composer-queued-pill__cancel:focus-visible {
+  outline: 2px solid rgba(var(--bandit-accent-rgb), 0.6);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* Shell-mode banner — appears above the textarea the moment the user
+   types a `!`-prefix message, mirroring the CLI's yellow box. Makes
+   it impossible to miss that the next Enter runs in the integrated
+   terminal instead of going to the agent. The composer-field also
+   gets a yellow border so the whole input area reads as "this is
+   different right now." */
+.stealth-shell .composer-field--shell-mode {
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 8px;
+  padding: 0.35rem;
+  background: rgba(245, 158, 11, 0.04);
+}
+.stealth-shell .composer-shell-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  margin-bottom: 0.4rem;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+.stealth-shell .composer-shell-banner strong {
+  color: rgb(245, 158, 11);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.stealth-shell .composer-shell-banner span {
+  color: rgba(var(--bandit-text-secondary-rgb), 0.92);
+}
+
+
+
+.stealth-shell .composer-input {
+  padding: 0 0.5rem 0 0.5rem;
+  gap: 0.2rem;
+  /* Establish an inline-size container so the footer-row wrap rule
+     below can query the composer's own width instead of the viewport.
+     This matters in the VS Code side panel where the viewport is wide
+     but the panel itself may be dragged narrow. */
+  container-type: inline-size;
+  container-name: composer-input;
+}
+
+.stealth-shell .composer-attach-button,
+.stealth-shell .composer-actions .send-button {
+  color: rgb(var(--bandit-text-primary-rgb));
+}
+
+.stealth-shell .composer-attach-button {
+  position: static;
+  left: auto;
+  bottom: auto;
+  margin-right: 0.2rem;
+}
+
+.stealth-shell .composer-controls {
+  gap: 0.55rem;
+  margin-left: 0;
+  /* Reserve ~2.4rem on the right so the floated send button doesn't
+     collide with the last control pill (edit-auto). */
+  padding-right: 2.4rem;
+}
+
+.stealth-shell .composer-controls button:first-child {
+  margin-left: 0;
+}
+
+/* Icon-first composer buttons: attach (+), slash-picker (/), auto-context
+   (sparkle). All three are the same 28x28 round buttons so they read as a
+   matched set — Claude-Code-style. Bumped from 24 to 28 so they share a
+   height with the footer-slot pills (model picker, edit-auto toggle)
+   without any padding math. */
+.stealth-shell .composer-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(var(--bandit-text-primary-rgb), 0.8);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.stealth-shell .composer-icon-button:hover:not(:disabled) {
+  background: rgba(var(--bandit-accent-rgb), 0.12);
+  color: rgba(var(--bandit-accent-rgb), 1);
+}
+
+.stealth-shell .composer-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stealth-shell .composer-icon-button .composer-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+/* Auto-context pill: icon-only by default (no "Auto context" label),
+   highlights when active. Matches Claude Code's compact footer style.
+   Size matches .composer-icon-button so attach / slash / sparkle share
+   one row height. */
+.stealth-shell .composer-auto-context {
+  padding: 0;
+  margin-left: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: rgba(var(--bandit-text-primary-rgb), 0.55);
+}
+
+.stealth-shell .composer-auto-context.is-active {
+  color: rgba(var(--bandit-accent-rgb), 1);
+  background: rgba(var(--bandit-accent-rgb), 0.14);
+}
+
+/* Host-supplied footer chips (model picker, status pill) rendered inline
+   with the composer's existing attach + auto-context controls. The slot
+   itself is allowed to shrink and wrap internally, but we keep it on the
+   same line as the attach/auto-context group until the panel is actually
+   narrow (see the min-width breakpoint below). */
+.stealth-shell .composer-footer-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+  min-width: 0;
+}
+
+/* Force the model picker and the status badge to share one set of
+   dimensions. Both live inside .composer-footer-slot, both use the
+   .mode-chip base class, and both need identical height / padding /
+   radius so they read as a matched pair. The status-specific overrides
+   further down in this file previously won the specificity war and made
+   the status pill 0.1rem shorter and narrower — this block lifts the
+   footer-slot rule's specificity (via the doubled .mode-chip selector)
+   so it governs status chips too. */
+.stealth-shell .composer-footer-slot .mode-chip,
+.stealth-shell .composer-footer-slot .mode-chip.mode-chip--status {
+  height: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0 0.6rem;
+  font-size: 0.7rem;
+  border-radius: 999px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* The edit-automatically toggle ("Ask before edit" / "Auto edit") lives
+   in .composer-actions on the opposite end of the row. Match the same
+   height + padding so it aligns with the footer chips visually across
+   the composer, not just within the footer-slot cluster. */
+.stealth-shell .composer-actions .composer-edit-auto,
+.stealth-shell .composer-actions .composer-edit-auto-toggle {
+  height: 1.75rem;
+  padding: 0 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+
+.stealth-shell .composer-footer-slot .mode-chip--status .status-pill__label {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.stealth-shell .composer-footer-slot .mode-chip--status .status-pill__icon {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+/* At narrow composer widths, collapse "Ask before edit" / "Edit
+   automatically" down to just the icon. Keeps the footer row on a
+   single line in the VS Code side panel instead of wrapping the
+   send button onto a second row. */
+@container composer-input (max-width: 420px) {
+  .stealth-shell .composer-actions .composer-edit-auto .composer-edit-auto__label {
+    display: none;
+  }
+  .stealth-shell .composer-actions .composer-edit-auto {
+    padding: 0 0.45rem;
+  }
+}
+
+/* Allow the controls row to wrap as a whole when the composer panel is
+   genuinely narrow, but keep everything inline when there's room. We
+   only flip to wrap mode below ~360px of composer width — above that
+   the footer slot's own internal wrap + auto-margin keep the model /
+   status chips on the same line as the attach / auto-context group. */
+.stealth-shell .composer-controls {
+  flex-wrap: nowrap;
+  row-gap: 0.3rem;
+}
+
+@container composer-input (max-width: 360px) {
+  .stealth-shell .composer-controls {
+    flex-wrap: wrap;
+  }
+}
+
+/* Fallback for hosts that don't yet scope a container context on the
+   composer — at very narrow VIEWPORT widths, still allow the wrap. */
+@media (max-width: 420px) {
+  .stealth-shell .composer-controls {
+    flex-wrap: wrap;
+  }
+}
+
+.stealth-shell .composer-actions .send-button {
+  background: rgba(var(--bandit-accent-rgb), 0.95);
+  color: var(--bandit-button-contrast);
+  box-shadow: 0 12px 30px rgba(var(--bandit-accent-rgb), 0.35);
+}
+
+.stealth-shell .composer-actions .send-button:hover {
+  background: rgba(var(--bandit-accent-rgb), 1);
+}
+
+.stealth-shell .composer-attach-button:hover {
+  color: rgba(var(--bandit-accent-rgb), 0.9);
+}
+
+.stealth-chat-panel .composer {
+  padding-right: 0.85rem;
+  gap: 0.65rem;
+  margin-top: auto;
+  border-radius: 18px;
+}
+
+.stealth-chat-panel .composer-input {
+  padding-right: 0;
+}
+
+.stealth-chat-panel .composer-actions {
+  position: static;
+  margin-left: auto;
+  align-self: flex-end;
+  padding-bottom: 0.15rem;
+}
+
+.stealth-chat-panel .composer-actions .send-button {
+  box-shadow: 0 12px 30px rgba(var(--bandit-accent-rgb), 0.35);
+}
+
+.api-key-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.6);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  background: rgba(var(--bandit-warning-rgb, 255, 216, 130), 0.08);
+}
+
+.api-key-banner__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(var(--bandit-accent-rgb), 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--bandit-accent-rgb));
+}
+
+.api-key-banner__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.api-key-banner__body {
+  flex: 1;
+}
+
+.api-key-banner__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.api-key-banner__description {
+  margin: 0.25rem 0 0;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  font-size: 0.9rem;
+}
+
+.api-key-banner__actions {
+  display: flex;
+  align-items: center;
+}
+
+.live-step-message {
+  --live-step-accent: rgb(var(--bandit-accent-rgb));
+  --live-step-accent-rgb: var(--bandit-accent-rgb);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.35rem 0.2rem 0.35rem 0.15rem;
+  position: relative;
+  animation: liveStepEnter 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.live-step-message:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 2.5rem;
+  bottom: -0.2rem;
+  width: 2px;
+  background: rgba(var(--bandit-border-rgb), 0.35);
+  border-radius: 999px;
+}
+
+.live-step-message__status {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--live-step-accent-rgb), 0.45);
+  background: rgba(var(--live-step-accent-rgb), 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--live-step-accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.live-step-message__status svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.live-step-message__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.live-step-message__title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.live-step-message__badge {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--live-step-accent-rgb), 0.35);
+  color: var(--live-step-accent);
+  background: rgba(var(--live-step-accent-rgb), 0.12);
+}
+
+.live-step-message__summary,
+.live-step-message__path {
+  margin: 0;
+  font-size: 0.86rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.live-step-message__path {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+  color: rgba(var(--bandit-text-secondary-rgb), 0.95);
+}
+
+.live-step-message--start,
+.live-step-message--progress {
+  --live-step-accent: rgb(var(--bandit-accent-rgb));
+  --live-step-accent-rgb: var(--bandit-accent-rgb);
+}
+
+.live-step-message--complete {
+  --live-step-accent: rgb(var(--bandit-success-rgb));
+  --live-step-accent-rgb: var(--bandit-success-rgb);
+}
+
+.live-step-message--error {
+  --live-step-accent: rgb(var(--bandit-error-rgb));
+  --live-step-accent-rgb: var(--bandit-error-rgb);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-step-message {
+    animation: none;
+  }
+}
+
+@keyframes liveStepEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.completed-changes-inline {
+  margin: 0.85rem 0 0.4rem;
+}
+
+.subgoal-inline {
+  margin: 0.75rem 0 0;
+}
+
+.subgoal-progress {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 18px;
+  padding: 0.75rem 1rem;
+  background: rgba(var(--bandit-panel-rgb), 0.92);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.35);
+}
+
+.subgoal-progress__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.subgoal-progress__eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.subgoal-progress__title {
+  margin: 0.1rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.subgoal-progress__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.subgoal-progress__mini-bar {
+  width: 72px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--bandit-border-rgb), 0.25);
+  overflow: hidden;
+}
+
+.subgoal-progress__mini-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(var(--bandit-accent-rgb), 0.95);
+}
+
+.subgoal-progress__percent {
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+}
+
+.subgoal-progress__bar {
+  margin: 0.65rem 0 0.4rem;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--bandit-border-rgb), 0.35);
+  overflow: hidden;
+}
+
+.subgoal-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(var(--bandit-accent-rgb), 0.9);
+}
+
+.subgoal-progress__list {
+  list-style: none;
+  padding: 0;
+  margin: 0.4rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.subgoal-progress__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
+}
+
+.subgoal-progress__item:first-of-type {
+  border-top: none;
+}
+
+.subgoal-progress__marker {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  box-shadow: 0 0 0 2px rgba(var(--bandit-border-rgb), 0.55);
+}
+
+.subgoal-progress__item[data-state="complete"] .subgoal-progress__marker {
+  background: rgba(var(--bandit-success-rgb), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--bandit-success-rgb), 0.3);
+}
+
+.subgoal-progress__item[data-state="active"] .subgoal-progress__marker {
+  background: rgba(var(--bandit-accent-rgb), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--bandit-accent-rgb), 0.3);
+}
+
+.subgoal-progress__item[data-state="blocked"] .subgoal-progress__marker {
+  background: rgba(var(--bandit-error-rgb), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--bandit-error-rgb), 0.35);
+}
+
+.subgoal-progress__body {
+  min-width: 0;
+}
+
+.subgoal-progress__name {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.subgoal-progress__summary {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.subgoal-progress__status {
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+}
+
+.completed-changes-panel {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 18px;
+  padding: 0.75rem 1rem;
+  background: rgba(var(--bandit-panel-rgb), 0.92);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.4);
+}
+
+.completed-changes-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.completed-changes-panel__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.completed-changes-panel__delta {
+  margin: 0.1rem 0 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.completed-changes-panel__delta-added {
+  color: rgba(var(--bandit-success-rgb), 0.95);
+}
+
+.completed-changes-panel__delta-removed {
+  color: rgba(var(--bandit-error-rgb), 0.95);
+}
+
+.completed-changes-panel__actions {
+  display: inline-flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.completed-changes-panel__actions button {
+  border: none;
+  background: none;
+  color: rgba(var(--bandit-accent-rgb), 0.9);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.completed-changes-panel__actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.completed-changes-panel__actions button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.completed-changes-panel__actions.is-compact button:nth-of-type(2) {
+  display: none;
+}
+
+.collapsible-toggle {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--bandit-border-rgb), 0.15);
+  color: rgba(var(--bandit-text-primary-rgb), 0.85);
+}
+
+.collapsible-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.completed-changes-list {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.completed-change {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.4);
+  border-radius: 12px;
+  padding: 0.5rem 0.75rem;
+  background: rgba(var(--bandit-card-rgb), 0.6);
+}
+
+.completed-change__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.completed-change__toggle {
+  background: transparent;
+  border: none;
+  padding: 0.35rem 0;
+  margin: 0;
+  flex: 1;
+  text-align: left;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.completed-change__path {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(var(--bandit-accent-rgb), 0.95);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.completed-change__delta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+}
+
+.completed-change__chevron {
+  margin-left: 0;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(var(--bandit-border-rgb), 0.2);
+  flex-shrink: 0;
+}
+
+.completed-change__chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.completed-change__diff {
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
+  padding-top: 0.5rem;
+  max-height: 380px;
+  overflow: auto;
+  border-radius: 0 0 10px 10px;
+  background: rgba(var(--bandit-card-rgb), 0.75);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-border-rgb), 0.2);
+}
+
+.stealth-inspector {
+  overflow: auto;
+}
+
+.history-panel {
+  margin: 0 auto 1rem auto;
+  padding: 1rem 1.2rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(var(--bandit-surface-rgb), 0.65);
+  background: rgba(var(--bandit-panel-rgb), 0.6);
+  box-shadow: 0 10px 35px rgba(var(--bandit-panel-rgb), 0.45);
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.stealth-history-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.history-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.history-panel__eyebrow {
+  margin: 0;
+  letter-spacing: 0.3em;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+}
+
+.history-panel__title {
+  margin: 0.2rem 0;
+  font-size: 1rem;
+}
+
+.stealth-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-surface-rgb), 0.65);
+  background: rgba(var(--bandit-panel-rgb), 0.7);
+  padding: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.stealth-view-tab {
+  border: none;
+  background: transparent;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.stealth-view-tab.is-active {
+  background: rgba(var(--bandit-accent-rgb), 0.14);
+  color: var(--bandit-text-primary);
+  box-shadow: 0 5px 18px rgba(var(--bandit-surface-rgb), 0.6);
+}
+
+.stealth-view-tab__badge {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgba(var(--bandit-error-rgb), 0.95);
+  box-shadow: 0 0 12px rgba(var(--bandit-error-rgb), 0.65);
+}
+
+.history-panel__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.history-panel__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+  width: 100%;
+}
+
+.history-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: rgba(var(--bandit-card-rgb), 0.75);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.history-panel__search svg {
+  width: 16px;
+  height: 16px;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.history-panel__search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  outline: none;
+  min-width: 0;
+}
+
+.history-panel__search button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.history-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.history-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.history-panel__row {
+  display: block;
+}
+
+.history-panel__item {
+  width: 100%;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  background: rgba(var(--bandit-card-rgb), 0.75);
+  border-radius: 0.85rem;
+  padding: 0.35rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  min-width: 0;
+}
+
+.history-panel__item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--bandit-accent-rgb), 0.3);
+}
+
+.history-panel__item.is-active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.65);
+  background: rgba(var(--bandit-surface-rgb), 0.9);
+}
+
+.history-panel__item:focus-visible {
+  outline: 2px solid rgba(var(--bandit-accent-rgb), 0.65);
+  outline-offset: 2px;
+}
+
+.history-panel__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+}
+
+.history-panel__item-body {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between;
+}
+
+.history-panel__item-title {
+  margin: 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.history-panel__item-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.history-panel__badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.history-panel__item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.history-panel__item-actions .icon-button {
+  width: 32px;
+  height: 32px;
+  background: rgba(var(--bandit-surface-rgb), 0.5);
+  flex-shrink: 0;
+}
+
+.history-panel__badge {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.5);
+  padding: 0.1rem 0.55rem;
+}
+
+.history-panel__badge.muted {
+  border-color: rgba(var(--bandit-text-muted-rgb), 0.35);
+  color: rgba(var(--bandit-text-muted-rgb), 0.75);
+}
+
+.history-panel__empty {
+  border: 1px dashed rgba(var(--bandit-border-rgb), 0.6);
+  padding: 1rem;
+  border-radius: 0.65rem;
+  text-align: center;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.history-panel__hint {
+  margin: 0.85rem 0 0;
+  font-size: 0.75rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.trace-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow: hidden;
+}
+
+.trace-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  background: rgba(var(--bandit-panel-rgb), 0.72);
+  border-radius: 0.65rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.trace-panel__eyebrow {
+  margin: 0 0 0.2rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.trace-panel__header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.trace-panel__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.trace-panel__segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 999px;
+  background: rgba(var(--bandit-card-rgb), 0.8);
+  padding: 0.18rem;
+}
+
+.trace-panel__segmented button {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  font-size: 0.72rem;
+  padding: 0.32rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trace-panel__segmented button.is-active {
+  color: var(--bandit-text-primary);
+  background: rgba(var(--bandit-accent-rgb), 0.16);
+}
+
+.trace-panel__error {
+  border: 1px solid rgba(var(--bandit-error-rgb), 0.55);
+  background: rgba(var(--bandit-error-rgb), 0.12);
+  color: var(--bandit-text-primary);
+  border-radius: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.trace-panel__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.85fr) minmax(0, 1.65fr);
+  gap: 0.85rem;
+  overflow: hidden;
+}
+
+.trace-list,
+.trace-detail {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  background: rgba(var(--bandit-panel-rgb), 0.62);
+  border-radius: 0.65rem;
+}
+
+.trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+}
+
+.trace-list__empty,
+.trace-detail__empty {
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+  font-size: 0.83rem;
+  padding: 1rem;
+}
+
+.trace-row {
+  width: 100%;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.45);
+  border-radius: 0.55rem;
+  background: rgba(var(--bandit-card-rgb), 0.72);
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.55rem;
+  text-align: left;
+}
+
+.trace-row:hover,
+.trace-row.is-active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.58);
+  background: rgba(var(--bandit-surface-rgb), 0.86);
+}
+
+.trace-row__topline,
+.trace-row__meta,
+.trace-detail__title-row,
+.trace-metrics,
+.trace-event__time,
+.trace-event__type,
+.trace-event__iteration {
+  display: inline-flex;
+  align-items: center;
+}
+
+.trace-row__topline {
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.trace-row__time,
+.trace-row__meta,
+.trace-detail__meta {
+  color: rgba(var(--bandit-text-muted-rgb), 0.82);
+  font-size: 0.72rem;
+}
+
+.trace-row__prompt {
+  color: var(--bandit-text-primary);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.trace-row__meta {
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.trace-row__meta span:not(:last-child)::after {
+  content: "·";
+  margin-left: 0.35rem;
+  opacity: 0.65;
+}
+
+.trace-status {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.55);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.64rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  white-space: nowrap;
+}
+
+.trace-status--completed {
+  border-color: rgba(var(--bandit-success-rgb), 0.5);
+  color: rgba(var(--bandit-success-rgb), 0.95);
+}
+
+.trace-status--failed,
+.trace-status--blocked {
+  border-color: rgba(var(--bandit-error-rgb), 0.6);
+  color: rgba(var(--bandit-error-rgb), 0.95);
+}
+
+.trace-status--cancelled,
+.trace-status--unknown {
+  border-color: rgba(var(--bandit-text-muted-rgb), 0.45);
+}
+
+.trace-detail {
+  padding: 0.85rem;
+}
+
+.trace-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.trace-detail__title-row {
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.trace-detail__title-row h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.trace-detail__meta {
+  margin: 0.25rem 0 0;
+}
+
+.trace-detail .stealth-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.trace-metrics {
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.trace-metrics span {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.48);
+  border-radius: 999px;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  font-size: 0.72rem;
+  padding: 0.18rem 0.48rem;
+}
+
+.trace-block {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.45);
+  border-radius: 0.55rem;
+  background: rgba(var(--bandit-card-rgb), 0.58);
+  padding: 0.7rem;
+  margin-bottom: 0.75rem;
+}
+
+.trace-block h4,
+.trace-events h4 {
+  margin: 0 0 0.45rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.trace-block p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.trace-events {
+  margin-bottom: 0.75rem;
+}
+
+.trace-events ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.trace-events li {
+  display: grid;
+  grid-template-columns: 4.7rem minmax(7rem, 0.8fr) auto minmax(0, 1.4fr);
+  gap: 0.42rem;
+  align-items: baseline;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.38);
+  border-radius: 0.45rem;
+  background: rgba(var(--bandit-card-rgb), 0.48);
+  padding: 0.38rem 0.48rem;
+  font-size: 0.76rem;
+}
+
+.trace-events li.is-error {
+  border-color: rgba(var(--bandit-error-rgb), 0.5);
+  background: rgba(var(--bandit-error-rgb), 0.1);
+}
+
+.trace-event__time {
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-event__type {
+  color: var(--bandit-text-primary);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.trace-event__iteration {
+  color: rgba(var(--bandit-accent-rgb), 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-event__detail {
+  color: rgba(var(--bandit-text-muted-rgb), 0.94);
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .trace-panel__header,
+  .trace-detail__header {
+    flex-direction: column;
+  }
+
+  .trace-panel__body {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-list {
+    max-height: 38vh;
+  }
+
+  .trace-events li {
+    grid-template-columns: 4.4rem minmax(0, 1fr);
+  }
+
+  .trace-event__iteration,
+  .trace-event__detail {
+    grid-column: 2;
+  }
+}
+.stealth-landing {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+  gap: 0.8rem;
+}
+
+.stealth-landing__icon {
+  width: 96px;
+  height: 96px;
+  opacity: 0.25;
+}
+
+.stealth-landing__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.9;
+  filter: drop-shadow(0 12px 32px rgba(14, 116, 144, 0.4));
+}
+
+.stealth-landing h2 {
+  margin: 0;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.stealth-landing p {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+}
+
+.stealth-landing__hint {
+  color: rgba(var(--bandit-text-muted-rgb), 0.7);
+  font-size: 0.72rem;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.stealth-landing__setup {
+  color: rgba(var(--bandit-warning-rgb), 0.9);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.stealth-landing__steps {
+  text-align: left;
+  font-size: 0.75rem;
+  line-height: 1.8;
+  color: rgba(var(--bandit-text-secondary-rgb), 0.85);
+  max-width: 320px;
+}
+
+.stealth-landing__steps code {
+  background: rgba(var(--bandit-code-background-rgb), 0.8);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: var(--bandit-code-accent);
+}
+
+.mode-chip--status {
+  border-color: rgba(var(--bandit-border-rgb), 0.8);
+  background: rgba(var(--bandit-surface-rgb), 0.7);
+  color: rgba(var(--bandit-text-primary-rgb), 0.95);
+  cursor: default;
+  min-width: 0;
+  min-height: 1.6rem;
+  padding: 0.16rem 0.42rem;
+  justify-content: center;
+  gap: 0.14rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  font-size: 0.6rem;
+}
+
+.mode-chip--status.is-busy {
+  border-color: rgba(var(--bandit-focus-ring-rgb), 0.7);
+  animation: statusPulse 1.6s ease-in-out infinite;
+}
+
+.mode-chip--status.is-idle {
+  border-color: rgba(var(--bandit-border-rgb), 0.55);
+  animation: none;
+}
+
+.mode-chip--status .status-pill__icon {
+  width: 0.64rem;
+  height: 0.64rem;
+}
+
+.mode-chip--status .status-pill__label {
+  font-size: 0.6rem;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.mode-chip--status.status-pill--align-end {
+  margin-left: 0;
+  align-self: center;
+  order: initial;
+}
+
+.run-again-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  background: rgba(var(--bandit-panel-rgb), 0.65);
+  color: inherit;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.run-again-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.run-again-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mode-strip {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+  margin-top: -0.15rem;
+  margin-bottom: -0.15rem;
+  align-items: center;
+  container-type: inline-size;
+  container-name: mode-strip;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.7);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(var(--bandit-panel-rgb), 0.6);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.25);
+  align-items: stretch;
+}
+
+.mode-toggle__item {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.2rem 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  min-width: 0;
+  min-height: 1.8rem;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.mode-toggle__item[data-state="on"] {
+  background: rgba(var(--bandit-accent-rgb), 0.18);
+  color: rgba(var(--bandit-text-primary-rgb), 0.95);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.35);
+}
+
+.mode-toggle__item:first-child {
+  border-top-left-radius: 999px;
+  border-bottom-left-radius: 999px;
+}
+
+.mode-toggle__item:last-child {
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+}
+
+.mode-toggle__item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.45),
+    0 0 0 2px rgba(var(--bandit-accent-rgb), 0.35);
+}
+
+@container mode-strip (max-width: 520px) {
+  .mode-chip--context .mode-chip__label,
+  .mode-chip--context .mode-chip__chevron {
+    display: none;
+  }
+
+  .mode-chip--context {
+    padding-inline: 0.4rem;
+  }
+}
+
+@container mode-strip (max-width: 480px) {
+  .mode-chip--provider .mode-chip__label,
+  .mode-chip--provider .mode-chip__chevron {
+    display: none;
+  }
+
+  .mode-chip--provider {
+    padding-inline: 0.45rem;
+  }
+}
+
+@container mode-strip (max-width: 460px) {
+  .mode-chip--model .mode-chip__label,
+  .mode-chip--model .mode-chip__chevron {
+    display: none;
+  }
+
+  .mode-chip--model {
+    padding-inline: 0.45rem;
+  }
+}
+
+@container mode-strip (max-width: 430px) {
+  .mode-toggle__item {
+    padding: 0.22rem;
+  }
+
+  .mode-toggle__item .mode-chip__label {
+    display: none;
+  }
+
+  .mode-toggle__item svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+@container mode-strip (max-width: 400px) {
+  .mode-chip--status .status-pill__label {
+    display: none;
+  }
+
+  .mode-chip--status {
+    padding-inline: 0.4rem;
+  }
+}
+
+@container mode-strip (max-width: 320px) {
+  .mode-strip {
+    justify-content: flex-start;
+    gap: 0.25rem;
+  }
+
+  .mode-strip .mode-chip {
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0.24rem;
+    border-radius: 999px;
+    gap: 0;
+  }
+
+  .mode-strip .mode-chip svg {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .mode-strip .mode-chip .mode-chip__label,
+  .mode-strip .mode-chip .mode-chip__chevron {
+    display: none;
+  }
+
+  .mode-toggle__item {
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0.24rem;
+  }
+
+  .mode-toggle__item svg {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+}
+
+@keyframes statusPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--bandit-focus-ring-rgb), 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(var(--bandit-focus-ring-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--bandit-focus-ring-rgb), 0);
+  }
+}
+
+.mode-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.8);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  background: rgba(var(--bandit-surface-rgb), 0.65);
+  min-height: 1.8rem;
+  line-height: 1;
+  min-width: 2rem;
+  justify-content: center;
+}
+
+.mode-chip--history {
+  border-color: rgba(var(--bandit-border-rgb), 0.6);
+  background: rgba(var(--bandit-surface-rgb), 0.75);
+  font-size: 0.75rem;
+  min-height: 2rem;
+  cursor: pointer;
+  padding-inline: 0.85rem;
+}
+
+.mode-chip--history.is-active,
+.mode-chip--history[data-state="on"] {
+  border-color: rgba(var(--bandit-accent-rgb), 0.6);
+  background: rgba(var(--bandit-accent-rgb), 0.2);
+  color: var(--bandit-text-primary);
+  box-shadow: 0 6px 18px rgba(var(--bandit-accent-rgb), 0.2);
+}
+
+.history-filter__count {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  background: rgba(var(--bandit-panel-rgb), 0.8);
+}
+
+.mode-chip.mode-chip--status {
+  min-width: 0;
+  padding: 0.2rem 0.5rem;
+}
+
+.mode-chip.mode-chip--status .status-pill__icon {
+  width: 0.68rem;
+  height: 0.68rem;
+}
+
+.mode-chip.mode-chip--status .status-pill__label {
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.mode-chip--button {
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.35);
+  background: rgba(var(--bandit-surface-rgb), 0.9);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.mode-chip--button:focus-visible {
+  outline: 2px solid rgba(var(--bandit-accent-rgb), 0.6);
+  outline-offset: 2px;
+}
+
+.mode-chip__icon {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.live-ticker {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.65);
+  background: rgba(var(--bandit-surface-rgb), 0.9);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-panel-rgb), 0.9);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.live-ticker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+}
+
+.live-ticker__pulse {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: rgba(var(--bandit-accent-rgb), 0.95);
+  box-shadow: 0 0 12px rgba(var(--bandit-accent-rgb), 0.65);
+  animation: livePulse 1.4s infinite ease-in-out;
+}
+
+@keyframes livePulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+}
+
+.live-ticker__list {
+  list-style: none;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.live-ticker__item {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.live-ticker__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 0.85rem;
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+  color: rgb(var(--bandit-accent-rgb));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.35);
+}
+
+.live-ticker__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.live-ticker__item--progress .live-ticker__icon {
+  background: rgba(var(--bandit-accent-rgb), 0.2);
+  color: rgb(var(--bandit-accent-rgb));
+}
+
+.live-ticker__item--complete .live-ticker__icon {
+  background: rgba(var(--bandit-success-rgb), 0.18);
+  color: rgb(var(--bandit-success-rgb));
+}
+
+.live-ticker__item--error .live-ticker__icon {
+  background: rgba(var(--bandit-error-rgb), 0.15);
+  color: rgb(var(--bandit-error-rgb));
+}
+
+.live-ticker__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.live-ticker__path {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.7);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.live-ticker__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.live-ticker__summary {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(var(--bandit-text-secondary-rgb), 0.85);
+}
+
+.live-ticker__diff-summary {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.9);
+}
+
+.live-ticker__diff-preview {
+  margin-top: 0.35rem;
+  border-radius: 0.65rem;
+  max-height: 150px;
+  overflow: auto;
+  background: rgba(var(--bandit-panel-rgb), 0.65);
+}
+
+.mode-chip--button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mode-chip--button[data-state="on"] {
+  border-color: rgba(var(--bandit-accent-rgb), 0.75);
+  background: rgba(var(--bandit-accent-rgb), 0.18);
+  color: rgba(var(--bandit-text-primary-rgb), 0.95);
+  box-shadow: inset 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.1);
+}
+
+.mode-chip--menu {
+  padding-right: 0.7rem;
+}
+
+/* Truncate the model chip label at narrow composer widths so the pill
+   shrinks gracefully instead of forcing the whole footer row to wrap.
+   Long Ollama model ids like `bandit-core:12b-it-qat` otherwise pin
+   the chip to ~150px and push "Ask before edit" + send onto a new
+   row in the VS Code side panel. */
+.stealth-shell .composer-footer-slot .mode-chip--model .mode-chip__label {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+@container composer-input (max-width: 420px) {
+  .stealth-shell .composer-footer-slot .mode-chip--model .mode-chip__label {
+    max-width: 10ch;
+  }
+}
+
+.mode-chip__chevron {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.mode-menu {
+  /* Size to content rather than forcing a 220px min — in the VS Code
+     side panel, a fixed min-width makes the menu wider than its
+     longest item (e.g. "Set Ollama model…") and the overflow floats
+     over nearby UI. Cap the upper bound so nothing runs off-screen. */
+  min-width: max-content;
+  max-width: min(320px, 90vw);
+  border-radius: 0.85rem;
+  border: 1px solid rgba(var(--bandit-surface-rgb), 0.9);
+  /* Fully opaque — when the menu opens above the composer with a
+     translucent background, the composer's textarea + pills bleed
+     through and read as visual overlap. Solid panel + blur cleanly
+     separates the layers. */
+  background: rgb(var(--bandit-panel-rgb));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
+  padding: 0.5rem;
+  z-index: 55;
+}
+
+/* Keep each menu row readable at narrow widths — label + description
+   should wrap within the row instead of stretching the whole menu. */
+.mode-menu__option {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Provider + model picker rendered inside the composer's `/` menu
+   Settings section. Small pills for provider choice, link-style rows
+   for "Set model…" / "Edit URL…" so the whole settings block stays
+   visually consistent with the skills list above it. */
+.composer-settings-models {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.1rem 0;
+}
+.composer-settings-models__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb, 140, 150, 160), 0.85);
+}
+.composer-settings-models__row {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.composer-settings-models__pill {
+  flex: 1;
+  height: 1.7rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-surface-rgb), 0.9);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.composer-settings-models__pill:hover {
+  background: rgba(var(--bandit-accent-rgb), 0.1);
+}
+.composer-settings-models__pill.is-active {
+  background: rgba(var(--bandit-accent-rgb), 0.22);
+  border-color: rgba(var(--bandit-accent-rgb), 0.6);
+  color: rgba(var(--bandit-accent-rgb), 1);
+}
+.composer-settings-models__link {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0;
+  color: rgba(var(--bandit-accent-rgb), 0.95);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.composer-settings-models__link:hover {
+  text-decoration: underline;
+}
+
+.mode-menu--right {
+  right: 0;
+  left: auto;
+}
+
+.mode-menu__option {
+  font: inherit;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 0.65rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mode-menu__option:hover,
+.mode-menu__option.is-active {
+  background: rgba(var(--bandit-accent-rgb), 0.12);
+}
+
+.mode-menu__option.is-active {
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.3);
+}
+
+.mode-menu__option:disabled,
+.mode-menu__option[data-disabled="true"] {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.mode-menu__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mode-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.mode-menu__text small {
+  font-size: 0.7rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.75);
+}
+
+.mode-menu--context {
+  min-width: unset;
+  width: clamp(180px, 28vw, 260px);
+}
+
+.mode-chip--context {
+  min-width: 1.85rem;
+  min-height: 1.75rem;
+  padding: 0.18rem 0.42rem;
+  justify-content: center;
+  gap: 0.22rem;
+  font-size: 0.64rem;
+  letter-spacing: 0.01em;
+}
+
+.context-menu {
+  padding: 0.3rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.context-usage-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--bandit-border-rgb), 0.85);
+  overflow: hidden;
+}
+
+.context-usage-bar span {
+  display: block;
+  height: 100%;
+  background: rgba(var(--bandit-accent-rgb), 0.8);
+}
+
+.context-menu__hint {
+  font-size: 0.72rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.8);
+}
+
+.mode-chip--context .mode-chip__label {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .mode-chip--context {
+    width: 2rem;
+    height: 2rem;
+    padding: 0.23rem;
+    border-radius: 999px;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .mode-chip--context .mode-chip__label,
+  .mode-chip--context .mode-chip__chevron {
+    display: none;
+  }
+
+  .mode-chip--context svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0;
+  }
+}
+
+[data-has-tooltip="true"] {
+  position: relative;
+}
+
+[data-has-tooltip="true"]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: rgba(var(--bandit-panel-rgb), 0.95);
+  color: rgba(var(--bandit-text-secondary-rgb), 0.92);
+  border-radius: 0.45rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.2);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+[data-tooltip-position="below"]::after {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+[data-has-tooltip="true"]:hover::after,
+[data-has-tooltip="true"]:focus-visible::after {
+  opacity: 1;
+}
+
+[data-tooltip-align="right"]::after {
+  left: auto;
+  right: 0;
+  transform: translateX(0);
+}
+
+.stealth-notification {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  max-width: min(440px, calc(100vw - 2rem));
+  background: rgba(var(--bandit-surface-rgb), 0.95);
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.35);
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.75rem 0.6rem 0.95rem;
+  font-size: 0.9rem;
+  box-shadow: 0 15px 40px rgba(var(--bandit-panel-rgb), 0.5);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  z-index: 20;
+}
+.stealth-notification__body {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.stealth-notification__close {
+  flex-shrink: 0;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--vscode-descriptionForeground, #888);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.stealth-notification__close:hover {
+  border-color: rgb(248, 113, 113);
+  color: rgb(248, 113, 113);
+}
+
+.stealth-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--bandit-panel-rgb), 0.92);
+  z-index: 10;
+}
+
+.stealth-overlay__panel {
+  width: min(420px, 90vw);
+  border-radius: 1rem;
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.35);
+  background: rgba(var(--bandit-surface-rgb), 0.95);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stealth-overlay__panel h2 {
+  margin: 0;
+}
+
+.api-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Compact horizontal input row used on the Providers settings card so
+   text input + Save / Clear / Use-default buttons sit on a single line
+   rather than stacking onto a separate row underneath. The input takes
+   the remaining width via flex:1; buttons stay tight on the right.
+   Visually mirrors the Workspace tab's `.settings-preference` pattern
+   (description left, action right) but adapted for an input control. */
+.settings-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.settings-input-row > input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.settings-input-row > .stealth-button {
+  flex: 0 0 auto;
+}
+
+.stealth-overlay__panel input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(var(--bandit-text-muted-rgb), 0.4);
+  background: rgba(var(--bandit-panel-rgb), 0.4);
+  color: inherit;
+}
+
+.api-key-status {
+  border-radius: 999px;
+  border: 1px solid rgba(var(--bandit-accent-rgb), 0.3);
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.api-key-status svg {
+  width: 16px;
+  height: 16px;
+  color: rgba(var(--bandit-accent-rgb), 0.9);
+}
+
+.stealth-overlay__panel button {
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.6rem;
+  border: none;
+  background: rgba(var(--bandit-accent-rgb), 0.9);
+  color: var(--bandit-button-contrast);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-divider {
+  width: 100%;
+  height: 1px;
+  border: none;
+  background: rgba(var(--bandit-accent-rgb), 0.2);
+  margin: 1.25rem 0;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.settings-section button {
+  align-self: flex-start;
+}
+
+.settings-note {
+  margin: 0;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+  font-size: 0.9rem;
+}
+
+/* Form-row layout for the Voice settings tab — label above input,
+   small spacing between rows. Mirrors the rest of the panel's
+   minimal density without a custom background per row. */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.85rem;
+}
+.settings-field label {
+  font-size: 0.78rem;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+  letter-spacing: 0.04em;
+}
+.settings-field input,
+.settings-field select {
+  background: rgba(var(--bandit-bg-elev-rgb), 0.6);
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  color: inherit;
+  font-size: 0.86rem;
+  /* Hold the form control to its container width even when option
+     labels are wider than the panel — without this the native
+     <select> dropdown stretched the form-control to the longest
+     option's intrinsic width and shoved the right edge past the
+     panel border on narrow side-panel layouts. The dropdown popup
+     is still browser-controlled (and may wrap or scroll on its
+     own); only the closed control is constrained. */
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.settings-field input:focus,
+.settings-field select:focus {
+  outline: none;
+  border-color: rgba(var(--bandit-accent-rgb), 0.7);
+}
+
+.theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.theme-chip {
+  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: rgba(var(--bandit-panel-rgb), 0.55);
+  color: inherit;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.theme-chip:is(:hover, :focus) {
+  border-color: rgba(var(--bandit-accent-rgb), 0.8);
+  outline: none;
+}
+
+.theme-chip.is-active {
+  border-color: rgba(var(--bandit-accent-rgb), 0.85);
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+}
+
+.theme-chip__badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(var(--bandit-accent-rgb), 0.15);
+}
+
+.theme-note {
+  margin-top: 0.4rem;
+}
+
+.link-button--danger {
+  color: rgb(var(--bandit-error-rgb));
+}
+
+.link-button--danger:hover {
+  color: rgba(var(--bandit-error-rgb), 0.85);
+}
+
+.plan-eval-card {
+  margin-top: 1rem;
+}
+
+.plan-eval-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.plan-eval-card__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.plan-eval-card__title {
+  margin: 0.2rem 0 0;
+  font-size: 1.05rem;
+}
+
+.plan-eval-card__confidence {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.plan-eval-card__status {
+  margin: 0.4rem 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.plan-eval-card__status[data-state="success"] {
+  color: rgb(var(--bandit-success-rgb));
+}
+
+.plan-eval-card__status[data-state="attention"] {
+  color: rgb(var(--bandit-error-rgb));
+}
+
+.plan-eval-card__feedback {
+  margin: 0 0 0.5rem;
+  color: rgba(var(--bandit-text-primary-rgb), 0.88);
+}
+
+.plan-eval-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(var(--bandit-text-muted-rgb), 0.85);
+}
+
+.plan-eval-card__meta-item {
+  white-space: nowrap;
+}
+
+.stealth-overlay__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  .stealth-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agent-diff-stream-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground, #888);
+  opacity: 0.85;
+}
+
+.agent-diff-stream-indicator::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--vscode-progressBar-background, #0e70c0);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Account & Usage modal */
+.usage-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.usage-modal {
+  background: var(--vscode-editor-background, #1e1e1e);
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  padding: 20px 22px 18px;
+  max-width: 460px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.usage-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+  padding-bottom: 12px;
+}
+
+.usage-modal__header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.usage-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usage-modal__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
+/* Plan row right-hand value: plan name + optional "admin bypass" pill.
+   Explicit gap keeps the chip from kissing the plan label — the pill's
+   own padding isn't enough on a flex end. */
+.usage-modal__plan-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-transform: capitalize;
+}
+
+.usage-modal__meter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--vscode-descriptionForeground, #bbb);
+}
+
+.usage-modal__meter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--vscode-progressBar-background, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+}
+
+.usage-modal__meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f9dff, #7bd7c1);
+  transition: width 0.3s ease;
+}
+
+.usage-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+}
+
+/* Rate-limit toast */
+.rate-limit-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  max-width: 360px;
+  background: var(--vscode-notifications-background, #2d2d2d);
+  border: 1px solid var(--vscode-notificationToast-border, rgba(255, 180, 80, 0.45));
+  border-left: 3px solid #e0a84b;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  z-index: 1001;
+  animation: rate-limit-toast-in 0.24s ease;
+}
+
+@keyframes rate-limit-toast-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.rate-limit-toast__title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.rate-limit-toast__message {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--vscode-descriptionForeground, #ccc);
+}
+
+.rate-limit-toast__meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--vscode-descriptionForeground, #999);
+}
+
+.rate-limit-toast__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Background subagent live tile — sits between the permission queue
+   and the composer. Compact summary line by default; click expands
+   to a per-task drill-down with cancel + synopsis. Minimal, dim
+   styling so it doesn't compete with the main chat. */
+.background-task-tile {
+  border: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.02));
+  margin: 0 0.5rem 0.4rem;
+  font-size: 0.82rem;
+  overflow: hidden;
+}
+.background-task-tile.is-expanded {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+.background-task-tile__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.background-task-tile__summary:hover {
+  background: rgba(56, 189, 248, 0.06);
+}
+.background-task-tile__icon {
+  display: inline-flex;
+  width: 1rem;
+  font-weight: 700;
+  color: rgba(56, 189, 248, 0.9);
+}
+.background-task-tile__label {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.background-task-tile__summary-text {
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 0.75rem;
+  flex: 1;
+}
+.background-task-tile__chevron {
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 0.7rem;
+}
+.background-task-tile__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.06));
+}
+.background-task-tile__item {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.04));
+}
+.background-task-tile__item:last-child {
+  border-bottom: 0;
+}
+.background-task-tile__item.is-failed { background: rgba(248, 113, 113, 0.06); }
+.background-task-tile__item.is-completed { background: rgba(34, 197, 94, 0.04); }
+.background-task-tile__item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.74rem;
+}
+.background-task-tile__id {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: rgba(56, 189, 248, 0.9);
+}
+.background-task-tile__status {
+  color: var(--vscode-descriptionForeground, #888);
+  flex: 1;
+}
+.background-task-tile__cancel {
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground, #888);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 0.9;
+  padding: 0;
+}
+.background-task-tile__cancel:hover {
+  color: rgb(248, 113, 113);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+.background-task-tile__goal {
+  margin-top: 0.25rem;
+  color: var(--vscode-foreground, #e7e9ea);
+}
+.background-task-tile__synopsis {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--vscode-foreground, #e7e9ea);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.background-task-tile__error {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  color: rgb(248, 113, 113);
+  background: rgba(248, 113, 113, 0.08);
+  border-radius: 4px;
+}
+
+/* Subagent timeline card — rendered into the markdown stream by the
+   `bandit-subagent` token handler in App.tsx. The HTML uses
+   `<details><summary>…goal…</summary>…trace…</details>` and previously
+   shipped without CSS, which left the goal text on a single line that
+   horizontal-scrolled on long descriptions ("Find the helm chart for
+   the bandit site. Look for Chart.yaml…"). These rules force the
+   summary into a wrap-aware flex layout and let the goal grow into
+   subsequent lines instead of pushing the timeline. */
+.bandit-subagent-card {
+  display: block;
+  margin: 0.4rem 0;
+  border: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.02));
+  overflow: hidden;
+}
+.bandit-subagent-card--error {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+.bandit-subagent-card__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  list-style: none;
+}
+.bandit-subagent-card__summary::-webkit-details-marker { display: none; }
+.bandit-subagent-card[open] > .bandit-subagent-card__summary {
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.06));
+}
+.bandit-subagent-card__icon {
+  flex: 0 0 auto;
+  color: rgba(251, 191, 36, 0.95);
+}
+.bandit-subagent-card__label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+.bandit-subagent-card__goal {
+  /* min-width:0 makes this flex item wrap rather than push the row
+     wider; word-break belt-and-braces for unspaced URLs / paths. */
+  flex: 1 1 240px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+}
+.bandit-subagent-card__stats {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--vscode-descriptionForeground, #888);
+}
+.bandit-subagent-card__warn {
+  color: rgb(251, 191, 36);
+}
+.bandit-subagent-card__trace {
+  margin: 0;
+  padding: 0.3rem 0.7rem 0.5rem 1.4rem;
+  list-style: decimal;
+  font-size: 0.78rem;
+}
+.bandit-subagent-card__tool {
+  margin: 0.15rem 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.bandit-subagent-card__tool--error { color: rgb(248, 113, 113); }
+.bandit-subagent-card__tool-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-foreground, #e7e9ea);
+}
+.bandit-subagent-card__tool-primary {
+  color: var(--vscode-descriptionForeground, #888);
+}
+.bandit-subagent-card__result {
+  padding: 0.4rem 0.7rem 0.6rem;
+  font-size: 0.78rem;
+  border-top: 1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.06));
+}
+.bandit-subagent-card__result-label {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.bandit-subagent-card__result pre {
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}

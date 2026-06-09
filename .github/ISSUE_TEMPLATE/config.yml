@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Burtson-Labs/bandit-agent-framework/security/policy
+    about: Please report vulnerabilities privately through SECURITY.md.
+  - name: General contact
+    url: https://burtson.ai
+    about: For Bandit Cloud, account, or hosted service questions.

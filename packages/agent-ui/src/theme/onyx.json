@@ -1,0 +1,23 @@
+{
+  "label": "Onyx",
+  "appearance": "dark",
+  "palette": {
+    "background": "#000000",
+    "surface": "#0a0a0a",
+    "panel": "#080808",
+    "card": "#141414",
+    "border": "#252525",
+    "accent": "#22d3ee",
+    "textPrimary": "#f5f5f5",
+    "textSecondary": "#dcdcdc",
+    "textMuted": "#737373",
+    "success": "#4ade80",
+    "error": "#ef4444",
+    "buttonContrast": "#000000",
+    "focusRing": "#22d3ee",
+    "codeBackground": "#0a0a0a",
+    "codeText": "#f5f5f5",
+    "codeBorder": "#252525",
+    "codeAccent": "#67e8f9"
+  }
+}

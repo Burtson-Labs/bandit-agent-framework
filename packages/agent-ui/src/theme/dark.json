@@ -1,0 +1,23 @@
+{
+  "label": "Stealth Dark",
+  "appearance": "dark",
+  "palette": {
+    "background": "#1e1e1e",
+    "surface": "#252526",
+    "panel": "#1e1e1e",
+    "card": "#252526",
+    "border": "#3c3c3c",
+    "accent": "#0098ff",
+    "textPrimary": "#f3f3f3",
+    "textSecondary": "#cccccc",
+    "textMuted": "#858585",
+    "success": "#4ec9b0",
+    "error": "#f48771",
+    "buttonContrast": "#1e1e1e",
+    "focusRing": "#0098ff",
+    "codeBackground": "#1e1e1e",
+    "codeText": "#d4d4d4",
+    "codeBorder": "#3c3c3c",
+    "codeAccent": "#569cd6"
+  }
+}

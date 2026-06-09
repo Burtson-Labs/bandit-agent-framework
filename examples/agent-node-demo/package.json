@@ -1,0 +1,17 @@
+{
+  "name": "agent-node-demo",
+  "private": true,
+  "version": "1.0.4",
+  "author": { "name": "Burtson Labs", "email": "team@burtson.ai", "url": "https://burtson.ai" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "demo": "node dist/index.js",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-adapters-node": "workspace:*",
+    "@burtson-labs/agent-core": "workspace:*"
+  }
+}

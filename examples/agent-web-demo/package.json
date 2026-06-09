@@ -1,0 +1,16 @@
+{
+  "name": "agent-web-demo",
+  "private": true,
+  "version": "1.0.4",
+  "author": { "name": "Burtson Labs", "email": "team@burtson.ai", "url": "https://burtson.ai" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-adapters-web": "workspace:*",
+    "@burtson-labs/agent-core": "workspace:*"
+  }
+}

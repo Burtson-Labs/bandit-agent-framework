@@ -1,0 +1,50 @@
+name: PR Checks
+
+# Runs the same typecheck + build + test surface as the main pipeline,
+# but on GitHub-hosted ubuntu-latest so PRs from outside contributors
+# (who don't have access to the burtson-labs-runners self-hosted pool)
+# can actually pass CI. Maintainers' branch PRs also pass through here
+# in parallel with the self-hosted pipeline; the duplication is cheap
+# and the OSS-friendly fallback is what matters.
+
+on:
+  pull_request:
+    branches: ["main"]
+  # Allow maintainers to manually re-run this from the Actions tab
+  # without opening a PR (useful when debugging a workflow change).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  pr-checks:
+    name: Build + Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test stealth-core-runtime
+        run: pnpm --filter stealth-core-runtime exec vitest run
+
+      - name: Test bandit-stealth extension
+        run: pnpm --filter bandit-stealth exec vitest run
+
+      - name: Smoke-test bandit-cli
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke

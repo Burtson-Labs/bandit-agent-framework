@@ -1,0 +1,19 @@
+# gitleaks config for the Bandit Agent Framework.
+#
+# The default ruleset catches real secrets correctly — we just need to
+# tell it to ignore the test fixtures that exist BECAUSE they look like
+# secrets (the secretRedactor test asserts that the redactor catches
+# pattern-matching strings). Without this allowlist, every CI run of
+# gitleaks would flag those fixtures and drown out real findings.
+
+title = "Bandit Agent Framework gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures for the secret redactor — values are deliberately constructed fakes used to assert pattern detection"
+paths = [
+  '''packages/agent-core/test/secretRedactor\.test\.ts''',
+  '''packages/agent-core/test/skillLoaderArgvInjection\.test\.ts''',
+]

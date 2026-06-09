@@ -1,0 +1,88 @@
+{
+  "name": "@burtson-labs/bandit-stealth-cli",
+  "version": "1.7.371",
+  "description": "Bandit — a local-first AI coding agent for your terminal. Same runtime as the Bandit Stealth VS Code / Cursor extension.",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "llm",
+    "ollama",
+    "local-first",
+    "bandit",
+    "burtson-labs",
+    "terminal",
+    "repl",
+    "developer-tools"
+  ],
+  "homepage": "https://burtson.ai",
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues",
+    "email": "team@burtson.ai"
+  },
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "apps/bandit-cli"
+  },
+  "type": "module",
+  "bin": {
+    "bandit": "./dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "files": [
+    "dist/cli.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node build.mjs",
+    "build:publish": "node build.mjs --publish",
+    "dev": "node build.mjs --watch",
+    "start": "node dist/cli.js",
+    "smoke": "node build.mjs && node dist/__smoke__/smoke.js",
+    "integration": "node build.mjs && node dist/__integration__/ollama.js",
+    "eval": "node build.mjs && node dist/__eval__/eval.js",
+    "benchmark": "node build.mjs && node dist/__eval__/benchmark.js",
+    "gen-logo": "node scripts/gen-logo.mjs",
+    "preview-banner": "node scripts/preview-banner.mjs",
+    "clean": "rm -rf dist",
+    "prepack": "node scripts/prepack.mjs",
+    "postpack": "node scripts/postpack.mjs",
+    "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run build:publish"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "@burtson-labs/agent-core": "workspace:*",
+    "@burtson-labs/host-kit": "workspace:*",
+    "@burtson-labs/stealth-core-runtime": "workspace:*",
+    "@types/node": "^20.11.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.2.2",
+    "esbuild": "^0.28.0",
+    "ink": "^7.0.4",
+    "ink-text-input": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "react": "^19.2.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.10"
+  }
+}

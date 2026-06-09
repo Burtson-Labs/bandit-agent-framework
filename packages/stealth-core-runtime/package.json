@@ -1,0 +1,55 @@
+{
+  "name": "@burtson-labs/stealth-core-runtime",
+  "version": "1.4.10",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "description": "Host-agnostic runtime core for Bandit Stealth agents.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "packages/stealth-core-runtime"
+  },
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
+  },
+  "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/stealth-core-runtime#readme",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "pnpm -C ../.. --filter @burtson-labs/agent-core build",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@burtson-labs/host-kit": "workspace:*",
+    "@modelcontextprotocol/server-filesystem": "^2025.10.21",
+    "vitest": "^4.0.10"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "agentic",
+    "tool-use",
+    "bandit",
+    "local-first",
+    "ollama",
+    "stealth-core-runtime"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

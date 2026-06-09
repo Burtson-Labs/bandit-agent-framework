@@ -1,0 +1,23 @@
+{
+  "label": "Dracula",
+  "appearance": "dark",
+  "palette": {
+    "background": "#282a36",
+    "surface": "#343746",
+    "panel": "#21222c",
+    "card": "#2f323e",
+    "border": "#44475a",
+    "accent": "#bd93f9",
+    "textPrimary": "#f8f8f2",
+    "textSecondary": "#e8e8e3",
+    "textMuted": "#9498a8",
+    "success": "#50fa7b",
+    "error": "#ff5555",
+    "buttonContrast": "#1c1d24",
+    "focusRing": "#ff79c6",
+    "codeBackground": "#21222c",
+    "codeText": "#f8f8f2",
+    "codeBorder": "#44475a",
+    "codeAccent": "#8be9fd"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@burtson-labs/agent-adapters-web",
+  "version": "1.0.6",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "description": "Web adapter for the Bandit Agent Framework.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "packages/agent-adapters/web"
+  },
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
+  },
+  "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-adapters#readme",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "pnpm -C ../../.. --filter @burtson-labs/agent-core build",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "clean": "rm -rf dist"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@burtson-labs/agent-core": "workspace:*"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "agentic",
+    "tool-use",
+    "bandit",
+    "local-first",
+    "ollama",
+    "agent-adapters-web"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

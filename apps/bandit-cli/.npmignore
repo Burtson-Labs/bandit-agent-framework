@@ -1,0 +1,33 @@
+# Belt-and-suspenders alongside the `files` allow-list in package.json.
+# `files` already restricts the tarball to dist/cli.js + README + LICENSE,
+# but if a future edit widens that list, these patterns stop secrets and
+# internal tooling from leaking.
+
+# Source + build plumbing
+src/
+scripts/
+build.mjs
+tsconfig.json
+tsconfig.tsbuildinfo
+
+# Test/eval harnesses — dev-only, never ship
+dist/__smoke__/
+dist/__integration__/
+dist/__eval__/
+
+# Environment files (never ship even if accidentally present)
+.env
+.env.*
+*.env
+secrets.*
+
+# Editor / OS noise
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Lockfiles (monorepo root holds the real one)
+pnpm-lock.yaml
+package-lock.json
+yarn.lock

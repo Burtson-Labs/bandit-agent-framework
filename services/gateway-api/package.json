@@ -1,0 +1,17 @@
+{
+  "name": "@burtson-labs/gateway-api",
+  "version": "1.1.1",
+  "author": { "name": "Burtson Labs", "email": "team@burtson.ai", "url": "https://burtson.ai" },
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-core": "workspace:*",
+    "@burtson-labs/agent-adapters-provider": "workspace:*",
+    "@burtson-labs/stealth-core-runtime": "workspace:*"
+  }
+}

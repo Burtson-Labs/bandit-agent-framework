@@ -1,0 +1,23 @@
+{
+  "label": "Solarized Light",
+  "appearance": "light",
+  "palette": {
+    "background": "#fdf6e3",
+    "surface": "#eee8d5",
+    "panel": "#f5efdc",
+    "card": "#fffaf0",
+    "border": "#d6cfb8",
+    "accent": "#268bd2",
+    "textPrimary": "#073642",
+    "textSecondary": "#586e75",
+    "textMuted": "#93a1a1",
+    "success": "#859900",
+    "error": "#dc322f",
+    "buttonContrast": "#fdf6e3",
+    "focusRing": "#2aa198",
+    "codeBackground": "#eee8d5",
+    "codeText": "#073642",
+    "codeBorder": "#d6cfb8",
+    "codeAccent": "#b58900"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "label": "Solarized Dark",
+  "appearance": "dark",
+  "palette": {
+    "background": "#002b36",
+    "surface": "#073642",
+    "panel": "#001f27",
+    "card": "#0a3d4a",
+    "border": "#13495a",
+    "accent": "#268bd2",
+    "textPrimary": "#fdf6e3",
+    "textSecondary": "#eee8d5",
+    "textMuted": "#93a1a1",
+    "success": "#859900",
+    "error": "#dc322f",
+    "buttonContrast": "#001821",
+    "focusRing": "#2aa198",
+    "codeBackground": "#001f27",
+    "codeText": "#fdf6e3",
+    "codeBorder": "#13495a",
+    "codeAccent": "#b58900"
+  }
+}

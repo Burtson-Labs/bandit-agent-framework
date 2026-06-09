@@ -1,0 +1,13 @@
+.git*
+**/.DS_Store
+*.vsix
+.turbo/**
+.vscode/**
+.vscode-test/**
+**/*.tsbuildinfo
+**/*.log
+dist/**
+out/test/**
+# Recorder source — only the built binary under media/recorders/ ships.
+native/**
+!node_modules/**

@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "packages/agent-adapters/*"
+  - "apps/*"
+  - "apps/bandit-stealth/*"
+  - "examples/*"
+  - "services/*"

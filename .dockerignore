@@ -1,0 +1,14 @@
+.git
+node_modules
+.turbo
+.next
+dist
+build
+.DS_Store
+*.log
+.pnpm-store
+.pnpm-store/**
+coverage
+tmp
+.vscode
+.idea

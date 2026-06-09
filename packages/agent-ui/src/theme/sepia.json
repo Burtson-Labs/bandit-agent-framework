@@ -1,0 +1,23 @@
+{
+  "label": "Sepia",
+  "appearance": "light",
+  "palette": {
+    "background": "#f5ebd7",
+    "surface": "#ede0c4",
+    "panel": "#ece1c8",
+    "card": "#fdf6e6",
+    "border": "#d4c5a0",
+    "accent": "#8b5a2b",
+    "textPrimary": "#3a2f1d",
+    "textSecondary": "#5b4a32",
+    "textMuted": "#8b7860",
+    "success": "#5b6f1c",
+    "error": "#a83232",
+    "buttonContrast": "#f5ebd7",
+    "focusRing": "#a06a3a",
+    "codeBackground": "#ede0c4",
+    "codeText": "#3a2f1d",
+    "codeBorder": "#d4c5a0",
+    "codeAccent": "#a06a3a"
+  }
+}

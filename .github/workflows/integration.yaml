@@ -1,0 +1,66 @@
+name: Bandit CLI Integration (Ollama)
+
+# Runs the CLI's integration fixture suite against a real Ollama model.
+# Separate from pipeline.yaml because:
+#   - Requires an Ollama-capable runner (self-hosted or service container)
+#   - Slower than the smoke test, doesn't belong on every PR
+#   - Gracefully skips if Ollama isn't reachable, so it's safe to run on
+#     stock GitHub runners — it just won't exercise the model.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Ollama model ID to test against
+        required: false
+        default: qwen2.5:0.5b
+  schedule:
+    # Weekly Monday at 09:00 UTC (04:00 ET). Was daily — but the
+    # integration suite spends GHA-hosted minutes every run AND pulls
+    # a multi-GB Ollama image into a service container, so a daily
+    # cron was eating the org's Actions budget at a rate that blocked
+    # unrelated repos' deploys. Weekly is enough to catch toolchain
+    # regressions; manual `workflow_dispatch` above covers on-demand
+    # validation when something specifically needs Ollama coverage.
+    - cron: "0 9 * * 1"
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  integration:
+    name: Integration (Ollama)
+    runs-on: ubuntu-latest
+    # Hosted ubuntu runner — consumes GHA-hosted minutes. This is a
+    # daily cron, not a PR/merge gate, so a budget block (or any other
+    # reason the job can't start) shouldn't redden the workflow status
+    # or the repo's "default branch" badge. continue-on-error: true
+    # marks the job as advisory; the smoke + extension tests in
+    # pipeline.yaml run on the free self-hosted pool and remain the
+    # blocking signal for releases.
+    continue-on-error: true
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pull model
+        run: |
+          curl -sS -X POST http://localhost:11434/api/pull \
+            -d '{"model":"${{ inputs.model || 'qwen2.5:0.5b' }}"}' \
+            -H 'Content-Type: application/json' \
+            --max-time 300 || echo "model pull skipped"
+      - name: Run CLI integration fixtures
+        env:
+          OLLAMA_URL: http://localhost:11434
+          BANDIT_INTEGRATION_MODEL: ${{ inputs.model || 'qwen2.5:0.5b' }}
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli run integration

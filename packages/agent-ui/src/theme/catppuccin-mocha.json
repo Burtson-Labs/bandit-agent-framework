@@ -1,0 +1,23 @@
+{
+  "label": "Catppuccin Mocha",
+  "appearance": "dark",
+  "palette": {
+    "background": "#1e1e2e",
+    "surface": "#313244",
+    "panel": "#181825",
+    "card": "#292c3c",
+    "border": "#45475a",
+    "accent": "#cba6f7",
+    "textPrimary": "#cdd6f4",
+    "textSecondary": "#bac2de",
+    "textMuted": "#7f849c",
+    "success": "#a6e3a1",
+    "error": "#f38ba8",
+    "buttonContrast": "#11111b",
+    "focusRing": "#89b4fa",
+    "codeBackground": "#181825",
+    "codeText": "#cdd6f4",
+    "codeBorder": "#45475a",
+    "codeAccent": "#94e2d5"
+  }
+}

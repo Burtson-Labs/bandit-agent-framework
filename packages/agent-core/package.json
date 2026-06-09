@@ -1,0 +1,52 @@
+{
+  "name": "@burtson-labs/agent-core",
+  "version": "1.6.17",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "description": "Core reasoning and planning engine for Bandit Agent Framework.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "packages/agent-core"
+  },
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
+  },
+  "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core#readme",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.10"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "agentic",
+    "tool-use",
+    "bandit",
+    "local-first",
+    "ollama",
+    "agent-core"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

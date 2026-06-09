@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement to Bandit CLI, Bandit Stealth, or the agent runtime.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Bandit CLI
+        - Bandit Stealth extension
+        - Shared runtime/package
+        - Local model support
+        - Docs/examples
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is currently painful or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Bandit do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing commands, settings, model profiles, or workflows you tried.
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help test this.
+        - label: I am interested in opening a PR after maintainers confirm the direction.

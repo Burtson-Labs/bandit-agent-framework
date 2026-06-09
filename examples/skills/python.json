@@ -1,0 +1,49 @@
+{
+  "id": "lang/python",
+  "name": "Python Toolchain",
+  "version": "1.0.0",
+  "description": "Lint, type-check, test, and format Python code using ruff + mypy + pytest + black.",
+  "instructions": "Use py_ruff for fast lint + style checks (it replaces flake8/isort/pyupgrade). Use py_mypy for static type errors. Scope py_pytest with a path or `-k expr` filter when iterating. Use py_black_check to verify formatting without applying changes.",
+  "activation": "auto",
+  "triggerPatterns": [
+    "\\.py\\b",
+    "\\bpytest\\b",
+    "\\bmypy\\b",
+    "\\bruff\\b",
+    "\\bpython\\b"
+  ],
+  "tools": [
+    {
+      "name": "py_ruff",
+      "description": "Run `ruff check` against the given path (default .) for lint + style issues.",
+      "parameters": [
+        { "name": "path", "description": "Path to scan, default .", "required": false }
+      ],
+      "command": "ruff check {{path}}"
+    },
+    {
+      "name": "py_mypy",
+      "description": "Run mypy static type checker against the given path (default .).",
+      "parameters": [
+        { "name": "path", "description": "Path to type-check, default .", "required": false }
+      ],
+      "command": "mypy {{path}}"
+    },
+    {
+      "name": "py_pytest",
+      "description": "Run pytest with an optional path or -k filter. Example target: tests/test_user.py::test_login",
+      "parameters": [
+        { "name": "target", "description": "File, directory, or -k expression; empty runs full suite", "required": false }
+      ],
+      "command": "pytest -q {{target}}"
+    },
+    {
+      "name": "py_black_check",
+      "description": "Check Black formatting without applying changes.",
+      "parameters": [
+        { "name": "path", "description": "Path to check, default .", "required": false }
+      ],
+      "command": "black --check {{path}}"
+    }
+  ]
+}

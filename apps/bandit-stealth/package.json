@@ -1,0 +1,691 @@
+{
+  "name": "bandit-stealth",
+  "displayName": "Bandit Stealth",
+  "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
+  "version": "1.7.371",
+  "publisher": "BurtsonLabs",
+  "license": "Apache-2.0",
+  "homepage": "https://burtson.ai/stealth",
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues",
+    "email": "team@burtson.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "apps/bandit-stealth"
+  },
+  "engines": {
+    "vscode": "^1.75.0",
+    "cursor": "^0.40.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "ollama",
+    "local-first",
+    "claude",
+    "copilot",
+    "llm",
+    "chat",
+    "tool-use",
+    "bandit",
+    "burtson-labs"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "banditStealth.askBandit",
+        "title": "Ask Bandit",
+        "category": "Bandit Stealth",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "banditStealth.openChat",
+        "title": "Open Chat",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.setApiKey",
+        "title": "Set API Key",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.resetApiKey",
+        "title": "Reset API Key",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.setOllamaAuthToken",
+        "title": "Set Ollama Auth Token",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.clearOllamaAuthToken",
+        "title": "Clear Ollama Auth Token",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.setTavilyKey",
+        "title": "Set Tavily Web Search Key (BYOK)",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.clearTavilyKey",
+        "title": "Clear Tavily Web Search Key",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.toggleMode",
+        "title": "Toggle Ask / Agent Mode",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.switchModel",
+        "title": "Switch Model",
+        "category": "Bandit Stealth",
+        "icon": "$(symbol-misc)"
+      },
+      {
+        "command": "banditStealth.agent.startGoal",
+        "title": "Agent — Start Goal",
+        "category": "Bandit Stealth",
+        "icon": "$(play)"
+      },
+      {
+        "command": "banditStealth.agent.cancel",
+        "title": "Agent — Cancel",
+        "category": "Bandit Stealth",
+        "icon": "$(stop)"
+      },
+      {
+        "command": "banditStealth.agent.showReport",
+        "title": "Agent — Show Last Report",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.testConnection",
+        "title": "Test Model Connection",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.linkWorkspace",
+        "title": "Link Workspace to Gateway",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.indexRepo",
+        "title": "Index This Repo",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.openInTerminal",
+        "title": "Open in Terminal",
+        "category": "Bandit Stealth",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "banditStealth.toggleUseTerminal",
+        "title": "Toggle Terminal Mode",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.insights",
+        "title": "Insights — Generate HTML Report",
+        "category": "Bandit Stealth",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "banditStealth.traceViewer",
+        "title": "Trace Logs — Open Viewer",
+        "category": "Bandit Stealth",
+        "icon": "$(list-tree)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "banditStealth.askBandit",
+        "key": "alt+shift+b",
+        "mac": "alt+shift+b",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "banditStealth.askBandit",
+        "key": "alt+shift+b",
+        "mac": "alt+shift+b",
+        "when": "!editorTextFocus"
+      },
+      {
+        "command": "banditStealth.switchModel",
+        "key": "alt+shift+m",
+        "mac": "alt+shift+m"
+      },
+      {
+        "command": "banditStealth.toggleMode",
+        "key": "alt+shift+t",
+        "mac": "alt+shift+t"
+      },
+      {
+        "command": "banditStealth.agent.startGoal",
+        "key": "alt+shift+g",
+        "mac": "alt+shift+g"
+      },
+      {
+        "command": "banditStealth.agent.cancel",
+        "key": "alt+shift+c",
+        "mac": "alt+shift+c"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "banditStealth.askBandit",
+          "group": "bandit@1",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "banditStealth.agent.startGoal",
+          "group": "bandit@2",
+          "when": "editorHasSelection"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "banditStealth.askBandit"
+        },
+        {
+          "command": "banditStealth.openChat"
+        },
+        {
+          "command": "banditStealth.switchModel"
+        },
+        {
+          "command": "banditStealth.toggleMode"
+        },
+        {
+          "command": "banditStealth.agent.startGoal"
+        },
+        {
+          "command": "banditStealth.agent.cancel"
+        },
+        {
+          "command": "banditStealth.agent.showReport"
+        },
+        {
+          "command": "banditStealth.testConnection"
+        },
+        {
+          "command": "banditStealth.linkWorkspace"
+        },
+        {
+          "command": "banditStealth.indexRepo"
+        },
+        {
+          "command": "banditStealth.insights"
+        },
+        {
+          "command": "banditStealth.traceViewer"
+        },
+        {
+          "command": "banditStealth.setApiKey"
+        },
+        {
+          "command": "banditStealth.resetApiKey"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "banditStealth",
+          "title": "Bandit Stealth",
+          "icon": "./media/bandit-stealth.png"
+        }
+      ]
+    },
+    "views": {
+      "banditStealth": [
+        {
+          "id": "banditStealth.chat",
+          "name": "Bandit Stealth",
+          "type": "webview",
+          "icon": "./media/bandit-stealth.png"
+        }
+      ]
+    },
+    "configuration": [
+      {
+        "type": "object",
+        "title": "Bandit Stealth",
+        "properties": {
+          "banditStealth.model": {
+            "type": "string",
+            "default": "bandit-logic",
+            "description": "Model name to request from the Bandit API or Ollama. `bandit-logic` is the recommended default — it's our agent-tuned wrapper around Qwen 3.6 27B, optimized for tool-use loops in the Bandit harness."
+          },
+          "banditStealth.apiUrl": {
+            "type": "string",
+            "default": "https://api.burtson.ai/completions",
+            "description": "Bandit API URL. Trailing /completions or /chat/completions will be trimmed automatically."
+          },
+          "banditStealth.embeddingsUrl": {
+            "type": "string",
+            "default": "https://api.burtson.ai/api/stealth/embeddings",
+            "description": "Base URL for the Bandit embeddings service used for repository indexing and semantic search."
+          },
+          "banditStealth.intentUrl": {
+            "type": "string",
+            "default": "https://api.burtson.ai/intent",
+            "description": "Bandit intent endpoint used to interpret goals before completions."
+          },
+          "banditStealth.pythonPath": {
+            "type": "string",
+            "default": "",
+            "description": "Absolute path to a Python 3 executable. Leave empty to let Bandit Stealth auto-detect python3/python."
+          },
+          "banditStealth.insightsAi": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "allow",
+              "deny"
+            ],
+            "default": "auto",
+            "description": "Whether the /insights command may ask the cloud LLM to summarize your aggregate session data. 'auto' = prompt once on first use and remember the answer. 'allow' = always include the AI summary. 'deny' = never include it. Local Ollama users skip the prompt entirely (data never leaves the machine)."
+          },
+          "banditStealth.feedbackUrl": {
+            "type": "string",
+            "default": "https://api.burtson.ai/feedback",
+            "description": "Bandit feedback endpoint for chat ratings and diff reviews."
+          },
+          "banditStealth.provider": {
+            "type": "string",
+            "enum": [
+              "ollama",
+              "bandit",
+              "openai-compatible"
+            ],
+            "default": "ollama",
+            "description": "LLM provider. ollama (default): local, private, free. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint — LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
+          },
+          "banditStealth.openaiBaseUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Base URL for an OpenAI-compatible endpoint. Examples: http://localhost:1234/v1 (LM Studio), http://localhost:8080/v1 (llama.cpp / vLLM), https://api.together.xyz/v1, https://openrouter.ai/api/v1, https://api.groq.com/openai/v1, https://api.deepseek.com/v1, https://api.openai.com/v1. The provider appends /chat/completions automatically. Required when provider is openai-compatible."
+          },
+          "banditStealth.openaiApiKey": {
+            "type": "string",
+            "default": "",
+            "description": "Bearer API key for the OpenAI-compatible endpoint. Local servers (LM Studio, llama.cpp) usually skip this. Stored in workspace settings — for stronger isolation, set OPENAI_API_KEY in your shell environment instead."
+          },
+          "banditStealth.openaiModel": {
+            "type": "string",
+            "default": "",
+            "description": "Model id sent to the OpenAI-compatible endpoint. Each upstream uses its own naming — e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo on Together, openai/gpt-4o on OpenRouter, your local model name on LM Studio."
+          },
+          "banditStealth.openaiHeaders": {
+            "type": "object",
+            "default": {},
+            "description": "Extra HTTP headers sent to the OpenAI-compatible endpoint. Useful for OpenRouter attribution headers (HTTP-Referer, X-Title), org IDs, etc. Authorization is set automatically from openaiApiKey."
+          },
+          "banditStealth.ollamaUrl": {
+            "type": "string",
+            "default": "http://localhost:11434",
+            "description": "Primary local Ollama endpoint (Mac localhost or LAN). Legacy alias for ollamaBaseUrl. Never point this at RunPod."
+          },
+          "banditStealth.ollamaBaseUrl": {
+            "type": "string",
+            "default": "http://localhost:11434",
+            "description": "Primary local Ollama endpoint (Mac localhost or LAN). Never point this at RunPod — use provider:bandit + model:bandit-core-2 for RunPod."
+          },
+          "banditStealth.ollamaNodeUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Optional secondary Ollama endpoint for an external GPU node (e.g. RTX 5090). When set, Ollama requests are routed here instead of ollamaBaseUrl. Leave empty to use local only."
+          },
+          "banditStealth.ollamaModel": {
+            "type": "string",
+            "default": "gemma3:12b",
+            "description": "Ollama model for local inference. Default: gemma3:12b (fits most machines). Set ollamaNodeUrl + this to gemma4:31b for GPU node inference."
+          },
+          "banditStealth.thinkingMode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "on",
+              "off"
+            ],
+            "default": "auto",
+            "enumDescriptions": [
+              "Use the runtime default per model — off for reasoning-capable models (Qwen 3.x, DeepSeek R1) so agent tool-use stays fast. Recommended.",
+              "Force chain-of-thought thinking mode ON for every request. Slower first-token latency (8–30s) but may improve quality on hard refactor / planning tasks.",
+              "Force thinking OFF even for models where the runtime default would enable it."
+            ],
+            "description": "Chain-of-thought thinking for reasoning-capable models. 'auto' defers to per-model defaults; 'on' / 'off' are session-level overrides."
+          },
+          "banditStealth.watchdogMs": {
+            "type": "number",
+            "default": -1,
+            "minimum": -1,
+            "description": "No-token watchdog override in milliseconds. -1 uses Bandit's auto-sized window, 0 disables the watchdog, and any positive value pins the timeout. BANDIT_NO_TOKEN_WATCHDOG_MS still wins when set in the editor process environment."
+          },
+          "banditStealth.voice.autoSpeak": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically read short assistant responses aloud using the Bandit cloud TTS endpoint. Only active when provider=bandit with an API key. Long responses (>400 words) and code-only replies are never auto-spoken — a manual speaker button on each message lets you play them on demand."
+          },
+          "banditStealth.voice.maxAutoSpeakWords": {
+            "type": "number",
+            "default": 120,
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Word-count cap for auto-speak. Responses longer than this are NOT auto-spoken (the speaker button still works for manual playback). Set to 0 to disable the cap."
+          },
+          "banditStealth.voice.voiceId": {
+            "type": "string",
+            "default": "en_US-brian-premium",
+            "description": "ElevenLabs voice model used for TTS. Defaults to Brian. Hidden for now; will surface as a picker in a future settings pass."
+          },
+          "banditStealth.voice.micEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the microphone button in the composer for speech-to-text transcription. Provider is configurable independently of the chat provider — see banditStealth.voice.stt.provider."
+          },
+          "banditStealth.voice.stt.provider": {
+            "type": "string",
+            "enum": [
+              "bandit",
+              "openai-whisper",
+              "custom"
+            ],
+            "default": "bandit",
+            "description": "Speech-to-text provider. 'bandit' uses the Bandit cloud STT endpoint (requires a Bandit API key). 'openai-whisper' targets any Whisper-compatible HTTP endpoint (faster-whisper-server, whisper.cpp HTTP, OpenAI, LiteLLM, vLLM). 'custom' lets you point at any URL with the same multipart shape."
+          },
+          "banditStealth.voice.stt.url": {
+            "type": "string",
+            "default": "",
+            "description": "STT endpoint URL. Required when provider is 'openai-whisper' or 'custom' (e.g. https://api.openai.com/v1/audio/transcriptions, http://localhost:8000/v1/audio/transcriptions). Ignored when provider is 'bandit'."
+          },
+          "banditStealth.voice.stt.apiKey": {
+            "type": "string",
+            "default": "",
+            "description": "Bearer token for the STT endpoint when not using Bandit cloud. Stored in user settings (not VS Code Secrets) so it can travel with workspace settings — for production secrets prefer a self-hosted endpoint without a token."
+          },
+          "banditStealth.voice.stt.model": {
+            "type": "string",
+            "default": "whisper-1",
+            "description": "Model name sent to OpenAI-compatible Whisper endpoints (e.g. 'whisper-1', 'whisper-large-v3'). Ignored by Bandit cloud and most self-hosted servers that take whatever model is loaded."
+          },
+          "banditStealth.voice.tts.provider": {
+            "type": "string",
+            "enum": [
+              "bandit",
+              "openai",
+              "elevenlabs",
+              "piper",
+              "custom"
+            ],
+            "default": "bandit",
+            "description": "Text-to-speech provider. 'bandit' uses the Bandit cloud (requires a Bandit API key). 'openai' targets /v1/audio/speech. 'elevenlabs' uses ElevenLabs' /v1/text-to-speech/{voice} URL. 'piper' is a local Piper HTTP server. 'custom' is a free-form URL + JSON body shape."
+          },
+          "banditStealth.voice.tts.url": {
+            "type": "string",
+            "default": "",
+            "description": "TTS endpoint URL or base URL. Required when provider isn't 'bandit'. For ElevenLabs leave empty to use the default https://api.elevenlabs.io; voiceId is appended at request time."
+          },
+          "banditStealth.voice.tts.apiKey": {
+            "type": "string",
+            "default": "",
+            "description": "Bearer token / API key for the TTS endpoint when not using Bandit cloud. Sent as 'Authorization: Bearer <key>' for OpenAI and 'xi-api-key: <key>' for ElevenLabs."
+          },
+          "banditStealth.voice.tts.model": {
+            "type": "string",
+            "default": "tts-1",
+            "description": "Model name for OpenAI-compatible TTS (e.g. 'tts-1', 'tts-1-hd') or for ElevenLabs ('eleven_monolingual_v1'). Ignored by Piper / Bandit cloud."
+          },
+          "banditStealth.useTerminal": {
+            "type": "boolean",
+            "default": false,
+            "description": "Prefer the terminal-based CLI experience. When on, the Bandit activity-bar icon opens the bandit CLI in VS Code's integrated terminal instead of the webview chat panel. Requires @burtson-labs/bandit-stealth-cli on PATH (npm i -g @burtson-labs/bandit-stealth-cli)."
+          },
+          "banditStealth.autoContextEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Auto-attach relevant workspace files to each prompt. When on, Bandit scans your active editor, recently-opened files, and goal hints to pick up to 5 files likely to be useful. Off by default — auto-context can burn through thousands of tokens per turn before the model even sees your prompt. Prefer explicit @-mentions; turn this on when you want less typing and have headroom to spend."
+          },
+          "banditStealth.ollamaHeaders": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Extra HTTP headers sent on every Ollama request. Use for reverse-proxied / authenticated Ollama endpoints (Bearer token, Cloudflare Access, RunPod proxy, etc.). Content-Type is always application/json and cannot be overridden."
+          },
+          "banditStealth.ollamaAutoRouteModels": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically route Ollama requests by input type: coding/text prompts use ollamaCodingModel, image prompts use ollamaVisionModel."
+          },
+          "banditStealth.ollamaCodingModel": {
+            "type": "string",
+            "default": "",
+            "description": "Preferred Ollama model for coding/text tasks. Leave empty to use ollamaModel — the previous default of qwen2.5-coder:14b silently overrode user selections when auto-routing was enabled, causing hangs for anyone without that model pulled."
+          },
+          "banditStealth.ollamaVisionModel": {
+            "type": "string",
+            "default": "",
+            "description": "Preferred Ollama model for image prompts. Leave empty to use ollamaModel. Set only when you want a different vision-capable model (e.g. llava) than your base model. Must support vision."
+          },
+          "banditStealth.ocrFallback": {
+            "type": "string",
+            "enum": [
+              "ocr-first",
+              "vision-first",
+              "off"
+            ],
+            "default": "ocr-first",
+            "description": "How to handle images when the active model can't see them. ocr-first: try local OCR (Apple Vision on mac, tesseract elsewhere), inline the text, stay on the current model. vision-first: skip OCR, require a vision-capable model. off: drop images silently (legacy behavior)."
+          },
+          "banditStealth.agentOllamaModel": {
+            "type": "string",
+            "default": "",
+            "description": "Optional explicit Ollama model override for agent runs. When empty, agent uses ollamaCodingModel when auto-routing is enabled."
+          },
+          "banditStealth.enableToolUse": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable text-based tool use in ask mode. When true, the model can call read_file, write_file, search_code, git_status, and other tools to resolve your request. Works with all Ollama models — no native function calling required."
+          },
+          "banditStealth.embeddings.provider": {
+            "type": "string",
+            "enum": [
+              "bandit",
+              "ollama",
+              "none"
+            ],
+            "default": "ollama",
+            "description": "Embeddings provider for semantic context search. 'ollama' uses local nomic-embed-text (already installed). 'bandit' uses the hosted Bandit embeddings API. 'none' disables semantic search and falls back to file-list context."
+          },
+          "banditStealth.embeddings.ollamaModel": {
+            "type": "string",
+            "default": "nomic-embed-text",
+            "description": "Ollama model for local embeddings. nomic-embed-text is already installed and recommended (274 MB, CPU-friendly)."
+          },
+          "banditStealth.context.preferGateway": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true and the current repo is indexed in GatewayApi, use Qdrant semantic search for context. Falls back to local nomic-embed-text when Gateway is unavailable or repo is not indexed."
+          },
+          "banditStealth.gatewayUrl": {
+            "type": "string",
+            "default": "",
+            "description": "GatewayApi base URL (e.g. https://api.burtson.ai). Required to use Qdrant semantic search and workspace binding. Leave empty to use local embeddings only."
+          },
+          "banditStealth.workspaceId": {
+            "type": "string",
+            "default": "",
+            "description": "GatewayApi workspace ID for the current repo. Auto-detected from git remote when possible. Set manually if auto-detection fails. Used for Qdrant context search and task/PR tracking."
+          },
+          "banditStealth.temperature": {
+            "type": "number",
+            "default": 0.2,
+            "description": "Sampling temperature passed to the Bandit API."
+          },
+          "banditStealth.topP": {
+            "type": "number",
+            "default": 1,
+            "description": "Top-p nucleus sampling value for the Bandit API."
+          },
+          "banditStealth.systemPrompt": {
+            "type": "string",
+            "default": "You are Bandit Stealth, an expert coding assistant that helps users write and reason about code inside VS Code.",
+            "description": "Optional system prompt that is prepended to every request."
+          },
+          "banditStealth.coauthor": {
+            "type": "boolean",
+            "default": true,
+            "description": "When enabled, commits Bandit makes on your behalf include a `Co-authored-by: Bandit <bandit@burtson.ai>` trailer so GitHub shows the Bandit ninja avatar on PR / blame / contributor views. Set BANDIT_NO_COAUTHOR=1 in your editor's process environment to force off."
+          },
+          "banditStealth.webSearch.tavilyApiKey": {
+            "type": "string",
+            "default": "",
+            "description": "API key for the `web_search` tool (powered by Tavily — free tier at https://tavily.com). Without this, web_search will return a 'not configured' error so the agent falls back to web_fetch. Leave blank to disable. The TAVILY_API_KEY environment variable is checked as a fallback."
+          },
+          "banditStealth.intent.showSuggestions": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show inline intent chips and autocomplete suggestions in the chat composer."
+          },
+          "banditStealth.insertResponsesByDefault": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, responses are inserted directly into the active editor instead of prompting."
+          },
+          "banditStealth.agent.maxIterations": {
+            "type": "number",
+            "default": 6,
+            "description": "Max planning/execution cycles before stopping."
+          },
+          "banditStealth.agent.confidenceTarget": {
+            "type": "number",
+            "default": 0.9,
+            "description": "Confidence threshold to consider a goal achieved."
+          },
+          "banditStealth.diff.reviewMode": {
+            "type": "boolean",
+            "default": false,
+            "description": "Stream in-progress rewrites into the Diff Review panel while the agent drafts changes."
+          },
+          "banditStealth.feedback.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show chat feedback prompts after assistant responses. Disable to hide the thumbs up/down row."
+          },
+          "banditStealth.notifications.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show VS Code notifications when Bandit needs approval, fails, finishes a long/background task, or completes while the panel is hidden."
+          },
+          "banditStealth.notifications.minTurnMs": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 0,
+            "description": "Minimum agent-turn duration before Bandit shows a completion notification while the panel is visible. Hidden-panel completions always notify when notifications are enabled."
+          },
+          "banditStealth.agent.dryRun": {
+            "type": "boolean",
+            "default": false,
+            "description": "Preview agent writes without applying changes to disk so you can review diffs first."
+          },
+          "banditStealth.debug.emitPlanJson": {
+            "type": "boolean",
+            "default": true,
+            "description": "Save agent plan and report artifacts under .bandit/plans/. Disable to keep the workspace clean."
+          },
+          "banditStealth.agent.createBranchBeforeRun": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, the agent automatically creates a git branch (bandit/{goal-slug}) before starting a goal. Changes are isolated and easy to discard if the run goes wrong. Requires git to be installed and the workspace to be a git repository."
+          },
+          "banditStealth.agent.autoApproveEdits": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, write_file and apply_edit tool calls skip the in-chat permission card and land immediately. run_command always still prompts regardless of this setting."
+          }
+        }
+      },
+      {
+        "title": "Bandit Stealth › Developer",
+        "properties": {
+          "banditStealth.agent.skipValidationInDev": {
+            "type": "boolean",
+            "default": false,
+            "scope": "application",
+            "description": "When running the extension from source, skip TypeScript/package validation so local workspace errors do not block goals."
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "vitest run",
+    "package": "pnpm run package:release",
+    "package:release": "node ./scripts/build-vsix.cjs --out bandit-stealth.vsix",
+    "package:beta": "node ./scripts/build-vsix.cjs --pre --out bandit-stealth-beta.vsix",
+    "lint": "eslint \"src/**/*.ts\"",
+    "build:webview": "pnpm --filter bandit-stealth-webview build",
+    "build:cursor": "pnpm run package:release",
+    "build:vsix": "pnpm -C ../.. --filter @burtson-labs/agent-core build && pnpm -C ../.. --filter @burtson-labs/stealth-core-runtime build && pnpm -C ../.. --filter @burtson-labs/host-kit build && pnpm -C ../.. --filter @burtson-labs/agent-adapters-vscode build && pnpm run build:webview && pnpm run compile && pnpm run package:release"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.24",
+    "@types/vscode": "^1.70.0",
+    "@vscode/vsce": "^2.32.0",
+    "adm-zip": "^0.5.16",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.0.10"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-adapters-vscode": "workspace:*",
+    "@burtson-labs/agent-core": "workspace:*",
+    "@burtson-labs/host-kit": "workspace:*",
+    "@burtson-labs/stealth-core-runtime": "workspace:*",
+    "diff2html": "^3.4.52",
+    "dompurify": "^3.4.5",
+    "markdown-it": "^14.2.0",
+    "typescript": "^5.3.3",
+    "zod": "^4.3.6"
+  },
+  "author": {
+    "name": "Burtson Labs LLC",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "maintainers": [
+    {
+      "name": "Brett A Burtson",
+      "email": "brett@burtson.com",
+      "url": "https://brett.burtson.com"
+    },
+    {
+      "name": "Mark A Burtson",
+      "email": "mark@burtson.ai",
+      "url": "https://burtson.ai"
+    }
+  ],
+  "icon": "./media/bandit-stealth.png"
+}

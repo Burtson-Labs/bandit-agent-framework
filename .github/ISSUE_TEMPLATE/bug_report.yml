@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem in Bandit CLI, Bandit Stealth, or a shared package.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Security issues should go through SECURITY.md, not a public issue.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      description: Where did you hit the problem?
+      options:
+        - Bandit CLI
+        - Bandit Stealth extension
+        - Shared runtime/package
+        - Docs/examples
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: CLI/extension/package version, or commit SHA if built from source.
+      placeholder: "1.7.277"
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps that trigger the issue.
+      placeholder: |
+        1. Run ...
+        2. Ask Bandit ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or trace
+      description: Paste relevant terminal output, extension logs, or `/trace` excerpts. Redact private code and secrets.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node/pnpm versions, VS Code/Cursor version, provider/model, and whether you are using Ollama or Bandit Cloud.
+      placeholder: "macOS 15, Node 22, pnpm 9, Ollama qwen2.5-coder:32b"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I removed secrets/private code from logs and traces.
+          required: true

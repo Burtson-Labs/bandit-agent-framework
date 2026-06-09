@@ -1,0 +1,23 @@
+{
+  "label": "Charcoal",
+  "appearance": "dark",
+  "palette": {
+    "background": "#1a1a1a",
+    "surface": "#262626",
+    "panel": "#0d0d0d",
+    "card": "#202020",
+    "border": "#333333",
+    "accent": "#f59e0b",
+    "textPrimary": "#fafafa",
+    "textSecondary": "#d4d4d4",
+    "textMuted": "#737373",
+    "success": "#84cc16",
+    "error": "#f43f5e",
+    "buttonContrast": "#0d0d0d",
+    "focusRing": "#fbbf24",
+    "codeBackground": "#0d0d0d",
+    "codeText": "#fafafa",
+    "codeBorder": "#333333",
+    "codeAccent": "#fbbf24"
+  }
+}

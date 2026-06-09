@@ -1,0 +1,467 @@
+name: Bandit Agent Framework
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  # NOTE: This is Burtson Labs' internal release pipeline. It runs on the
+  # self-hosted burtson-labs-runners pool and a private reusable workflow,
+  # so it will NOT run on public forks — that's expected. Outside
+  # contributors are gated by .github/workflows/pr-checks.yaml on
+  # ubuntu-latest instead. This file only runs on push-to-main + tags
+  # (release plumbing, not PR gating).
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # ─── Test ────────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: burtson-labs-runners
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Test stealth-core-runtime
+        run: pnpm --filter stealth-core-runtime exec vitest run
+      - name: Test bandit-stealth extension
+        run: pnpm --filter bandit-stealth exec vitest run
+      - name: Smoke-test bandit-cli
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke
+
+  # ─── Test on Windows ────────────────────────────────────────────────────────
+  # The Linux `test` job above runs on our self-hosted pool, which is
+  # the only platform our self-hosted runner image ships. Bandit ships
+  # to npm and gets installed on Windows by users — and Windows has its
+  # own spawn quirks (npm/npx are `.cmd` shims that Node's
+  # `cp.spawn(..., { shell: false })` can't resolve). This job runs the
+  # smoke test on a GHA-hosted `windows-latest` runner with
+  # BANDIT_SMOKE_REQUIRE_NPM=1, which turns the npm spawn check into
+  # a hard assertion instead of a soft skip — regressing the
+  # `shell: process.platform === 'win32'` fix in cliToolContext.ts
+  # would red-CI here.
+  test-windows:
+    name: Test (Windows)
+    # Hosted Windows runner — consumes GHA-hosted minutes at 2× the
+    # Linux rate. We don't have a self-hosted Windows pool.
+    #
+    # Previously fired on every push to main + every PR. With the
+    # org's spending limit calibrated for releases, that ran the
+    # budget dry within a couple of weeks and the resulting "Actions
+    # budget" block then prevented OTHER repos' helm deploys from
+    # scheduling (the block is org-wide and pre-runner-allocation,
+    # so even self-hosted jobs in unrelated repos can't start).
+    #
+    # Gated to release tags (`v*`) + manually-pushed test tags
+    # (`test-*`) so the Windows smoke still catches platform
+    # regressions at release time AND on-demand when an examiner
+    # pushes a tag like `test-win-cliToolContext-fix`. Normal pushes
+    # / PRs no longer trigger this job — they rely on the Linux
+    # `test` job above to catch most regressions for free on ARC.
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/test-')
+    runs-on: windows-latest
+    # continue-on-error stays — a budget block during a release tag
+    # push should still let the rest of the workflow (release/publish
+    # on the free self-hosted pool) ship.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Smoke-test bandit-cli (npm spawn assertion)
+        env:
+          BANDIT_SMOKE_REQUIRE_NPM: "1"
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke
+
+  # ─── Rebuild bundled macOS recorder ─────────────────────────────────────────
+  # bandit-mic is a tiny Swift AVFoundation binary that ships inside the
+  # VSIX. We rebuild it on every release run on a GHA-hosted macOS runner
+  # rather than trusting the checked-in binary, for two reasons:
+  #   1. CI provenance: every released VSIX gets a binary built from the
+  #      source in this commit, not from whatever a developer happened
+  #      to have on their machine when they ran swiftc locally.
+  #   2. Toolchain drift: macOS SDK + Swift compiler updates can change
+  #      ABI/codesigning expectations; rebuilding catches those before
+  #      shipping. Output is a universal arm64+x86_64 binary, ad-hoc
+  #      signed (sufficient because VS Code is the trusted parent — the
+  #      child binary inherits the parent's TCC and Gatekeeper trust).
+  build-recorder-darwin:
+    name: Build macOS recorder
+    needs: test
+    # Hosted macOS runner — the most expensive class on GitHub Actions
+    # (10× Linux rate). We don't have a self-hosted macOS pool wired
+    # (Mac mini in the cluster isn't a runner yet — see
+    # project_cluster_ci_runner). Previously rebuilt on every push,
+    # which is what consumed the org-wide spending budget that
+    # subsequently blocked unrelated repos' deploys.
+    #
+    # Gated to release tags (`v*`) + manually-pushed test tags
+    # (`test-*`). For normal pushes / PRs build-vsix downstream falls
+    # back to the checked-in binary in apps/bandit-stealth/media/
+    # recorders/, so VSIX builds stay green; only releases get a
+    # freshly-rebuilt recorder (which is what release provenance
+    # cares about anyway).
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/test-')
+    runs-on: macos-latest
+    # continue-on-error stays so a budget block during a release tag
+    # push still lets the rest of the workflow ship.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + sign bandit-mic-darwin
+        working-directory: apps/bandit-stealth/native/macos
+        run: |
+          swiftc -O -emit-executable -target arm64-apple-macos11   -o bandit-mic-arm64 bandit-mic.swift
+          swiftc -O -emit-executable -target x86_64-apple-macos11  -o bandit-mic-x64   bandit-mic.swift
+          lipo -create bandit-mic-arm64 bandit-mic-x64 -output ../../media/recorders/bandit-mic-darwin
+          codesign --sign - ../../media/recorders/bandit-mic-darwin
+          rm bandit-mic-arm64 bandit-mic-x64
+          file ../../media/recorders/bandit-mic-darwin
+      # Upload — best-effort. The artifact is consumed by build-vsix in
+      # the SAME workflow run and never read afterwards, so retention
+      # is 1 day (down from 30) to keep storage quota healthy. If the
+      # upload fails (storage quota hit, transient network), the
+      # downstream build-vsix step has continue-on-error on its
+      # download and falls back to the checked-in binary.
+      - name: Upload recorder artifact
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: bandit-mic-darwin
+          path: apps/bandit-stealth/media/recorders/bandit-mic-darwin
+          retention-days: 1
+
+  # ─── Build VSIX ─────────────────────────────────────────────────────────────
+  # ─── Build VSIX + release in one job ────────────────────────────────────────
+  # Originally two jobs (build-vsix, release) with the VSIX handed off
+  # via actions/upload-artifact + download-artifact. Both run on the
+  # same self-hosted pool so the round trip never gained anything on
+  # disk — and worse, every push burned GitHub artifact storage quota
+  # (observed 2026-04-29: "Failed to CreateArtifact: Artifact storage
+  # quota has been hit" on the v1.7.102 tag re-trigger). Merging both
+  # into one job drops the pointless artifact pair AND keeps the file
+  # on disk where the release step expects it. Publish steps are
+  # gated by `if: startsWith(github.ref, 'refs/tags/v')` at the step
+  # level so non-tag pushes still build (catches breakage on every
+  # commit) but only tags publish.
+  build-vsix:
+    name: Build VSIX (+ release on tag)
+    needs: [test, build-recorder-darwin]
+    if: always() && needs.test.result == 'success'
+    runs-on: burtson-labs-runners
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Best-effort: download the freshly-built recorder if the upstream
+      # job produced one. Otherwise fall through to the checked-in
+      # binary at media/recorders/bandit-mic-darwin (committed so a
+      # release can ship even when the macOS hosted runner is blocked
+      # by Actions budget). continue-on-error: true means a missing
+      # artifact won't fail the step.
+      - name: Download recorder artifact (best-effort)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bandit-mic-darwin
+          path: apps/bandit-stealth/media/recorders
+      - name: Mark recorder executable
+        run: chmod +x apps/bandit-stealth/media/recorders/bandit-mic-darwin || echo "recorder not present yet — VSIX will use the checked-in binary"
+      - name: Build VSIX
+        working-directory: apps/bandit-stealth
+        run: pnpm run build:vsix
+      # ─── Release path (tag-only) ──────────────────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            apps/bandit-stealth/bandit-stealth.vsix
+          body: |
+            ## Highlights
+
+            - Webview decomposition **Arc W1 complete** — every pre-App and post-App component split out of `App.tsx`, helpers and shared types moved into `webview/src/state/`, `webview/src/util/`, and `webview/src/types/`. `App.tsx` 7,180 → 4,096 LOC (-3,084, -43%) across 28 commits.
+            - **OSS-readiness package prep** — workspace packages consolidated under one `@burtson-labs/*` npm scope, `LICENSE` shipped in every tarball, `@burtson-labs/core-chat` ships ESM, CI publishes restored against npmjs.org. No user-facing behavior change in the extension or CLI.
+            - **CLI fix** — idle composer no longer stacks duplicate frames across display sleep/wake or workspace switches.
+
+            ## Install
+
+            ### VS Code Marketplace
+            Search "Bandit Stealth" in VS Code Extensions, or install from the command line:
+            ```
+            code --install-extension BurtsonLabs.bandit-stealth
+            ```
+
+            ### Manual Install
+            1. Download `bandit-stealth.vsix` below
+            2. VS Code → Extensions → `...` → Install from VSIX
+
+            ### Setup
+            ```
+            brew install ollama && ollama pull gemma4:12b
+            ```
+
+            ### Web UI
+            ```
+            docker pull ghcr.io/burtson-labs/bandit-stealth-web:latest
+            ```
+      - name: Publish to VS Code Marketplace
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/bandit-stealth
+        # Azure DevOps' marketplace gallery API intermittently times out
+        # under load (`Request timeout: /_apis/gallery/...`). Retry up
+        # to 5 times with increasing backoff (2s, 10s, 30s, 60s, 120s)
+        # mirroring the Open VSX step below. Typical flake resolves on
+        # the second attempt.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npx @vscode/vsce publish --packagePath ./bandit-stealth.vsix; then
+              echo "Marketplace publish succeeded on attempt $attempt"
+              exit 0
+            fi
+            case $attempt in
+              1) sleep 2 ;;
+              2) sleep 10 ;;
+              3) sleep 30 ;;
+              4) sleep 60 ;;
+              5) echo "Marketplace publish failed after 5 attempts"; exit 1 ;;
+            esac
+            echo "Marketplace publish attempt $attempt failed — retrying"
+          done
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Publish to Open VSX
+        if: startsWith(github.ref, 'refs/tags/v') && env.OVSX_PAT != ''
+        working-directory: apps/bandit-stealth
+        # Open VSX routinely returns 502 for ~30-60s during load spikes.
+        # Retry up to 5 times with increasing backoff (2s, 10s, 30s, 60s, 120s)
+        # before giving up. Typical flake resolves on the second attempt.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npx ovsx publish ./bandit-stealth.vsix; then
+              echo "Open VSX publish succeeded on attempt $attempt"
+              exit 0
+            fi
+            case $attempt in
+              1) sleep 2 ;;
+              2) sleep 10 ;;
+              3) sleep 30 ;;
+              4) sleep 60 ;;
+              5) echo "Open VSX publish failed after 5 attempts"; exit 1 ;;
+            esac
+            echo "Open VSX publish attempt $attempt failed — retrying"
+          done
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+  # ─── Publish @burtson-labs/* packages to npmjs.org ─────────────────────────
+  # Re-enabled 2026-06-03 against registry.npmjs.org (the prior inline
+  # version targeted GitHub Packages and was disabled 2026-05-28 after the
+  # org billing cap started 403-ing every release). npmjs.org has no such
+  # cap and is where the public CLI already ships.
+  #
+  # Uses Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package
+  # — same reusable pattern as the docker + helm jobs below. Per-package
+  # job: each call does its own checkout + pnpm install + build, then
+  # `pnpm --filter <name> publish --access public`.
+  #
+  # Two tiers, sequenced by the workspace DAG: tier 1 (no workspace deps)
+  # must land first because tier-2 packages reference tier-1 by concrete
+  # version once pnpm publish substitutes `workspace:*`. Tier-2 jobs
+  # declare `needs:` on the tier-1 publish jobs so the registry has the
+  # right versions when tier-2 tarballs land.
+
+  # ─── Tier 1: no workspace deps ─────────────────────────────────────────────
+  publish-core-chat:
+    name: Publish @burtson-labs/core-chat
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/core-chat
+      packageName: "@burtson-labs/core-chat"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-core:
+    name: Publish @burtson-labs/agent-core
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-core
+      packageName: "@burtson-labs/agent-core"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
+  publish-agent-ui:
+    name: Publish @burtson-labs/agent-ui
+    needs: [test, publish-core-chat, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-ui
+      packageName: "@burtson-labs/agent-ui"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-stealth-core-runtime:
+    name: Publish @burtson-labs/stealth-core-runtime
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/stealth-core-runtime
+      packageName: "@burtson-labs/stealth-core-runtime"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-host-kit:
+    name: Publish @burtson-labs/host-kit
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/host-kit
+      packageName: "@burtson-labs/host-kit"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-adapters-provider:
+    name: Publish @burtson-labs/agent-adapters-provider
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-adapters/provider
+      packageName: "@burtson-labs/agent-adapters-provider"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-adapters-node:
+    name: Publish @burtson-labs/agent-adapters-node
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-adapters/node
+      packageName: "@burtson-labs/agent-adapters-node"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-adapters-github:
+    name: Publish @burtson-labs/agent-adapters-github
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-adapters/github
+      packageName: "@burtson-labs/agent-adapters-github"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-adapters-vscode:
+    name: Publish @burtson-labs/agent-adapters-vscode
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-adapters/vscode
+      packageName: "@burtson-labs/agent-adapters-vscode"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  publish-agent-adapters-web:
+    name: Publish @burtson-labs/agent-adapters-web
+    needs: [test, publish-agent-core]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
+    with:
+      packagePath: packages/agent-adapters/web
+      packageName: "@burtson-labs/agent-adapters-web"
+      isPublic: true
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  # ─── Publish bandit-stealth-cli to public npm (every main push) ────────────
+  # Mirrors the GH Packages publish above — every main merge ships the CLI
+  # to both registries in lockstep. pnpm publish no-ops with a 403 if the
+  # version hasn't moved, so CI goes red if a merge lands without a version
+  # bump. That's the same discipline the GH Packages job enforces for
+  # bandit-stealth-cli today.
+  publish-cli-npmjs:
+    name: Publish CLI to npm
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: burtson-labs-runners
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          # setup-node writes ~/.npmrc with this registry + uses
+          # NODE_AUTH_TOKEN for auth. Scope isn't needed here because
+          # the CLI's package.json already declares publishConfig.access.
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      # prepublishOnly runs typecheck + build:publish. tsc resolves the
+      # three workspace packages through their `types` field which points
+      # at dist/*.d.ts — so we need those dists built first. Same pattern
+      # the publish-packages job above uses via `pnpm build`.
+      - run: pnpm build
+      # `|| true` swallows the 409 "already published" response so
+      # doc-only / chart-only commits don't red-CI. Bumping
+      # apps/bandit-cli/package.json is what drives a real publish;
+      # everything else no-ops here.
+      - name: Publish to npm
+        working-directory: apps/bandit-cli
+        # Same safe-publish wrapper the GH Packages job uses — only
+        # soft-skips the "already published" 403/409 case; every other
+        # failure turns the job red.
+        run: ../../scripts/safe-publish.sh --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # build-web + deploy-web for bandit-stealth-web moved out of the monorepo
+  # 2026-06-05 — the web app now lives at Burtson-Labs/bandit-stealth-web,
+  # which runs its own copy of these jobs against the same image path
+  # (ghcr.io/burtson-labs/bandit-stealth-web) and the same helm release
+  # in the bandit namespace. K8s side is unaffected.
+
+  # release job folded into build-vsix above — keeps the VSIX file on
+  # disk between build and publish instead of round-tripping through
+  # GitHub artifact storage (which had no value here since both jobs
+  # ran on the same self-hosted pool, and burned storage quota).

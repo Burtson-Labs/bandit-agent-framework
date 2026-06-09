@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://docs.burtson.ai/</loc></url>
+  <url><loc>https://docs.burtson.ai/quickstart.html</loc></url>
+  <url><loc>https://docs.burtson.ai/bandit-cli.html</loc></url>
+  <url><loc>https://docs.burtson.ai/bandit-stealth.html</loc></url>
+  <url><loc>https://docs.burtson.ai/how-a-turn-works.html</loc></url>
+  <url><loc>https://docs.burtson.ai/tools.html</loc></url>
+  <url><loc>https://docs.burtson.ai/skills.html</loc></url>
+  <url><loc>https://docs.burtson.ai/memory.html</loc></url>
+  <url><loc>https://docs.burtson.ai/providers-and-models.html</loc></url>
+  <url><loc>https://docs.burtson.ai/mcp.html</loc></url>
+  <url><loc>https://docs.burtson.ai/the-agent-loop.html</loc></url>
+  <url><loc>https://docs.burtson.ai/retrieval-and-context.html</loc></url>
+  <url><loc>https://docs.burtson.ai/memory-as-synthesis.html</loc></url>
+  <url><loc>https://docs.burtson.ai/glossary.html</loc></url>
+  <url><loc>https://docs.burtson.ai/build-your-own-host.html</loc></url>
+  <url><loc>https://docs.burtson.ai/writing-a-custom-tool.html</loc></url>
+  <url><loc>https://docs.burtson.ai/configuration.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-core.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-ui.html</loc></url>
+  <url><loc>https://docs.burtson.ai/stealth-core-runtime.html</loc></url>
+  <url><loc>https://docs.burtson.ai/host-kit.html</loc></url>
+  <url><loc>https://docs.burtson.ai/core-chat.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters-provider.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters-node.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters-github.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters-vscode.html</loc></url>
+  <url><loc>https://docs.burtson.ai/agent-adapters-web.html</loc></url>
+</urlset>

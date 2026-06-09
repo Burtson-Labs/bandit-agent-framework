@@ -1,0 +1,54 @@
+{
+  "name": "@burtson-labs/host-kit",
+  "version": "0.4.0",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "description": "Host-agnostic building blocks for the Bandit agent framework — memory files, hooks, mentions, and the extra tool set (todo_write, web_fetch).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "packages/host-kit"
+  },
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
+  },
+  "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/host-kit#readme",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "pnpm -C ../.. --filter @burtson-labs/agent-core build",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@burtson-labs/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.10"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "agentic",
+    "tool-use",
+    "bandit",
+    "local-first",
+    "ollama",
+    "host-kit"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

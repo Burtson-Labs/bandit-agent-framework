@@ -1,0 +1,48 @@
+{
+  "id": "lang/go",
+  "name": "Go Toolchain",
+  "version": "1.0.0",
+  "description": "Verify, test, and format Go code using the standard Go toolchain.",
+  "instructions": "Use go_vet to catch suspicious constructs, go_test to run unit tests (scope by package path when practical), go_fmt to normalize formatting, and go_build to confirm the module compiles. Prefer narrower package paths (e.g. ./internal/foo/...) over ./... when the user's change is localized.",
+  "activation": "auto",
+  "triggerPatterns": [
+    "\\.go\\b",
+    "\\bgo\\s+(test|vet|build|fmt|mod)\\b",
+    "\\bgolang\\b",
+    "\\bgoroutine\\b"
+  ],
+  "tools": [
+    {
+      "name": "go_vet",
+      "description": "Run `go vet` on the given package path (default ./...) to report suspicious constructs.",
+      "parameters": [
+        { "name": "pkg", "description": "Go package path, e.g. ./... or ./internal/foo/...", "required": false }
+      ],
+      "command": "go vet {{pkg}}"
+    },
+    {
+      "name": "go_test",
+      "description": "Run `go test` for the given package path with race detection enabled.",
+      "parameters": [
+        { "name": "pkg", "description": "Go package path, e.g. ./... or ./pkg/bar", "required": false }
+      ],
+      "command": "go test -race -count=1 {{pkg}}"
+    },
+    {
+      "name": "go_fmt",
+      "description": "Run `gofmt -l` to list files needing formatting under the given path (default .).",
+      "parameters": [
+        { "name": "path", "description": "Directory to scan, default .", "required": false }
+      ],
+      "command": "gofmt -l {{path}}"
+    },
+    {
+      "name": "go_build",
+      "description": "Run `go build` on the given package path to confirm the module compiles.",
+      "parameters": [
+        { "name": "pkg", "description": "Go package path, e.g. ./... or ./cmd/server", "required": false }
+      ],
+      "command": "go build {{pkg}}"
+    }
+  ]
+}
