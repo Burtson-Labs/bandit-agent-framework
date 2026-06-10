@@ -149,6 +149,56 @@ function ogCardSvg({ kind, title, subtitle }) {
 </svg>`;
 }
 
+// An N-spike star path, used on the quiz OG seal.
+function starPath(cx, cy, spikes, outerR, innerR) {
+  let rot = -Math.PI / 2;
+  const step = Math.PI / spikes;
+  let d = "";
+  for (let i = 0; i < spikes; i++) {
+    d += (i === 0 ? "M" : "L") + (cx + Math.cos(rot) * outerR).toFixed(1) + " " + (cy + Math.sin(rot) * outerR).toFixed(1) + " ";
+    rot += step;
+    d += "L" + (cx + Math.cos(rot) * innerR).toFixed(1) + " " + (cy + Math.sin(rot) * innerR).toFixed(1) + " ";
+    rot += step;
+  }
+  return d + "Z";
+}
+
+// The quiz page gets a distinct, award-themed OG card — a gold certificate
+// rosette with a ribbon, a bold hook, and a CTA chip — so a shared link actually
+// pulls clicks instead of unfurling as just another reference page.
+function quizCardSvg() {
+  const cx = 1000, cy = 250;
+  let scallop = "";
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    scallop += `<circle cx="${(cx + Math.cos(a) * 80).toFixed(1)}" cy="${(cy + Math.sin(a) * 80).toFixed(1)}" r="9" fill="url(#gold)"/>`;
+  }
+  return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0c0e15"/><stop offset="1" stop-color="#15101f"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe9a6"/><stop offset="0.5" stop-color="#f5c542"/><stop offset="1" stop-color="#d4a017"/></linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="10" fill="#a60ee5"/>
+  <text x="84" y="150" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="700" letter-spacing="4" fill="#b842f0">GLOSSARY QUIZ</text>
+  <text x="84" y="262" font-family="Helvetica, Arial, sans-serif" font-size="84" font-weight="800" fill="#e7eaf2">Test your</text>
+  <text x="84" y="356" font-family="Helvetica, Arial, sans-serif" font-size="84" font-weight="800" fill="#e7eaf2">AI fluency</text>
+  <text x="84" y="424" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#9aa3b6">Multiple choice on agent &amp; LLM terms.</text>
+  <rect x="84" y="462" width="452" height="58" rx="29" fill="none" stroke="#a60ee5" stroke-width="2"/>
+  <text x="112" y="499" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="600" fill="#c061f0">Can you reach Bandit Sage? &#8594;</text>
+  <polygon points="968,300 1000,300 1000,470 984,452 968,470" fill="#9a6f12"/>
+  <polygon points="1000,300 1032,300 1032,470 1016,452 1000,470" fill="#c79a2a"/>
+  ${scallop}
+  <circle cx="${cx}" cy="${cy}" r="74" fill="url(#gold)"/>
+  <circle cx="${cx}" cy="${cy}" r="60" fill="#15101f"/>
+  <circle cx="${cx}" cy="${cy}" r="60" fill="none" stroke="url(#gold)" stroke-width="2"/>
+  <path d="${starPath(cx, cy - 4, 5, 34, 14)}" fill="url(#gold)"/>
+  <text x="${cx}" y="${cy + 42}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2" fill="#f5c542">CERTIFIED</text>
+  <text x="84" y="566" font-family="Helvetica, Arial, sans-serif" font-size="27" font-weight="600" fill="#6b7385">docs.burtson.ai</text>
+  <text x="1116" y="566" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#8a93a6">Bandit Agent Framework</text>
+</svg>`;
+}
+
 // Pull the one-line tagline from a doc: the README hero (**bold**), else the
 // first real paragraph.
 function taglineFrom(mdText) {
@@ -846,6 +896,18 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 .quiz-cta strong { display: block; color: var(--text); font-size: 17px; }
 .quiz-cta .sub { display: block; color: var(--text-muted); font-size: 14px; margin-top: 2px; }
 .quiz-cta-go { white-space: nowrap; font-weight: 700; color: var(--accent-strong); }
+.cert-name-label { display: block; text-align: center; font-size: 12px; color: var(--text-faint); letter-spacing: 0.04em; text-transform: uppercase; margin: 4px 0 6px; }
+.quiz-unlocked-note { color: var(--text-muted); font-size: 14px; margin: 12px 0 0; }
+.quiz-unlocked-note.quiz-locked { color: var(--text-faint); }
+.quiz-unlock { margin: 16px 0 4px; padding: 14px 18px; border-radius: 10px; border: 1px solid #f5c542; background: linear-gradient(120deg, rgba(245,197,66,0.14), rgba(245,197,66,0.04)); }
+.quiz-unlock strong { color: #f5c542; }
+.quiz-unlock .quiz-btn { margin-top: 10px; }
+.quiz-hard-card { border-color: rgba(245,197,66,0.5); }
+.quiz-share-link { display: inline-block; margin-top: 14px; background: none; border: none; padding: 0; color: var(--text-muted); font-size: 14px; cursor: pointer; }
+.quiz-share-link:hover { color: var(--accent-strong); text-decoration: underline; }
+.certificate.expert { background: linear-gradient(135deg, #f5c542, #b8860b 45%, #1a1430 70%, #f5c542); }
+.expert .cert-seal { background: conic-gradient(#f5c542, #ffe9a6, #d4a017, #f5c542); color: #1a1206; box-shadow: 0 6px 20px rgba(245,197,66,0.4); }
+.expert .cert-rating { color: #f5c542; }
 
 @media (max-width: 900px) {
   .layout {
@@ -1274,11 +1336,12 @@ function renderQuiz() {
 
 <div id="quiz" class="quiz" aria-live="polite"></div>
 
-<script>window.QUIZ_TERMS = ${data};</script>
+<script>window.QUIZ_TERMS = ${data};
+window.QUIZ_LOGO = "data:image/png;base64,${OG_LOGO_B64}";</script>
 <script src="quiz.js"></script>`;
   return renderShell({
-    title: "Test your knowledge — Bandit Agent Framework",
-    description: "A multiple-choice quiz on AI and agent terms, drawn from the glossary, with a certificate at the end.",
+    title: "Test your AI fluency — Bandit Agent Framework quiz",
+    description: "Can you ace it? A multiple-choice quiz on AI & agent terms, straight from the glossary. Earn a shareable certificate — and see if you can reach Bandit Sage.",
     activeSlug: "quiz",
     body
   });
@@ -1345,6 +1408,11 @@ writeOgCard(outDir, "index", {
 });
 for (const section of SECTIONS) {
   for (const item of section.items) {
+    if (item.quiz) {
+      const png = new Resvg(quizCardSvg(), { font: { loadSystemFonts: true } }).render().asPng();
+      fs.writeFileSync(path.join(outDir, "og", `${item.slug}.png`), png);
+      continue;
+    }
     const src = item.readme ? path.join(repoRoot, item.readme) : null;
     const tagline = src && fs.existsSync(src) ? taglineFrom(fs.readFileSync(src, "utf8")) : "";
     writeOgCard(outDir, item.slug, {
