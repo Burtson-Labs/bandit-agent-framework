@@ -905,6 +905,8 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 .quiz-hard-card { border-color: rgba(245,197,66,0.5); }
 .quiz-share-link { display: inline-block; margin-top: 14px; background: none; border: none; padding: 0; color: var(--text-muted); font-size: 14px; cursor: pointer; }
 .quiz-share-link:hover { color: var(--accent-strong); text-decoration: underline; }
+.licon { width: 1em; height: 1em; vertical-align: -0.14em; display: inline-block; flex: none; }
+.quiz-unlock .licon, .quiz-perfect .licon { width: 1.1em; height: 1.1em; }
 .certificate.expert { background: linear-gradient(135deg, #f5c542, #b8860b 45%, #1a1430 70%, #f5c542); }
 .expert .cert-seal { background: conic-gradient(#f5c542, #ffe9a6, #d4a017, #f5c542); color: #1a1206; box-shadow: 0 6px 20px rgba(245,197,66,0.4); }
 .expert .cert-rating { color: #f5c542; }

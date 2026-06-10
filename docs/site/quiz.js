@@ -42,6 +42,22 @@
     return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
   }
 
+  // Inline Lucide icons (ISC-licensed). No bundler on this page, so the paths
+  // are inlined; styling is via .licon (sizes to 1em, inherits currentColor).
+  var ICONS = {
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+  };
+  function icon(name) {
+    return '<svg class="licon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+  }
+
   function build(mode) {
     MODE = mode; cfg = MODES[mode];
     var chosen = shuffle(TERMS).slice(0, cfg.q), nd = cfg.opts - 1;
@@ -70,12 +86,12 @@
         (best ? '<p class="quiz-best">Personal best: <strong>' + esc(best) + ' / ' + MODES.standard.q + '</strong></p>' : "") +
         '<div class="quiz-actions">' +
           '<button class="quiz-btn" id="quiz-go">Start the quiz &rarr;</button>' +
-          (unlocked ? '<button class="quiz-btn ghost" id="quiz-hard">&#11088; Expert mode' + (bestHard ? ' &middot; best ' + esc(bestHard) + '/' + MODES.hard.q : '') + '</button>' : '') +
+          (unlocked ? '<button class="quiz-btn ghost" id="quiz-hard">' + icon("star") + ' Expert mode' + (bestHard ? ' &middot; best ' + esc(bestHard) + '/' + MODES.hard.q : '') + '</button>' : '') +
         '</div>' +
         (unlocked
           ? '<p class="quiz-unlocked-note">Expert mode unlocked — ' + MODES.hard.q + ' questions, ' + MODES.hard.opts + ' options each, gold certificate.</p>'
-          : '<p class="quiz-unlocked-note quiz-locked">&#128274; Score ' + Math.round(PASS * 100) + '%+ to unlock Expert mode.</p>') +
-        '<button class="quiz-share-link" id="quiz-share">&#128279; Challenge a friend</button>' +
+          : '<p class="quiz-unlocked-note quiz-locked">' + icon("lock") + ' Score ' + Math.round(PASS * 100) + '%+ to unlock Expert mode.</p>') +
+        '<button class="quiz-share-link" id="quiz-share">' + icon("share") + ' Challenge a friend</button>' +
       '</div>';
     root.innerHTML = html;
     document.getElementById("quiz-go").onclick = function () { build("standard"); renderQ(); };
@@ -98,7 +114,7 @@
     root.innerHTML =
       '<div class="quiz-card' + (MODE === "hard" ? " quiz-hard-card" : "") + '">' +
         '<div class="quiz-progress"><span style="width:' + (idx / N * 100) + '%"></span></div>' +
-        '<p class="quiz-eyebrow">' + (MODE === "hard" ? "&#11088; Expert &middot; " : "") + 'Question ' + (idx + 1) + ' of ' + N + ' &middot; ' + q.prompt + '</p>' +
+        '<p class="quiz-eyebrow">' + (MODE === "hard" ? icon("star") + " Expert &middot; " : "") + 'Question ' + (idx + 1) + ' of ' + N + ' &middot; ' + q.prompt + '</p>' +
         '<p class="quiz-def' + (q.kind === "def" ? " quiz-term" : "") + '">' + esc(q.sub) + '</p>' +
         '<div class="quiz-options' + (q.kind === "def" ? " quiz-options-long" : "") + '">' +
           q.options.map(function (o, i) { return '<button class="quiz-opt" data-i="' + i + '">' + esc(o) + '</button>'; }).join("") +
@@ -121,8 +137,8 @@
     var fb = root.querySelector(".quiz-feedback");
     fb.hidden = false;
     fb.innerHTML =
-      '<p>' + (ok ? '<span class="quiz-ok">&#10003; Correct.</span>'
-                  : '<span class="quiz-no">&#10007; The answer was <strong>' + esc(q.term) + '</strong>.</span>') +
+      '<p>' + (ok ? '<span class="quiz-ok">' + icon("check") + ' Correct.</span>'
+                  : '<span class="quiz-no">' + icon("x") + ' The answer was <strong>' + esc(q.term) + '</strong>.</span>') +
         ' <a href="./glossary.html#' + encodeURIComponent(q.anchor) + '">Read it in the glossary &rarr;</a></p>' +
       '<button class="quiz-btn quiz-next">' + (idx + 1 < N ? "Next question &rarr;" : "See your score &rarr;") + '</button>';
     fb.querySelector(".quiz-next").onclick = function () { idx++; if (idx < N) renderQ(); else finish(); };
@@ -161,17 +177,17 @@
         '<label class="cert-name-label" for="cert-name">Personalize your certificate</label>' +
         '<input id="cert-name" class="cert-name-input" type="text" maxlength="28" placeholder="Type your name" value="' + esc(name) + '">' +
         '<div class="quiz-actions">' +
-          '<button class="quiz-btn" id="cert-download">&#8595; Download certificate</button>' +
+          '<button class="quiz-btn" id="cert-download">' + icon("download") + ' Download certificate</button>' +
           '<button class="quiz-btn" id="cert-share">Share</button>' +
         '</div>' +
         '<div class="quiz-summary">' +
           '<h3>' + score + ' / ' + N + ' &middot; ' + esc(r.t) + '</h3>' +
-          (justUnlocked ? '<div class="quiz-unlock">&#11088; <strong>Expert mode unlocked!</strong> Tougher questions, six options each. <button class="quiz-btn" id="go-hard">Try Expert mode &rarr;</button></div>' : '') +
+          (justUnlocked ? '<div class="quiz-unlock">' + icon("sparkles") + ' <strong>Expert mode unlocked!</strong> Tougher questions, six options each. <button class="quiz-btn" id="go-hard">Try Expert mode &rarr;</button></div>' : '') +
           (wrong.length
             ? '<p class="quiz-review-title">Worth another look:</p><ul class="quiz-review">' +
                 wrong.map(function (a) { return '<li><strong>' + esc(a.term) + '</strong> <a href="./glossary.html#' + encodeURIComponent(a.anchor) + '">Glossary &rarr;</a></li>'; }).join("") +
               '</ul>'
-            : '<p class="quiz-perfect">Flawless run. &#127919;</p>') +
+            : '<p class="quiz-perfect">Flawless run. ' + icon("target") + '</p>') +
           '<div class="quiz-actions">' +
             '<button class="quiz-btn ghost" id="quiz-again">' + (expert ? "Replay Expert" : "Try again") + ' &rarr;</button>' +
             '<a class="quiz-btn ghost" href="./glossary.html">Study the glossary</a>' +
