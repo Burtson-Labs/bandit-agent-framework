@@ -218,7 +218,8 @@ const SECTIONS = [
   {
     title: "Reference",
     items: [
-      { slug: "glossary", name: "Glossary", readme: "docs/reference/glossary.md", tagline: "Plain-English definitions for the AI terms in these docs." }
+      { slug: "glossary", name: "Glossary", readme: "docs/reference/glossary.md", tagline: "Plain-English definitions for the AI terms in these docs." },
+      { slug: "quiz", name: "Test your knowledge", tagline: "A glossary quiz with a certificate — see how you score.", quiz: true }
     ]
   },
   {
@@ -796,6 +797,56 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 .footer a { color: var(--text-muted); }
 
 /* ── Tablet + Mobile ─────────────────────────────────────────────── */
+/* ── "Test your knowledge" quiz ──────────────────────────────────── */
+.quiz { margin: 8px 0 24px; }
+.quiz-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
+.quiz-card h2 { margin: 6px 0 12px; font-size: 22px; }
+.quiz-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-strong); margin: 0 0 6px; }
+.quiz-best { color: var(--text-muted); }
+.quiz-progress { height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 0 0 18px; }
+.quiz-progress span { display: block; height: 100%; background: linear-gradient(90deg, #a60ee5, #b842f0); transition: width 0.3s ease; }
+.quiz-def { font-size: 19px; line-height: 1.5; font-weight: 500; color: var(--text); margin: 6px 0 20px; }
+.quiz-def.quiz-term { font-size: 26px; font-weight: 700; }
+.quiz-options { display: grid; gap: 10px; }
+.quiz-opt { text-align: left; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; }
+.quiz-opt:hover:not(:disabled) { border-color: var(--accent); }
+.quiz-opt:disabled { cursor: default; opacity: 0.9; }
+.quiz-opt.right { border-color: #2ea043; background: rgba(46,160,67,0.14); color: #4ade80; }
+.quiz-opt.wrong { border-color: #f85149; background: rgba(248,81,73,0.12); color: #ff7b72; }
+.quiz-feedback { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.quiz-feedback p { margin: 0 0 14px; }
+.quiz-ok { color: #4ade80; font-weight: 600; }
+.quiz-no { color: #ff7b72; font-weight: 600; }
+.quiz-btn { display: inline-block; padding: 11px 20px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; text-decoration: none; transition: filter 0.15s ease; }
+.quiz-btn:hover { filter: brightness(1.1); text-decoration: none; }
+.quiz-btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.quiz-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.quiz-summary h3 { font-size: 20px; margin: 24px 0 12px; }
+.quiz-review-title { color: var(--text-muted); margin: 0 0 8px; }
+.quiz-review { margin: 0 0 8px; padding-left: 18px; }
+.quiz-review li { margin-bottom: 6px; }
+.quiz-perfect { font-size: 17px; }
+/* Certificate */
+.certificate { margin: 8px auto 18px; max-width: 560px; border-radius: 16px; padding: 4px; background: linear-gradient(135deg, #a60ee5, #5b1e8f 45%, #1a1430 70%, #a60ee5); box-shadow: 0 24px 64px rgba(0,0,0,0.45); }
+.cert-inner { background: radial-gradient(120% 140% at 50% 0%, #161226 0%, #0c0e15 70%); border-radius: 13px; padding: 34px 28px 26px; text-align: center; }
+.cert-logo { width: 54px; height: 54px; opacity: 0.95; margin-bottom: 8px; }
+.cert-kicker { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.cert-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #fff; margin: 4px 0 18px; }
+.cert-awarded { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.cert-name { font-size: 25px; font-weight: 700; color: #fff; margin: 4px auto 16px; border-bottom: 1px solid var(--border); display: inline-block; padding: 0 18px 8px; min-width: 200px; }
+.cert-seal { width: 76px; height: 76px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(#a60ee5, #b842f0, #a60ee5); color: #fff; font-weight: 800; box-shadow: 0 6px 20px rgba(166,14,229,0.4); }
+.cert-pct { font-size: 22px; }
+.cert-rating { font-size: 20px; font-weight: 700; color: var(--accent-strong); margin: 0 0 4px; }
+.cert-note { color: var(--text-muted); margin: 0 0 18px; font-size: 14px; }
+.cert-foot { display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 12px; font-size: 12px; color: var(--text-faint); letter-spacing: 0.04em; }
+.cert-name-input { display: block; width: 100%; max-width: 560px; margin: 0 auto 8px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-elev); color: var(--text); font: inherit; text-align: center; }
+/* Landing CTA banner */
+.quiz-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 0 36px; padding: 20px 24px; border-radius: 12px; border: 1px solid var(--accent); background: linear-gradient(120deg, rgba(166,14,229,0.16), rgba(166,14,229,0.04)); text-decoration: none; transition: transform 0.15s ease, border-color 0.15s ease; flex-wrap: wrap; }
+.quiz-cta:hover { transform: translateY(-2px); text-decoration: none; border-color: var(--accent-strong); }
+.quiz-cta strong { display: block; color: var(--text); font-size: 17px; }
+.quiz-cta .sub { display: block; color: var(--text-muted); font-size: 14px; margin-top: 2px; }
+.quiz-cta-go { white-space: nowrap; font-weight: 700; color: var(--accent-strong); }
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;
@@ -906,6 +957,14 @@ const INDEX_BODY = `<div align="center">
   <li><a href="./build-your-own-host.html">Build your own host</a> — assemble your own agent from the packages.</li>
   <li><a href="./glossary.html">Glossary</a> — look up any term as you go.</li>
 </ol>
+
+<a class="quiz-cta" href="./quiz.html">
+  <div>
+    <strong>Think you know your agents?</strong>
+    <span class="sub">Take the 10-question glossary quiz and earn a certificate.</span>
+  </div>
+  <span class="quiz-cta-go">Test your knowledge →</span>
+</a>
 
 <h2>Bandit Stealth</h2>
 <p>The shipping products — install and go.</p>
@@ -1187,6 +1246,44 @@ function renderIndex() {
   });
 }
 
+// Pull {anchor, term, def} from each glossary entry so the quiz can ask about
+// real terms and cite the matching glossary anchor.
+function parseGlossaryTerms() {
+  const text = fs.readFileSync(path.join(repoRoot, "docs/reference/glossary.md"), "utf8");
+  const terms = [];
+  const re = /- <span id="([^"]+)"[^>]*><\/span>\*\*(.+?)\*\* [—–-] (.+)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    let def = m[3].split(/\s+→|\s+Source:/)[0].trim();           // drop the "→" / "Source:" tail
+    def = def.split(/(?<=[.!?])\s+/)[0].trim();                       // keep the first sentence
+    def = def.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*]/g, "").trim();  // strip markdown
+    if (def.length > 8) terms.push({ anchor: m[1].trim(), term: m[2].trim(), def });
+  }
+  return terms;
+}
+
+// "Test your knowledge" — a client-side quiz page. The engine is a static file
+// (quiz.js); we inject the glossary data as inline JSON so it has no dependencies.
+function renderQuiz() {
+  const data = JSON.stringify(parseGlossaryTerms()).replace(/</g, "\\u003c");
+  const body = `<div align="center">
+  <h1>Test your knowledge</h1>
+  <p><strong>A quick quiz on AI &amp; agent terms, drawn straight from the glossary.</strong></p>
+  <p>Match each definition to the right term, see the answer cited in the docs, then earn a certificate.</p>
+</div>
+
+<div id="quiz" class="quiz" aria-live="polite"></div>
+
+<script>window.QUIZ_TERMS = ${data};</script>
+<script src="quiz.js"></script>`;
+  return renderShell({
+    title: "Test your knowledge — Bandit Agent Framework",
+    description: "A multiple-choice quiz on AI and agent terms, drawn from the glossary, with a certificate at the end.",
+    activeSlug: "quiz",
+    body
+  });
+}
+
 // ── Build ──────────────────────────────────────────────────────────────────
 
 const argSlug = process.argv[2];
@@ -1206,7 +1303,7 @@ if (!argSlug || argSlug === "index") {
 }
 const targets = argSlug && argSlug !== "index" ? PAGES.filter((p) => p.slug === argSlug) : PAGES;
 for (const pkg of targets) {
-  const html = renderPage(pkg);
+  const html = pkg.quiz ? renderQuiz() : renderPage(pkg);
   fs.writeFileSync(path.join(outDir, `${pkg.slug}.html`), html);
   console.log(`  ${pkg.slug}.html  (${(html.length / 1024).toFixed(1)} KB)`);
   built++;
@@ -1230,7 +1327,9 @@ const searchEntries = [
   ...PAGES.map((p) => ({
     t: p.name,
     u: `${p.slug}.html`,
-    c: stripText(md.render(fs.readFileSync(path.join(repoRoot, p.readme), "utf8")))
+    c: p.quiz
+      ? "Test your knowledge — a multiple-choice quiz on AI and agent terms drawn from the glossary, with a certificate at the end."
+      : stripText(md.render(fs.readFileSync(path.join(repoRoot, p.readme), "utf8")))
   }))
 ];
 fs.writeFileSync(path.join(outDir, "search-index.json"), JSON.stringify(searchEntries));
@@ -1246,8 +1345,8 @@ writeOgCard(outDir, "index", {
 });
 for (const section of SECTIONS) {
   for (const item of section.items) {
-    const src = path.join(repoRoot, item.readme);
-    const tagline = fs.existsSync(src) ? taglineFrom(fs.readFileSync(src, "utf8")) : "";
+    const src = item.readme ? path.join(repoRoot, item.readme) : null;
+    const tagline = src && fs.existsSync(src) ? taglineFrom(fs.readFileSync(src, "utf8")) : "";
     writeOgCard(outDir, item.slug, {
       kind: KIND_LABEL[section.title] || section.title,
       title: item.name.replace(/^@burtson-labs\//, ""),
