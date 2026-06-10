@@ -73,4 +73,6 @@ Plain-English definitions for the terms you'll meet across these docs and the wi
 
 - <span id="workflow-vs-agent" class="gloss-anchor"></span>**Workflow vs. agent** — A workflow runs predefined steps; an agent decides its own steps in a loop. Source: [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents).
 
+**Know these cold?** [Test yourself with the quiz →](./quiz.html)
+
 **Next:** [The agent loop](./the-agent-loop.html) · [Retrieval & context](./retrieval-and-context.html) · [Quickstart](./quickstart.html)

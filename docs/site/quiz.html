@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Writing a custom tool — Bandit Agent Framework</title>
-  <meta name="description" content="Documentation for Writing a custom tool, part of the Bandit Agent Framework.">
-  <link rel="canonical" href="https://docs.burtson.ai/writing-a-custom-tool.html">
+  <title>Test your knowledge — Bandit Agent Framework</title>
+  <meta name="description" content="A multiple-choice quiz on AI and agent terms, drawn from the glossary, with a certificate at the end.">
+  <link rel="canonical" href="https://docs.burtson.ai/quiz.html">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#0a0c12">
   <meta property="og:type" content="article">
-  <meta property="og:title" content="Writing a custom tool — Bandit Agent Framework">
-  <meta property="og:description" content="Documentation for Writing a custom tool, part of the Bandit Agent Framework.">
-  <meta property="og:url" content="https://docs.burtson.ai/writing-a-custom-tool.html">
+  <meta property="og:title" content="Test your knowledge — Bandit Agent Framework">
+  <meta property="og:description" content="A multiple-choice quiz on AI and agent terms, drawn from the glossary, with a certificate at the end.">
+  <meta property="og:url" content="https://docs.burtson.ai/quiz.html">
   <meta property="og:site_name" content="Bandit Agent Framework">
   <meta property="og:locale" content="en_US">
-  <meta property="og:image" content="https://docs.burtson.ai/og/writing-a-custom-tool.png">
-  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/writing-a-custom-tool.png">
+  <meta property="og:image" content="https://docs.burtson.ai/og/quiz.png">
+  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/quiz.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Writing a custom tool — Bandit Agent Framework">
-  <meta name="twitter:description" content="Documentation for Writing a custom tool, part of the Bandit Agent Framework.">
-  <meta name="twitter:image" content="https://docs.burtson.ai/og/writing-a-custom-tool.png">
+  <meta name="twitter:title" content="Test your knowledge — Bandit Agent Framework">
+  <meta name="twitter:description" content="A multiple-choice quiz on AI and agent terms, drawn from the glossary, with a certificate at the end.">
+  <meta name="twitter:image" content="https://docs.burtson.ai/og/quiz.png">
   <meta name="twitter:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:site" content="@BurtsonLabs">
   <meta name="twitter:creator" content="@BurtsonLabs">
@@ -724,12 +724,12 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
       <h3>Reference</h3>
       <ul>
         <li><a href="./glossary.html">Glossary</a></li>
-        <li><a href="./quiz.html">Test your knowledge</a></li>
+        <li><a href="./quiz.html" class="active">Test your knowledge</a></li>
       </ul>
       <h3>Build</h3>
       <ul>
         <li><a href="./build-your-own-host.html">Build your own host</a></li>
-        <li><a href="./writing-a-custom-tool.html" class="active">Writing a custom tool</a></li>
+        <li><a href="./writing-a-custom-tool.html">Writing a custom tool</a></li>
         <li><a href="./configuration.html">Configuration</a></li>
       </ul>
       <h3>Packages</h3>
@@ -757,92 +757,16 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
     </aside>
     <main id="content" class="content-pane">
       <div class="content">
-<h1>Writing a custom tool</h1>
-<p>This walks through building a real <a href="./tools.html">tool</a> end to end — defining it, giving it access to the workspace, registering it, and getting the model to call it. We’ll build <code>find_todos</code>: a tool that surfaces every <code>TODO</code> / <code>FIXME</code> / <code>HACK</code> comment in a codebase.</p>
-<blockquote>
-<p>A tool adds a <em>new capability</em>. If you only want to give the agent guidance or codify a workflow with the tools it already has, you want a <a href="./skills.html">skill</a> — and for the shipped CLI/extension, a markdown skill or an <a href="./mcp.html">MCP connector</a> needs no build step. See <a href="#no-build-options">No-build options</a> at the end.</p>
-</blockquote>
-<hr>
-<h2>1. Define the tool</h2>
-<p>A tool is an object with four parts: a <code>name</code> the model calls, a <code>description</code> it reads to decide <em>when</em> to call it, typed <code>parameters</code>, and an <code>execute</code> handler.</p>
-<pre><code class="language-ts">import type { AgentTool, ToolExecutionContext, ToolResult } from &quot;@burtson-labs/agent-core&quot;;
+<div align="center">
+  <h1>Test your knowledge</h1>
+  <p><strong>A quick quiz on AI &amp; agent terms, drawn straight from the glossary.</strong></p>
+  <p>Match each definition to the right term, see the answer cited in the docs, then earn a certificate.</p>
+</div>
 
-export const findTodos: AgentTool = {
-  name: &quot;find_todos&quot;,
-  description:
-    &quot;Find TODO / FIXME / HACK comments in the workspace. Use when the user asks &quot; +
-    &quot;about outstanding work, tech debt, or unfinished code.&quot;,
-  parameters: [
-    { name: &quot;tag&quot;,  description: &quot;Marker to search for. Defaults to TODO|FIXME|HACK.&quot;, required: false, schema: { type: &quot;string&quot; } },
-    { name: &quot;path&quot;, description: &quot;Optional sub-directory to limit the search.&quot;,        required: false, schema: { type: &quot;string&quot; } }
-  ],
-  async execute(params, ctx: ToolExecutionContext): Promise&lt;ToolResult&gt; {
-    return { output: &quot;&quot; }; // filled in next
-  }
-};
-</code></pre>
-<p>The <code>description</code> is the most important line you’ll write — it’s the only thing the model sees when deciding whether this tool fits the task. Write it like a function doc: what it does <em>and when to reach for it</em>.</p>
-<h2>2. Touch the workspace through the context</h2>
-<p>The handler never talks to the filesystem directly — it goes through the <code>ToolExecutionContext</code> the host provides. That’s what makes the tool portable: the same code runs in Node, the VS Code extension, or a browser sandbox, because the host supplies the right context. Here we use <code>searchCode</code>:</p>
-<pre><code class="language-ts">async execute(params, ctx: ToolExecutionContext): Promise&lt;ToolResult&gt; {
-  const tag = params.tag?.trim() || &quot;TODO|FIXME|HACK&quot;;
-  const matches = await ctx.searchCode(`(${tag})`, params.path);   // returns &quot;path:line: content&quot;
-  if (!matches.trim()) return { output: `No ${tag} comments found.` };
+<div id="quiz" class="quiz" aria-live="polite"></div>
 
-  const count = matches.trim().split(&quot;\n&quot;).length;
-  return { output: `${count} match(es):\n${matches}` };
-}
-</code></pre>
-<p><code>ctx</code> gives you <code>readFile</code>, <code>writeFile</code>, <code>listFiles</code>, <code>searchCode</code>, <code>runCommand</code>, and more — the whole <a href="./tools.html">Tools</a> context surface.</p>
-<h2>3. Return results the model can use</h2>
-<p><code>execute</code> returns <code>{ output, isError? }</code>. <code>output</code> is text fed straight back into the conversation, so make it readable — the model reads it the way you’d read terminal output. On failure, set <code>isError: true</code> so the loop knows the call didn’t succeed and can react:</p>
-<pre><code class="language-ts">try {
-  const matches = await ctx.searchCode(`(${tag})`, params.path);
-  // …
-} catch (err) {
-  return { output: `Search failed: ${String(err)}`, isError: true };
-}
-</code></pre>
-<h2>4. Register it</h2>
-<p>Tools reach the agent through a <a href="./skills.html">skill</a>. Bundle yours into a <code>SkillManifest</code> and register it:</p>
-<pre><code class="language-ts">import { SkillRegistry, type SkillManifest } from &quot;@burtson-labs/agent-core&quot;;
-
-export const todoSkill: SkillManifest = {
-  id: &quot;custom/todos&quot;,
-  name: &quot;TODO finder&quot;,
-  version: &quot;1.0.0&quot;,
-  description: &quot;Locate outstanding TODO/FIXME/HACK comments.&quot;,
-  activation: &quot;always&quot;,          // or &quot;auto&quot; with triggerPatterns
-  tools: [findTodos]
-};
-
-const registry = new SkillRegistry();
-registry.register(todoSkill);
-
-const active = registry.resolveActiveSkills(userPrompt);
-const toolRegistry = registry.buildToolRegistry(active);   // find_todos is now in scope
-</code></pre>
-<p>In a full host you hand that registry to the runtime when you build it — see <a href="./build-your-own-host.html">Build your own host</a> for wiring it into <code>createStealthRuntime</code> or <code>createAgentRuntime</code>.</p>
-<h2>5. See it get called</h2>
-<p>With the skill active, the model now sees <code>find_todos</code> in its tool list and calls it when the prompt fits:</p>
-<pre><code>&gt; what's left to finish in src/auth?
-
-  → find_todos(tag=&quot;TODO|FIXME&quot;, path=&quot;src/auth&quot;)
-  ← 3 match(es):
-    src/auth/login.ts:42: // TODO: rate-limit failed attempts
-    …
-</code></pre>
-<p>If the model <em>isn’t</em> calling it when you expect, the fix is almost always the <code>description</code>, not the code — tighten the “use this when…” sentence.</p>
-<hr>
-<h2>No-build options</h2>
-<p>You don’t always need to write TypeScript:</p>
-<ul>
-<li><strong>Markdown skill</strong> — drop a <code>.bandit/skills/&lt;name&gt;.md</code> file to guide the agent with the tools it already has. No build, works in the shipped CLI and extension. See <a href="./skills.html">Skills</a>.</li>
-<li><strong><a href="./glossary.html#mcp" class="glossary-link" title="Glossary">MCP</a> connector</strong> — point Bandit at an <a href="./mcp.html">MCP server</a> and its tools join the registry automatically. Best when the capability already exists as a server (Slack, GitHub, a database).</li>
-</ul>
-<p>Reach for a custom tool when the capability is genuinely new and lives in your own code.</p>
-<p><strong>Next:</strong> <a href="./tools.html">Tools</a> · <a href="./skills.html">Skills</a> · <a href="./build-your-own-host.html">Build your own host</a></p>
-
+<script>window.QUIZ_TERMS = [{"anchor":"agent","term":"Agent","def":"An LLM that uses tools in a loop, acting on real feedback instead of answering in one shot."},{"anchor":"chain-of-thought","term":"Chain-of-thought (CoT)","def":"Prompting a model to reason step by step before answering, which lifts accuracy on hard problems."},{"anchor":"compaction","term":"Compaction","def":"Summarizing older turns when the context window fills, so a long session can keep going."},{"anchor":"context-engineering","term":"Context engineering","def":"The discipline of choosing what goes into the model's limited context window at each step."},{"anchor":"context-window","term":"Context window","def":"Everything the model can consider at once, measured in tokens — its working memory, like RAM."},{"anchor":"cosine-similarity","term":"Cosine similarity","def":"A measure of how close two embedding vectors are; used to rank text by meaning."},{"anchor":"embedding","term":"Embedding","def":"A vector of numbers capturing the meaning of text, so similar meanings land close together."},{"anchor":"fine-tuning","term":"Fine-tuning","def":"Further training a base model on extra data to specialize it — as opposed to prompting, which changes nothing in the weights."},{"anchor":"hallucination","term":"Hallucination","def":"When a model states something false with confidence."},{"anchor":"host","term":"Host","def":"The layer that wires a provider, tools, and environment adapters into a working agent."},{"anchor":"inference","term":"Inference","def":"Running a trained model to produce output (versus training it in the first place)."},{"anchor":"llm","term":"LLM (large language model)","def":"A model trained to predict text."},{"anchor":"local-model","term":"Local model","def":"A model that runs on your own hardware (e.g."},{"anchor":"mcp","term":"MCP (Model Context Protocol)","def":"An open standard for exposing tools and data to an agent over a uniform interface."},{"anchor":"memory","term":"Memory","def":"Durable facts an agent carries between sessions; in Bandit, curated markdown rather than a vector store."},{"anchor":"multimodal","term":"Multimodal","def":"A model that accepts more than text, such as images."},{"anchor":"prompt","term":"Prompt","def":"The text given to a model."},{"anchor":"prompt-injection","term":"Prompt injection","def":"An attack where untrusted input hijacks the model's instructions — SQL injection for prompts."},{"anchor":"provider","term":"Provider","def":"The backend that runs a model: local (Ollama), an OpenAI-compatible endpoint, or a cloud gateway."},{"anchor":"quantization","term":"Quantization","def":"Compressing a model's weights to lower precision so it runs on smaller hardware, trading a little accuracy for speed and size."},{"anchor":"rag","term":"RAG (retrieval-augmented generation)","def":"Fetching relevant text and putting it in the prompt so the model answers from real sources, not just its weights."},{"anchor":"react","term":"ReAct","def":"Interleaving reasoning and actions so each tool result informs the next thought."},{"anchor":"reasoning","term":"Reasoning / thinking mode","def":"Models that produce an internal reasoning trace before answering; Bandit toggles it per model."},{"anchor":"skill","term":"Skill","def":"A bundle of tools plus guidance and rules for when they activate."},{"anchor":"streaming","term":"Streaming","def":"Returning output token by token as it's generated, rather than waiting for the whole response."},{"anchor":"subagent","term":"Subagent","def":"A focused, short-lived agent spawned to handle a sub-task with its own budget."},{"anchor":"temperature","term":"Temperature","def":"A sampling setting for randomness: lower is more deterministic, higher more varied."},{"anchor":"token","term":"Token","def":"The unit of text a model reads and writes — roughly a word-piece."},{"anchor":"tool-use","term":"Tool use (function calling)","def":"Giving a model the ability to call a defined function and act in the world."},{"anchor":"tool-calling-protocol","term":"Tool-calling protocol","def":"How tool calls are encoded: native function-calling, or Bandit's text-based protocol (steadier for small models)."},{"anchor":"transformer","term":"Transformer","def":"The neural-network architecture behind modern LLMs, built on attention."},{"anchor":"vector-semantic-search","term":"Vector / semantic search","def":"Searching by meaning using embeddings instead of keywords."},{"anchor":"workflow-vs-agent","term":"Workflow vs. agent","def":"A workflow runs predefined steps; an agent decides its own steps in a loop."}];</script>
+<script src="quiz.js"></script>
       <footer class="footer">
         <div class="cobrand">
           <div class="cobrand-label">Maintained by</div>
@@ -852,7 +776,7 @@ const toolRegistry = registry.buildToolRegistry(active);   // find_todos is now 
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
-        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/guides/writing-a-custom-tool.md" target="_blank" rel="noopener">Edit this page on GitHub →</a></p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework" target="_blank" rel="noopener">View source on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>
