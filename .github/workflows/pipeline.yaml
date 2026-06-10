@@ -4,12 +4,10 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
-  # NOTE: This is Burtson Labs' internal release pipeline. It runs on the
-  # self-hosted burtson-labs-runners pool and a private reusable workflow,
-  # so it will NOT run on public forks — that's expected. Outside
-  # contributors are gated by .github/workflows/pr-checks.yaml on
-  # ubuntu-latest instead. This file only runs on push-to-main + tags
-  # (release plumbing, not PR gating).
+  # NOTE: Release pipeline — runs only on push-to-main + tags (not PRs): builds,
+  # tests, and publishes the packages on release. Runs on GitHub-hosted
+  # ubuntu-latest (free + unlimited for public repos). Outside-contributor PRs are
+  # validated by .github/workflows/pr-checks.yaml. This file does not gate PRs.
 
 permissions:
   contents: write
@@ -23,7 +21,7 @@ jobs:
   # ─── Test ────────────────────────────────────────────────────────────────────
   test:
     name: Test
-    runs-on: burtson-labs-runners
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -164,7 +162,7 @@ jobs:
     name: Build VSIX (+ release on tag)
     needs: [test, build-recorder-darwin]
     if: always() && needs.test.result == 'success'
-    runs-on: burtson-labs-runners
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -302,7 +300,7 @@ jobs:
       packagePath: packages/core-chat
       packageName: "@burtson-labs/core-chat"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-core:
@@ -314,7 +312,7 @@ jobs:
       packagePath: packages/agent-core
       packageName: "@burtson-labs/agent-core"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
@@ -327,7 +325,7 @@ jobs:
       packagePath: packages/agent-ui
       packageName: "@burtson-labs/agent-ui"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-stealth-core-runtime:
@@ -339,7 +337,7 @@ jobs:
       packagePath: packages/stealth-core-runtime
       packageName: "@burtson-labs/stealth-core-runtime"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-host-kit:
@@ -351,7 +349,7 @@ jobs:
       packagePath: packages/host-kit
       packageName: "@burtson-labs/host-kit"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-adapters-provider:
@@ -363,7 +361,7 @@ jobs:
       packagePath: packages/agent-adapters/provider
       packageName: "@burtson-labs/agent-adapters-provider"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-adapters-node:
@@ -375,7 +373,7 @@ jobs:
       packagePath: packages/agent-adapters/node
       packageName: "@burtson-labs/agent-adapters-node"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-adapters-github:
@@ -387,7 +385,7 @@ jobs:
       packagePath: packages/agent-adapters/github
       packageName: "@burtson-labs/agent-adapters-github"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-adapters-vscode:
@@ -399,7 +397,7 @@ jobs:
       packagePath: packages/agent-adapters/vscode
       packageName: "@burtson-labs/agent-adapters-vscode"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   publish-agent-adapters-web:
@@ -411,7 +409,7 @@ jobs:
       packagePath: packages/agent-adapters/web
       packageName: "@burtson-labs/agent-adapters-web"
       isPublic: true
-      runs_on: '"burtson-labs-runners"'
+      runs_on: '"ubuntu-latest"'
     secrets: inherit
 
   # ─── Publish bandit-stealth-cli to public npm (every main push) ────────────
@@ -424,7 +422,7 @@ jobs:
     name: Publish CLI to npm
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: burtson-labs-runners
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
