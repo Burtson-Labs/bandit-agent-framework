@@ -452,6 +452,15 @@ jobs:
         run: ../../scripts/safe-publish.sh --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # The unscoped alias is frozen at one version with a "*" dep on the
+      # scoped CLI, so installs always pull the latest release. This step
+      # publishes it once, then no-ops on every subsequent push. Never
+      # version-bump the alias.
+      - name: Publish unscoped alias to npm
+        working-directory: apps/bandit-stealth-cli-alias
+        run: ../../scripts/safe-publish.sh --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # build-web + deploy-web for bandit-stealth-web moved out of the monorepo
   # 2026-06-05 — the web app now lives at Burtson-Labs/bandit-stealth-web,
