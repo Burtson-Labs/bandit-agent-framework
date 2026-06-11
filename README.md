@@ -29,7 +29,7 @@
 | Host | When to use | Install |
 |------|-------------|---------|
 | **Bandit Stealth** (VS Code / Cursor) | Editing code, reviewing diffs, rich panel UI | `code --install-extension BurtsonLabs.bandit-stealth` |
-| **Bandit CLI** (`bandit`) | Terminal workflows, CI, scripting, remote dev over SSH | `npm i -g @burtson-labs/bandit-stealth-cli` |
+| **Bandit CLI** (`bandit`) | Terminal workflows, CI, scripting, remote dev over SSH | `npm i -g bandit-stealth-cli` |
 
 Both talk to the same [`stealth-core-runtime`](packages/stealth-core-runtime/). Skills, memory files, and hooks work identically across them.
 
@@ -43,7 +43,7 @@ brew install ollama
 ollama pull gemma4:e4b              # CLI default — ~3 GB, multimodal, agent-ready
 
 # 2. Install the CLI
-npm i -g @burtson-labs/bandit-stealth-cli
+npm i -g bandit-stealth-cli
 
 # 3. Run in any project
 cd ~/my-project

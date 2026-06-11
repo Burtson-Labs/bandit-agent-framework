@@ -7,7 +7,7 @@ npm i -g bandit-stealth-cli
 bandit
 ```
 
-Installing this package pulls the latest scoped package and exposes the same `bandit` command. Both install paths are equivalent — pick one. If you previously installed the scoped package globally, remove it first to avoid a bin conflict:
+Installing this package pulls the latest scoped package and exposes the same `bandit` command. Both install paths are equivalent — pick one. They can't coexist globally: both own the `bandit` bin, so installing one while the other is present fails with `npm error code EEXIST` on the `bandit` bin path. If you previously installed the scoped package globally, remove it first:
 
 ```bash
 npm rm -g @burtson-labs/bandit-stealth-cli

@@ -34,7 +34,7 @@ Your code never leaves your machine. Works with any Ollama model.
 2. Install the CLI globally:
 
    ```bash
-   npm i -g @burtson-labs/bandit-stealth-cli
+   npm i -g bandit-stealth-cli
    ```
 
 3. Run it:
