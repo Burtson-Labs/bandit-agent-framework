@@ -1,0 +1,53 @@
+{
+  "name": "bandit-stealth-cli",
+  "version": "1.7.371",
+  "description": "Bandit — a local-first AI coding agent for your terminal. Unscoped alias for @burtson-labs/bandit-stealth-cli.",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "llm",
+    "ollama",
+    "local-first",
+    "bandit",
+    "burtson-labs",
+    "terminal",
+    "repl",
+    "developer-tools"
+  ],
+  "homepage": "https://burtson.ai",
+  "bugs": {
+    "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues",
+    "email": "team@burtson.ai"
+  },
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
+    "directory": "apps/bandit-stealth-cli-alias"
+  },
+  "type": "module",
+  "bin": {
+    "bandit": "./bin.js"
+  },
+  "files": [
+    "bin.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@burtson-labs/bandit-stealth-cli": "*"
+  }
+}

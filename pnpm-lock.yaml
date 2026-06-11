@@ -191,6 +191,12 @@ importers:
         specifier: ^4.0.10
         version: 4.0.10(@types/debug@4.1.12)(@types/node@20.19.24)(happy-dom@19.0.2)(yaml@2.9.0)
 
+  apps/bandit-stealth-cli-alias:
+    dependencies:
+      '@burtson-labs/bandit-stealth-cli':
+        specifier: '*'
+        version: 1.7.371
+
   apps/bandit-stealth/webview:
     dependencies:
       '@burtson-labs/agent-core':
@@ -568,6 +574,11 @@ packages:
   '@babel/types@7.28.5':
     resolution: {integrity: sha512-qQ5m48eI/MFLQ5PxQj4PFaprjyCTLI37ElWMmNs0K8Lk3dVeOdNpB3ks8jc7yM5CDmVC73eMVk/trk3fgmrUpA==}
     engines: {node: '>=6.9.0'}
+
+  '@burtson-labs/bandit-stealth-cli@1.7.371':
+    resolution: {integrity: sha512-eUj94Bx+3QEvquzFLWfqeMeVjiCEko3T/yhqcXtQH6WIybQpvPphDhImKgxpeU6RLiRmezrkjZ3h+iKJf1Ksww==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@emotion/babel-plugin@11.13.5':
     resolution: {integrity: sha512-pxHCpT2ex+0q+HH91/zsdHkw/lXd468DIN2zvfvLtPKLLMo6gQj7oLObq8PhkrxOZb/gGCq03S3Z7PDhS8pduQ==}
@@ -4085,6 +4096,10 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@burtson-labs/bandit-stealth-cli@1.7.371':
+    dependencies:
+      pdf-parse: 2.4.5
 
   '@emotion/babel-plugin@11.13.5':
     dependencies:
