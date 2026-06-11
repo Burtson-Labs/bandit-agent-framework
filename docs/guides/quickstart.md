@@ -14,7 +14,7 @@ Both are **local-first**: point them at a model running on your own machine (via
 ### In the terminal — Bandit CLI
 
 ```bash
-npm i -g @burtson-labs/bandit-stealth-cli
+npm i -g bandit-stealth-cli
 ollama pull gemma4:e4b   # Bandit's default local model
 bandit
 ```

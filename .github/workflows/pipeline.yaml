@@ -452,13 +452,17 @@ jobs:
         run: ../../scripts/safe-publish.sh --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # The unscoped alias is frozen at one version with a "*" dep on the
-      # scoped CLI, so installs always pull the latest release. This step
-      # publishes it once, then no-ops on every subsequent push. Never
-      # version-bump the alias.
+      # The unscoped alias has a "*" dep on the scoped CLI, so installs
+      # always pull the latest release regardless of the alias's own
+      # version. We still sync its version to the CLI's at publish time so
+      # `npm outdated -g` works for alias installs; safe-publish no-ops
+      # whenever the CLI version hasn't moved. Don't bump the alias
+      # version in-repo — this step owns it.
       - name: Publish unscoped alias to npm
         working-directory: apps/bandit-stealth-cli-alias
-        run: ../../scripts/safe-publish.sh --access public
+        run: |
+          npm pkg set version="$(node -p "require('../bandit-cli/package.json').version")"
+          ../../scripts/safe-publish.sh --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

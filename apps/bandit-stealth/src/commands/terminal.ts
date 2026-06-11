@@ -17,7 +17,7 @@ export async function openInTerminal(): Promise<void> {
   // Run the CLI. If it's not installed we show a helper message
   // with the install command. The CLI exits with its own friendly
   // error if Ollama isn't reachable / no model configured.
-  terminal.sendText('command -v bandit >/dev/null 2>&1 && bandit || echo "Bandit CLI not found. Install with: npm install -g @burtson-labs/bandit-stealth-cli"', true);
+  terminal.sendText('command -v bandit >/dev/null 2>&1 && bandit || echo "Bandit CLI not found. Install with: npm install -g bandit-stealth-cli"', true);
 }
 
 export async function toggleUseTerminal(): Promise<void> {

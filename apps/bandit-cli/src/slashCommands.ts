@@ -22,7 +22,19 @@ import type { ToolExecutionContext } from '@burtson-labs/agent-core';
 import { describeConfig, globalConfigPath, saveApiKey, clearApiKey, saveProvider, saveOllamaUrl, saveOpenaiConfig, saveTavilyKey, clearTavilyKey, addRepoRoot, removeRepoRoot, type ResolvedConfig, type ConfiguredProviderKind } from './config';
 import { OPENAI_PRESETS } from './openaiPresets';
 
-const PACKAGE_NAME = '@burtson-labs/bandit-stealth-cli';
+// Canonical registry package — version checks always go here.
+const REGISTRY_PACKAGE = '@burtson-labs/bandit-stealth-cli';
+// Install target: the unscoped alias (`bandit-stealth-cli`) and the scoped
+// package both provide the `bandit` bin, so `npm i -g` of the *other* name
+// fails with an EEXIST bin conflict. Reinstall through whichever package
+// owns the running binary.
+const PACKAGE_NAME = (() => {
+  try {
+    const real = fs.realpathSync(process.argv[1] || '');
+    if (/[\\/]node_modules[\\/]bandit-stealth-cli[\\/]/.test(real)) return 'bandit-stealth-cli';
+  } catch { /* dev builds / direct node invocation */ }
+  return REGISTRY_PACKAGE;
+})();
 
 function shortHomePath(value: string): string {
   const home = process.env.HOME || '';
@@ -36,7 +48,7 @@ function shortHomePath(value: string): string {
  */
 function fetchLatestVersion(): Promise<string | null> {
   return new Promise((resolve) => {
-    const proc = cp.spawn('npm', ['view', PACKAGE_NAME, 'version'], {
+    const proc = cp.spawn('npm', ['view', REGISTRY_PACKAGE, 'version'], {
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -2802,7 +2814,7 @@ export const slashCommands: SlashCommand[] = [
         return [
           c.yellow(`${glyph.warn} Could not reach the registry.`),
           c.dim(`Check your ~/.npmrc has a token with read:packages scope, then run:`),
-          `  ${c.cyan('npm view ' + PACKAGE_NAME + ' version')}`,
+          `  ${c.cyan('npm view ' + REGISTRY_PACKAGE + ' version')}`,
           c.dim('to confirm connectivity.')
         ].join('\n');
       }
@@ -2834,7 +2846,7 @@ export const slashCommands: SlashCommand[] = [
           c.dim('(must include ') + c.cyan('-g') + c.dim(' or it installs locally and the global ') + c.cyan('bandit') + c.dim(' shim stays on the old version.)'),
           '',
           c.dim('Or see what changed:'),
-          `  ${c.cyan('npm view ' + PACKAGE_NAME + ' versions --json')}`
+          `  ${c.cyan('npm view ' + REGISTRY_PACKAGE + ' versions --json')}`
         ].join('\n');
       }
       // --apply path: run the global install ourselves so the user can't
