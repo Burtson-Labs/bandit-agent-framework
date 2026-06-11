@@ -107,3 +107,25 @@ describe('model behavior profiles', () => {
     ]));
   });
 });
+
+describe('getModelBehaviorProfile — vendor-prefixed id normalization', () => {
+  it('resolves the llama3 family profile for a vendor-prefixed id', () => {
+    const profile = getModelBehaviorProfile('meta-llama/Meta-Llama-3.1-8B-Instruct');
+    expect(profile.id).toBe(getModelBehaviorProfile('llama3.1').id);
+    expect(profile.id).not.toBe('default');
+  });
+
+  it('resolves qwen2.5-coder profile for an HF-style scoped id', () => {
+    const profile = getModelBehaviorProfile('Qwen/Qwen2.5-Coder-32B-Instruct');
+    expect(profile.id).toBe(getModelBehaviorProfile('qwen2.5-coder:32b').id);
+  });
+
+  it('resolves deepseek-r1 profile for a router-scoped id', () => {
+    const profile = getModelBehaviorProfile('deepseek/DeepSeek-R1');
+    expect(profile.id).toBe(getModelBehaviorProfile('deepseek-r1:8b').id);
+  });
+
+  it('falls back to the default profile for unknown ids', () => {
+    expect(getModelBehaviorProfile('acme/unknown-model-9b').id).toBe('default');
+  });
+});

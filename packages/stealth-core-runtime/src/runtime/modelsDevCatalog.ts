@@ -220,6 +220,53 @@ function mapToCapabilities(modelId: string, model: ModelsDevModel): ModelCapabil
  * catalog. Returns null when the catalog is unavailable, the base URL
  * doesn't match any known provider, or the model isn't listed.
  */
+/**
+ * Probe a local/unknown OpenAI-compatible server's `GET /v1/models` for
+ * capability hints. models.dev only covers hosted providers keyed by
+ * their public base URLs — a local vLLM / LM Studio / llama.cpp server
+ * matches nothing there, so those users previously got zero discovery.
+ *
+ * The OpenAI shape only guarantees `data[].id`, but vLLM additionally
+ * publishes `max_model_len` and OpenRouter publishes `context_length`
+ * (both: the served context window). When present we surface it; the
+ * caller keeps everything else from the prefix-matched profile.
+ */
+export async function queryOpenAICompatibleModelInfo(
+  modelId: string,
+  baseUrl: string,
+  apiKey?: string
+): Promise<{ exists: boolean; contextWindow?: number } | null> {
+  if (!modelId || !baseUrl) {return null;}
+  try {
+    let base = baseUrl.trim().replace(/\/+$/, '');
+    base = base.replace(/\/chat\/completions$/i, '');
+    if (base.toLowerCase().endsWith('/v1')) {base = base.slice(0, -3).replace(/\/+$/, '');}
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (apiKey) {headers.Authorization = `Bearer ${apiKey}`;}
+    const response = await fetch(`${base}/v1/models`, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) {return null;}
+    const body = (await response.json()) as {
+      data?: Array<{ id?: string; max_model_len?: number; context_length?: number }>;
+    };
+    const entries = Array.isArray(body.data) ? body.data : [];
+    const lower = modelId.toLowerCase();
+    const entry = entries.find(e => typeof e.id === 'string' && e.id.toLowerCase() === lower);
+    if (!entry) {return { exists: false };}
+    const contextWindow = typeof entry.max_model_len === 'number'
+      ? entry.max_model_len
+      : typeof entry.context_length === 'number'
+        ? entry.context_length
+        : undefined;
+    return { exists: true, contextWindow };
+  } catch {
+    return null;
+  }
+}
+
 export async function queryModelsDevCapabilities(
   modelId: string,
   baseUrl: string

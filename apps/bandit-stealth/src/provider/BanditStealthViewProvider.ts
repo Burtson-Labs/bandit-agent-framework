@@ -2028,7 +2028,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       // to upstream Ollama via AdditionalProperties.
       const nativeTools = modelCaps.supportsToolCalling
         && behaviorProfile.protocol.preferred === 'native-tools'
-        && (providerKind === 'ollama' || providerKind === 'bandit');
+        && (providerKind === 'ollama' || providerKind === 'bandit' || providerKind === 'openai-compatible');
       const nativeToolFailureFallback = behaviorProfile.protocol.nativeToolFailureFallback !== false;
       const outputBudgetTokens = behaviorProfile.context.outputBudgetTokens;
       const maxParallelTools = behaviorProfile.reliability.maxParallelTools;

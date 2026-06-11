@@ -8,6 +8,8 @@
  * what known failures should the UI or trace viewer explain?".
  */
 
+import { candidateModelIds } from './modelId';
+
 export type ToolProtocol = 'native-tools' | 'text-tools';
 export type ToolEnvelope = 'ollama-tools' | 'xml-json';
 export type PromptTemplateId = 'qwen-agent' | 'gemma-compact' | 'llama-tool-lite' | 'default-agent';
@@ -307,37 +309,51 @@ export function getBuiltInModelBehaviorProfiles(): ModelBehaviorProfile[] {
 }
 
 export function getModelBehaviorProfile(modelId: string): ModelBehaviorProfile {
-  const lower = modelId.toLowerCase();
-  const base = cloneProfile(findBestProfile(lower));
-  const override = findBestOverride(lower);
+  const candidates = candidateModelIds(modelId);
+  const base = cloneProfile(findBestProfile(candidates));
+  const override = findBestOverride(candidates);
   return override ? mergeProfile(base, override) : base;
 }
 
-function findBestProfile(lowerModelId: string): ModelBehaviorProfile {
-  let best = BUILT_IN_BEHAVIOR_PROFILES[BUILT_IN_BEHAVIOR_PROFILES.length - 1];
-  let bestLength = -1;
-  for (const profile of BUILT_IN_BEHAVIOR_PROFILES) {
-    for (const prefix of profile.match) {
-      const normalized = prefix.toLowerCase();
-      if (lowerModelId.startsWith(normalized) && normalized.length > bestLength) {
-        best = profile;
-        bestLength = normalized.length;
+function findBestProfile(candidates: string[]): ModelBehaviorProfile {
+  // Candidates are ordered most-literal first (raw id, then vendor-prefix
+  // stripped, then Ollama-style dash collapse) — only fall through to a
+  // transformed form when the previous form matched no real prefix. The
+  // table's catch-all entry (match: ['']) is excluded from candidate
+  // matching via the bestLength > 0 requirement, then used as the final
+  // fallback so transformed forms get their chance first.
+  for (const candidate of candidates) {
+    let best: ModelBehaviorProfile | undefined;
+    let bestLength = 0;
+    for (const profile of BUILT_IN_BEHAVIOR_PROFILES) {
+      for (const prefix of profile.match) {
+        const normalized = prefix.toLowerCase();
+        if (normalized.length > bestLength && candidate.startsWith(normalized)) {
+          best = profile;
+          bestLength = normalized.length;
+        }
       }
     }
+    if (best) {return best;}
   }
-  return best;
+  return BUILT_IN_BEHAVIOR_PROFILES[BUILT_IN_BEHAVIOR_PROFILES.length - 1];
 }
 
-function findBestOverride(lowerModelId: string): ModelBehaviorOverride | undefined {
-  let best: ModelBehaviorOverride | undefined;
-  let bestLength = -1;
-  for (const [prefix, override] of runtimeBehaviorOverrides) {
-    if (lowerModelId.startsWith(prefix) && prefix.length > bestLength) {
-      best = override;
-      bestLength = prefix.length;
+function findBestOverride(candidates: string[]): ModelBehaviorOverride | undefined {
+  for (const candidate of candidates) {
+    let best: ModelBehaviorOverride | undefined;
+    let bestLength = 0;
+    for (const [prefix, override] of runtimeBehaviorOverrides) {
+      if (prefix.length > bestLength && candidate.startsWith(prefix)) {
+        best = override;
+        bestLength = prefix.length;
+      }
     }
+    if (best) {return best;}
   }
-  return best;
+  // An empty-prefix override is a registered "applies to all models"
+  // global — honored only when nothing more specific matched any form.
+  return runtimeBehaviorOverrides.get('');
 }
 
 function cloneProfile(profile: ModelBehaviorProfile): ModelBehaviorProfile {

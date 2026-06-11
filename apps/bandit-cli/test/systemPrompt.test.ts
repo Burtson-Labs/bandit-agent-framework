@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSystemPrompt } from '../src/systemPrompt';
+import { buildSystemPrompt, CLI_SYSTEM_PROMPT_BUDGETS } from '../src/systemPrompt';
 
 /**
  * CLI system prompt budget gate.
@@ -24,16 +24,14 @@ import { buildSystemPrompt } from '../src/systemPrompt';
  * users running outside a git repo.
  */
 
-// Calibrated 2026-05-30 against the refactored builder. Current composed
-// sizes are 9,909 (large) and 18,980 (small/medium); budgets sit ~1 KB
-// above so an honest addition fits while a regression like accidentally
-// un-gating the slash command table on large-tier (~2.5 KB jump) trips
-// the gate.
-const CLI_BUDGETS = {
-  small: 20 * 1024,
-  medium: 20 * 1024,
-  large: 11 * 1024
-} as const;
+// Recalibrated 2026-06-11 (v1.7.372 inverted-tier fix): the small/mid
+// safety set was culled to the failure modes the tool-loop detectors
+// don't already cover, and the 14-row slash table became a one-line hint
+// for every tier. Composed sizes now 10,384 (large) and 12,541
+// (small/medium). Budgets are the exported single source of truth —
+// see CLI_SYSTEM_PROMPT_BUDGETS in src/systemPrompt.ts and the
+// dedicated promptBudget.test.ts.
+const CLI_BUDGETS = CLI_SYSTEM_PROMPT_BUDGETS;
 
 describe('CLI buildSystemPrompt — tier-gated composition', () => {
   it.skip('SIZE PROBE — prints actual sizes for budget calibration', () => {
@@ -63,26 +61,31 @@ describe('CLI buildSystemPrompt — tier-gated composition', () => {
     expect(out).toMatch(/ACT, DON'T NARRATE/);
   });
 
-  it('medium tier includes the safety bullets and slash command table', () => {
+  it('medium tier includes the culled tool-discipline bullets and the slash hint (no table)', () => {
     const out = buildSystemPrompt('', { modelId: 'gemma3:12b' });
     expect(out.length).toBeLessThanOrEqual(CLI_BUDGETS.medium);
-    expect(out).toMatch(/CRITICAL RULE: never claim to have written/);
-    expect(out).toMatch(/\| User wants to… \| Tell them to type \|/);
+    expect(out).toMatch(/\*\*Edit discipline\.\*\*/);
+    expect(out).toMatch(/Do not invent file paths/);
+    // The detector-covered prose and the 14-row table were culled in
+    // v1.7.372 — prose can't make a model behave; detectors can.
+    expect(out).not.toMatch(/CRITICAL RULE: never claim to have written/);
+    expect(out).not.toMatch(/\| User wants to… \| Tell them to type \|/);
+    expect(out).toMatch(/Slash commands are a REPL feature/);
     expect(out).toMatch(/^## Filesystem scope$/m);
   });
 
-  it('small tier includes everything (no gating, full safety net)', () => {
+  it('small tier matches medium composition (same culled safety set)', () => {
     const out = buildSystemPrompt('', { modelId: 'gemma3:4b' });
     expect(out.length).toBeLessThanOrEqual(CLI_BUDGETS.small);
-    expect(out).toMatch(/CRITICAL RULE: never claim to have written/);
-    expect(out).toMatch(/\| User wants to… \| Tell them to type \|/);
+    expect(out).toMatch(/\*\*Edit discipline\.\*\*/);
+    expect(out).not.toMatch(/\| User wants to… \| Tell them to type \|/);
     expect(out).toMatch(/^## Filesystem scope$/m);
   });
 
   it('missing modelId defaults to the most conservative (small) gating — never under-instructs', () => {
     const withModel = buildSystemPrompt('', { modelId: 'gemma3:4b' });
     const withoutModel = buildSystemPrompt('', {});
-    expect(withoutModel).toMatch(/CRITICAL RULE: never claim to have written/);
+    expect(withoutModel).toMatch(/\*\*Edit discipline\.\*\*/);
     expect(withoutModel.length).toBeLessThanOrEqual(CLI_BUDGETS.small);
     // The two should produce roughly the same prompt — within a few
     // hundred chars (label-derived diffs). What matters is the safety

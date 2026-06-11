@@ -482,7 +482,7 @@ function createDirectOpenAICompatibleProvider(
       const controller = new AbortController();
       const iterator = async function* (): AsyncGenerator<AIChatResponse> {
         try {
-          const payload = serializeBanditPayload(request);
+          const payload = serializeBanditPayload(request, { strictOpenAI: true });
           const response = await fetchWithRetry(apiUrl, {
             method: 'POST',
             headers: buildOpenAICompatibleHeaders(apiKey, extraHeaders),
@@ -659,7 +659,7 @@ type BanditMessageContentPart =
 
 type BanditMessageContent = BanditMessageContentPart[];
 
-export function serializeBanditPayload(request: AIChatRequest) {
+export function serializeBanditPayload(request: AIChatRequest, opts?: { strictOpenAI?: boolean }) {
   const payloadImages = collectBanditPayloadImages(request);
   const messages = request.messages.map((message) => ({
     role: message.role,
@@ -712,6 +712,13 @@ export function serializeBanditPayload(request: AIChatRequest) {
     // provider's non-streaming translator (see ollama path at ~line
     // 334) can pair tool_calls back to inline <tool_call> markup.
     payload.stream = false;
+  }
+  // Strict OpenAI-compatible servers (some vLLM/TGI builds) 400 on
+  // unknown top-level body fields — `think` and bare `images` are
+  // Ollama/gateway extensions, so omit them on that path. Images are
+  // already delivered as image_url content parts in the messages.
+  if (opts?.strictOpenAI) {
+    return payload;
   }
   // Keep the top-level images field too for backward compat with any
   // consumer that has been reading them there historically.

@@ -19,13 +19,22 @@
  *   IDENTITY                  always
  *   WORKING_STYLE_CORE        always
  *   WORKING_STYLE_SMALL_MID   tier === 'small' || tier === 'medium'
+ *                             (culled set — see comment on the constant)
  *   FILESYSTEM_SCOPE          tier === 'small' || tier === 'medium'
  *   FILE_FORMATS              always (branches on supportsVision)
  *   GIT_AUTHORSHIP            always (branches on coauthor)
  *   SKILL_AUTHORING           userGoal matches /\bskills?\b/i
- *   SLASH_COMMANDS_TABLE      tier === 'small' || tier === 'medium'
- *                             (large tier gets a one-liner instead)
+ *   SLASH_COMMANDS_HINT       always (the old 14-row table shipped only
+ *                             to small/mid tiers — the models worst at
+ *                             parsing markdown tables — and is gone)
  *   PROJECT_MEMORY            when memoryBlock is non-empty
+ *
+ * Every tier's composed base prompt is budget-capped — see
+ * CLI_SYSTEM_PROMPT_BUDGETS and test/promptBudget.test.ts, mirroring the
+ * extension's SYSTEM_PROMPT_BUDGETS + promptBudget regression suite. The
+ * small tier MUST stay the leanest: small models drown in long prompts,
+ * and before v1.7.372 the gating was inverted (small got 19.5 KB, large
+ * got 10.4 KB).
  */
 
 import {
@@ -57,6 +66,20 @@ export interface BuildSystemPromptOptions {
    *  skills. Avoids burning ~1.5 KB on a plain Q&A turn. */
   userGoal?: string;
 }
+
+/**
+ * Per-tier ceilings (chars) for the composed base prompt — the
+ * buildSystemPrompt output with no memory block. Enforced by
+ * test/promptBudget.test.ts so prompt growth is a deliberate,
+ * budget-bumping decision instead of drift. Small models get the
+ * tightest ceiling for the obvious reason; the small/mid tiers sit above
+ * large only by the width of the targeted tool-discipline bullets.
+ */
+export const CLI_SYSTEM_PROMPT_BUDGETS: Record<ModelTier, number> = {
+  small: 12_800,
+  medium: 12_800,
+  large: 10_752
+};
 
 // ─── Section content ─────────────────────────────────────────────────────────
 
@@ -96,29 +119,26 @@ const WORKING_STYLE_CORE: string[] = [
   '- Keep responses concise. No markdown headers for one-line answers.'
 ];
 
+// Culled to the failure modes the tool-use-loop does NOT already detect
+// and recover (same treatment the extension applied in v1.7.340 — see
+// extensionSystemPrompt.ts: "Prose can't make a model behave; detectors
+// can"). Cut and covered elsewhere: false-completion claims and
+// narrated-but-no-action (claim detector re-prompts), retry-instead-of-
+// pivot (repeat-call detector), environment-verification prose (same
+// detector family), todo-flip discipline and background-task narration
+// (cosmetic — not worth their weight on a 4B model). Measured effect of
+// the cull: small-tier base prompt 19.5 KB → ~10 KB.
 const WORKING_STYLE_SMALL_MID: string[] = [
-  '- **Large file creates/refactors: use `replace_range` for big existing blocks and `apply_edit` for small exact replacements.** Some hosts\' tool-call JSON parsing rejects very large content fields (5KB+ of code with embedded quotes / newlines is fragile), and huge `find` strings are brittle. After `read_file(path, offset, limit)`, use `replace_range(path, start_line, end_line, content, expected_hash=<shown_hash>)` when replacing a full method/component/block. For new large files, use `write_file` with a minimal stub, then `replace_range`/`apply_edit` sections in.',
-  '- **CRITICAL RULE: never claim to have written, provided, applied, or refactored code unless you actually emitted a `write_file`, `apply_edit`, `replace_range`, or `apply_patch` tool call in THIS conversation and it succeeded.** Your own prose about "I refactored this" / "here is the improved implementation" / "you can find the code above" is NOT a substitute for a real tool call. The ONLY evidence a file change exists is a successful edit tool call. If you meant to produce a file change but have not yet emitted that tool call, STOP talking about completion and emit the tool call NOW. This is the #1 failure mode small models have on edit requests — do not fall into it.',
-  '- **Editing existing files: prefer `apply_edit` or `replace_range` over `write_file`.** `apply_edit` handles small targeted find/replace. `replace_range` handles larger line-numbered blocks after `read_file`. Use `write_file` only to CREATE a new file, or when replacing more than ~70% of an existing file (a true rewrite).',
+  '- **Edit discipline.** `apply_edit` is for small exact find/replace — the `find` string must match the file EXACTLY (whitespace included), so copy it verbatim from a recent `read_file` result. `replace_range(path, start_line, end_line, content, expected_hash=<shown_hash>)` is for replacing full methods/blocks after `read_file`. `write_file` is ONLY for creating a new file or a true full rewrite; for big new files, write a stub then `replace_range` sections in — single tool calls with 5KB+ content fields are fragile.',
   '- **Do not invent file paths.** When the user names something vaguely ("the scoring logic", "the auth code"), run `search_code` or `list_files` first and use a path that appears in the results. `write_file` to a made-up path just creates a useless new file. If the search returns nothing useful, say so honestly rather than guessing.',
-  '- `apply_edit` requires the `find` string to match EXACTLY (whitespace included). Copy the target text verbatim from a recent `read_file` result; do not reconstruct it from memory. For large blocks, prefer `replace_range` with the line numbers and `shown_hash` from `read_file`.',
-  '- **Be environment-aware: verify what\'s actually installed and what it exports BEFORE coding against it.** When you reach for a third-party library (any npm package, pip module, cargo crate, gem, go module, .NET nuget), do NOT assume the API shape from training memory — package APIs rename, deprecate, and shift across versions. Before importing or calling, confirm what\'s present in the user\'s actual environment. JS/TS: `node --input-type=module -e "import * as M from \'pkg\'; console.log(Object.keys(M).join(\'\\n\'))"` lists exports for the installed version. Python: `python -c "import pkg; print(dir(pkg))"`. Rust: read `Cargo.toml` for the resolved version. Also check the project\'s `package.json` / `requirements.txt` / `Cargo.toml` / `*.csproj` for the version constraint, and the lockfile (`package-lock.json`, `pnpm-lock.yaml`, `Cargo.lock`) for what\'s actually resolved. One verification call up-front beats three iterations of "this should work" → import error → fix → wrong fix → fix again.',
-  '- **Verification results are authoritative — pivot, do NOT retry.** When you\'ve confirmed a symbol/export/path/file/command does NOT exist in the user\'s environment (a directory listing, an `Object.keys` dump, a `which` check, a `dir(pkg)`, a lockfile read), STOP trying to make the missing thing work. The next tool call MUST be a pivot: a different symbol from the same library, a different library, an inline SVG instead of an icon component, a hand-rolled implementation, or a clean honest message that the user\'s environment doesn\'t support the request. Do NOT: retry the failing import with case variations (`Github` vs `GitHub`), reinstall the same package hoping for a different result, run the same `Object.keys` filter with slightly different keywords, or apply_edit the same lines back and forth. Three confirmations of the same negative is two too many.',
-  '- **Reading large files: paginate with `offset` + `limit`.** `read_file` accepts a 1-based `offset` and a `limit` (number of lines). For files over ~600 lines, do not try to swallow the whole thing in one call — start with `read_file(path)` and follow up with `read_file(path, offset=N, limit=120)` for the next chunk when the result indicates more lines remain. The result includes `shown_hash`; copy it into `replace_range.expected_hash` when replacing that exact shown range.',
-  '- **"What is this project / how do I run it / what\'s here" → discover with tools, do NOT ask.** When the user asks anything that requires understanding the current workspace (help me run this, what is this project, scan this folder, what kind of app is this, build it, start the dev server, etc), the FIRST move is `ls(path=".")` and then `read_file(path="package.json")` (or `Cargo.toml` for Rust / `pyproject.toml` for Python / `go.mod` for Go / `Gemfile` for Ruby / `pom.xml` or `build.gradle` for Java/Kotlin / `*.csproj` or `*.sln` for .NET). Most projects identify themselves in 60 seconds of file reading. Asking the user "what kind of project is this?" after they\'ve already told you they\'re standing in a project directory is the #1 failure mode of small models — DO NOT do it. Read first, then act.',
-  '- **`read_file` on a directory path returns an error.** If you meant to list the directory, use `ls(path="<dir>")` instead. The tool result will tell you this; on a directory error, switch to `ls` and try again on the next iteration — do NOT ask the user to confirm the path.',
-  '- **Mark plan items `completed` IMMEDIATELY after the work that satisfies them is done.** This is the most common drop on multi-step turns: agents create a plan, do the work, but never flip `pending` → `completed`, so the user stares at a stale all-open list while subagents run and tools fire. Pattern: after every tool result that finishes a planned step (subagent spawned, file read, audit completed, etc.), the very NEXT action is `todo_write` with the matching item flipped to `completed`. ONE plan item per tool result is the rule of thumb. The plan is a live progress board, not a one-shot snapshot.',
-  '- **Narrate background tasks by TITLE, not by id.** When you check on or report status of a background subagent (via `check_task` / `list_tasks` / the auto-injected completion line), the tool output leads with the task\'s short title in quotes ("the security review is still running"). Use that title verbatim in your reply to the user — do NOT paste raw ids like `task-mpr7i4jb-hths` into prose. The id is for tool args only.'
+  '- **"What is this project / how do I run it / what\'s here" → discover with tools, do NOT ask.** When the user asks anything that requires understanding the current workspace, the FIRST move is `ls(path=".")` and then `read_file(path="package.json")` (or the equivalent manifest — `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`, `pom.xml`, `*.csproj`). Most projects identify themselves in 60 seconds of file reading. Read first, then act.',
+  '- **`read_file` on a directory path returns an error.** If you meant to list the directory, use `ls(path="<dir>")` instead. The tool result will tell you this; on a directory error, switch to `ls` and try again on the next iteration — do NOT ask the user to confirm the path.'
 ];
 
 const FILESYSTEM_SCOPE: string[] = [
   '## Filesystem scope',
-  '- Your current working directory is where the user launched you. That is the default "workspace" for tool calls, but it is NOT a sandbox.',
-  '- You CAN read, list, search, and write files outside the cwd when the user explicitly asks. Don\'t refuse preemptively with "I can only access the workspace" — try the tool and report what you find.',
-  '- For "what is on my desktop / in my downloads / in folder X" questions, ALWAYS use the `ls` tool with the directory path: `ls(path="~/Desktop")`, `ls(path="~/Downloads")`, `ls(path="/tmp")`. Do NOT use `list_files *` — that only lists the top level of the workspace.',
-  '- For recursive searches across subtrees, use `list_files` with a proper glob: `list_files("**/*.ts", cwd="~/proj")` or `list_files("Desktop/**/*")`.',
-  '- Tilde (`~`) and absolute paths are both supported by the host.',
-  '- The write-permission prompt still runs for any `write_file` outside the workspace, so the user retains control.'
+  '- Your current working directory is where the user launched you. That is the default "workspace" for tool calls, but it is NOT a sandbox: you CAN read, list, search, and write outside it when the user asks. Don\'t refuse preemptively with "I can only access the workspace" — try the tool and report what you find.',
+  '- For "what is on my desktop / in folder X" questions, use `ls` with the directory path: `ls(path="~/Desktop")`. For recursive searches use `list_files` with a glob: `list_files("**/*.ts", cwd="~/proj")`. Tilde (`~`) and absolute paths both work.'
 ];
 
 const buildFileFormats = (supportsVision: boolean): string[] => [
@@ -180,31 +200,12 @@ const SKILL_AUTHORING: string[] = [
   '- DO NOT emit `tools[]` — that\'s legacy JSON behaviour. The agent already has tools. Give it guidance, not aliases.'
 ];
 
-const SLASH_COMMANDS_TABLE: string[] = [
-  '## CLI slash commands (how to help the user, not invoke yourself)',
-  'The CLI the user is running has built-in slash commands that modify CLI state — session, model, mode. **You (the agent) cannot call slash commands directly — they are parsed by the CLI REPL before the prompt reaches you.** If the user asks for something a slash command handles, tell them to type the command AT THEIR NEXT PROMPT rather than narrating config file options.',
-  '',
-  '| User wants to… | Tell them to type |',
-  '|---|---|',
-  '| Switch model (e.g. bandit-core-1 → bandit-logic) | *call the `switch_model` tool directly — do NOT tell them to type `/model`* |',
-  '| See available models | `/model` (no args) |',
-  '| Change reasoning / thinking mode | `/think on`, `/think off`, `/think auto` |',
-  '| Toggle plan preview (show plan + y/N before running) | `/plan-preview on` or `off` |',
-  '| See effective config (provider, endpoint, headers, secrets redacted) | `/config` |',
-  '| Clear conversation without losing session | `/clear` |',
-  '| Start / resume a named session | `/session new`, `/session list`, `/session resume <id>` |',
-  '| Compact bloated tool results | `/compact` |',
-  '| Rewind a file edit via checkpoint | `/rewind <chk-id>` |',
-  '| Show auto-loaded project memory | `/memory` |',
-  '| Scaffold a skill file | `/skill new <name>` |',
-  '| Run a heuristic plan without burning LLM tokens | `/plan <goal>` |',
-  '| List skills / commands / update CLI | `/skills`, `/help`, `/update` |',
-  '| Quit | `/exit` or type `exit` |',
-  '',
-  'For model swaps specifically: when the user asks conversationally to switch / change / swap / try a different model (e.g. "use bandit-logic", "switch to qwen3.6:27b", "let\'s try gemma4:26b"), call the `switch_model` tool with the exact model name — the CLI picks up the new model on the NEXT user prompt automatically. Do NOT tell the user to type `/model <name>` manually; that\'s a leftover UX from before this tool existed. Only fall back to suggesting `~/.bandit/config.json` edits when the user specifically asks how to PERSIST the change across sessions.'
-];
-
-const SLASH_COMMANDS_HINT_LARGE: string =
+// The 14-row markdown table this replaced was the format small models
+// parse worst, and it shipped only to small/mid tiers — the one-liner
+// hint (originally large-only) carries the same two behaviors for every
+// tier: don't invoke slash commands yourself, and use switch_model for
+// model swaps.
+const SLASH_COMMANDS_HINT: string =
   '- **Slash commands are a REPL feature.** Built-in slash commands (`/model`, `/config`, `/session`, `/think`, `/clear`, `/memory`, `/compact`, `/rewind`, `/skill`, `/plan`, `/help`, etc.) are parsed by the CLI REPL before the prompt reaches you — you cannot invoke them. When the user asks for something a slash command handles, tell them to type the command at their NEXT prompt. They can run `/help` to see the full list. Model swaps are special: call the `switch_model` tool directly instead of telling the user to type `/model <name>`.';
 
 // ─── Composer ─────────────────────────────────────────────────────────────────
@@ -229,9 +230,7 @@ export function buildSystemPrompt(memoryBlock: string, options: BuildSystemPromp
     lines.push(...WORKING_STYLE_SMALL_MID);
   }
   lines.push(buildGitAuthorship(coauthor));
-  if (tier === 'large') {
-    lines.push(SLASH_COMMANDS_HINT_LARGE);
-  }
+  lines.push(SLASH_COMMANDS_HINT);
 
   if (tier !== 'large') {
     lines.push('');
@@ -244,11 +243,6 @@ export function buildSystemPrompt(memoryBlock: string, options: BuildSystemPromp
   if (wantsSkillGuide) {
     lines.push('');
     lines.push(...SKILL_AUTHORING);
-  }
-
-  if (tier !== 'large') {
-    lines.push('');
-    lines.push(...SLASH_COMMANDS_TABLE);
   }
 
   const base = lines.join('\n');
