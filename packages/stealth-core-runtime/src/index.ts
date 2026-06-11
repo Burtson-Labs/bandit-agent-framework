@@ -35,7 +35,7 @@ export { OllamaEmbeddingClient } from './ollamaEmbeddingClient';
 export type { OllamaEmbeddingClientOptions, OllamaEmbeddingHit } from './ollamaEmbeddingClient';
 export { getModelCapabilities, getContextFileLimit, getContextTokenBudget, getOutputTokenBudget, registerModelCapabilities, queryOllamaModelCapabilities, resolveOllamaRuntimeOptions, checkOllamaLoadedContext } from './runtime/modelCapabilities';
 export { MODEL_BEHAVIOR_CONFIG_SCHEMA_VERSION, getModelBehaviorProfile, getBuiltInModelBehaviorProfiles, registerModelBehaviorOverride, registerModelBehaviorConfig, parseModelBehaviorConfig, clearModelBehaviorOverrides } from './runtime/modelBehavior';
-export { queryModelsDevCapabilities } from './runtime/modelsDevCatalog';
+export { queryModelsDevCapabilities, queryOpenAICompatibleModelInfo } from './runtime/modelsDevCatalog';
 export type { ModelCapabilities, ModelTier, OllamaRuntimeOptions, OllamaContextCheck } from './runtime/modelCapabilities';
 export type { ModelBehaviorProfile, ModelBehaviorOverride, ModelBehaviorConfigEntry, ModelBehaviorConfigParseResult, ToolProtocol, ToolEnvelope, PromptTemplateId, CompactionMode, ThinkingDefault } from './runtime/modelBehavior';
 export { ContextBuilder, buildSlimContext } from './runtime/contextBuilder';

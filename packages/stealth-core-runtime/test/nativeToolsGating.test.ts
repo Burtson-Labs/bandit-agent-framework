@@ -31,15 +31,16 @@ import {
  * forwarding even after auto-detection has polluted the cache.
  */
 
-/** Mirror of the `nativeTools` expression in `apps/bandit-stealth/src/
- * extension.ts:3981`. Kept in sync verbatim so the test fails the moment
- * the gating drifts in either direction. */
+/** Mirror of the `nativeTools` expression in the two hosts
+ * (apps/bandit-cli/src/cli.ts and apps/bandit-stealth/src/provider/
+ * BanditStealthViewProvider.ts). Kept in sync verbatim so the test fails
+ * the moment the gating drifts in either direction. */
 function gateNativeTools(modelId: string, providerKind: 'ollama' | 'bandit' | 'openai-compatible'): boolean {
   const caps = getModelCapabilities(modelId);
   const behavior = getModelBehaviorProfile(modelId);
   return caps.supportsToolCalling
     && behavior.protocol.preferred === 'native-tools'
-    && (providerKind === 'ollama' || providerKind === 'bandit');
+    && (providerKind === 'ollama' || providerKind === 'bandit' || providerKind === 'openai-compatible');
 }
 
 describe('nativeTools gating — every tool-calling model with a built-in profile must resolve native-tools on ollama AND bandit providers', () => {
@@ -115,16 +116,27 @@ describe('nativeTools gating — text-tools models must NOT route through native
   });
 });
 
-describe('nativeTools gating — openai-compatible providers always opt out of native-tools', () => {
-  // The openai-compatible provider gates do not currently wire through
-  // the same tool serialization shape. Until that's verified end to end,
-  // assert the gate explicitly excludes openai-compatible so a future
-  // refactor that "looks innocent" can't silently turn it on.
-  it('returns false for bandit-logic on openai-compatible regardless of caps', () => {
-    expect(gateNativeTools('bandit-logic:latest', 'openai-compatible')).toBe(false);
+describe('nativeTools gating — openai-compatible providers gate by capability, same as ollama', () => {
+  // Historically hard-excluded while the tool serialization shape was
+  // unverified. That verification is done: buildNativeToolsSchema emits
+  // the OpenAI {type:'function',...} shape, serializeBanditPayload
+  // forwards `tools` (strictOpenAI strips Ollama-only body fields), and
+  // extractTextFromBanditResponse translates tool_calls with both
+  // string- and object-encoded arguments. The gate now treats
+  // openai-compatible like ollama: capability + behavior decide.
+  it('returns true for qwen2.5-coder:32b on openai-compatible (caps + behavior allow)', () => {
+    expect(gateNativeTools('qwen2.5-coder:32b', 'openai-compatible')).toBe(true);
   });
 
-  it('returns false for qwen3.6:27b on openai-compatible regardless of caps', () => {
-    expect(gateNativeTools('qwen3.6:27b', 'openai-compatible')).toBe(false);
+  it('returns true for a vendor-prefixed HF-style id on openai-compatible', () => {
+    expect(gateNativeTools('Qwen/Qwen2.5-Coder-32B-Instruct', 'openai-compatible')).toBe(true);
+  });
+
+  it('still returns false for text-tools models on openai-compatible', () => {
+    expect(gateNativeTools('gemma4:e4b', 'openai-compatible')).toBe(false);
+  });
+
+  it('still returns false for unknown models on openai-compatible (conservative default)', () => {
+    expect(gateNativeTools('acme/unknown-model-9b', 'openai-compatible')).toBe(false);
   });
 });

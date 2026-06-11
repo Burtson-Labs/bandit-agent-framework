@@ -48,6 +48,8 @@ import {
   clearModelBehaviorOverrides,
   registerModelBehaviorConfig,
   queryModelsDevCapabilities,
+  queryOpenAICompatibleModelInfo,
+  queryOllamaModelCapabilities,
   resolveOllamaRuntimeOptions,
   checkOllamaLoadedContext,
   type ProviderKind,
@@ -851,7 +853,9 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // Mirror the IDE's gate: on the bandit cloud path the gateway
   // forwards `tools: [...]` to upstream Ollama via AdditionalProperties,
   // so qwen3.6/bandit-logic gets the proper chat-template framing.
-  const nativeTools = (settings.kind === 'ollama' || settings.kind === 'bandit')
+  // openai-compatible servers (vLLM, LM Studio, llama.cpp, OpenRouter…)
+  // take the same OpenAI-shape `tools` array natively.
+  const nativeTools = (settings.kind === 'ollama' || settings.kind === 'bandit' || settings.kind === 'openai-compatible')
     && modelCaps.supportsToolCalling
     && behaviorProfile.protocol.preferred === 'native-tools';
   const nativeToolFailureFallback = behaviorProfile.protocol.nativeToolFailureFallback !== false;
@@ -2745,12 +2749,48 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // by the time the first chat call resolves capabilities. Catalog is
   // disk-cached for 24h so repeat runs skip the round-trip entirely.
   if (kind === 'openai-compatible' && resolved.openaiBaseUrl && resolved.model) {
-    void queryModelsDevCapabilities(resolved.model, resolved.openaiBaseUrl)
-      .then(caps => {
-        if (caps) registerModelCapabilities(resolved.model, caps);
-      })
-      .catch(() => undefined);
+    void (async () => {
+      const fromCatalog = await queryModelsDevCapabilities(resolved.model, resolved.openaiBaseUrl!);
+      if (fromCatalog) {
+        registerModelCapabilities(resolved.model, fromCatalog);
+        return;
+      }
+      // Local servers (LM Studio, vLLM, llama.cpp) match nothing in the
+      // models.dev catalog — fall back to the server's own GET /v1/models.
+      // vLLM/OpenRouter report the served context window there; everything
+      // else from the prefix-matched profile stays as-is (tier deliberately
+      // NOT derived from context length — a 7B model can serve 128K).
+      const probed = await queryOpenAICompatibleModelInfo(
+        resolved.model,
+        resolved.openaiBaseUrl!,
+        resolved.openaiApiKey
+      );
+      if (probed?.exists && probed.contextWindow) {
+        const base = getModelCapabilities(resolved.model);
+        registerModelCapabilities(resolved.model, {
+          ...base,
+          contextWindow: probed.contextWindow,
+          label: resolved.model
+        });
+      }
+    })().catch(() => undefined);
   }
+  // Same lazy discovery for direct Ollama: /api/show reports the model's
+  // real context length, parameter tier, and tool-calling capability.
+  // Without it, any community model outside the built-in capability table
+  // (mistral, phi4, granite, deepseek-r1, codellama…) runs with the
+  // worst-case defaults — 8K context assumed, native tools off. Built-in
+  // profiles still win over this cache (precedence rule in
+  // getModelCapabilities), so the probe only upgrades unknowns. Local
+  // call, 5s timeout, silent on failure.
+  const probeOllamaCapabilities = (modelId: string): void => {
+    if (settings.kind !== 'ollama' || !modelId) {return;}
+    const baseUrl = settings.ollamaUrl ?? resolved.ollamaUrl ?? 'http://localhost:11434';
+    void queryOllamaModelCapabilities(modelId, baseUrl)
+      .then(caps => { if (caps) {registerModelCapabilities(modelId, caps);} })
+      .catch(() => undefined);
+  };
+  probeOllamaCapabilities(model);
   // Per-session thinking-mode override. undefined = use the runtime
   // default for the active model (off for reasoning models, absent
   // for non-reasoning). Toggled via the `/think on|off|auto` slash
@@ -3633,6 +3673,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         resolved = { ...resolved, model: next };
         const rebuilt = buildProviderSettings(resolved);
         settings = rebuilt.settings;
+        probeOllamaCapabilities(next);
       }
     },
     setProvider(next) {
@@ -3654,6 +3695,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const rebuilt = buildProviderSettings(resolved);
       settings = rebuilt.settings;
       kind = rebuilt.kind;
+      probeOllamaCapabilities(nextModel);
     },
     get providerKind() {
       return resolved.provider;

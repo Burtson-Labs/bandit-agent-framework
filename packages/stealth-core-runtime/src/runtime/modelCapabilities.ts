@@ -1,4 +1,5 @@
 import { getModelBehaviorProfile } from './modelBehavior';
+import { candidateModelIds } from './modelId';
 
 /**
  * Model capability profiles.
@@ -266,14 +267,17 @@ export function registerModelCapabilities(modelId: string, caps: ModelCapabiliti
  */
 export function getModelCapabilities(modelId: string): ModelCapabilities {
   if (!modelId) {return DEFAULT_CAPABILITIES;}
-  const lower = modelId.toLowerCase();
-  for (const { prefix, caps } of BUILT_IN_PROFILES) {
-    if (lower.startsWith(prefix.toLowerCase())) {
-      return caps;
+  for (const candidate of candidateModelIds(modelId)) {
+    for (const { prefix, caps } of BUILT_IN_PROFILES) {
+      if (candidate.startsWith(prefix.toLowerCase())) {
+        return caps;
+      }
     }
   }
-  const cached = runtimeCapabilitiesCache.get(lower);
-  if (cached) {return cached;}
+  for (const candidate of candidateModelIds(modelId)) {
+    const cached = runtimeCapabilitiesCache.get(candidate);
+    if (cached) {return cached;}
+  }
   return DEFAULT_CAPABILITIES;
 }
 

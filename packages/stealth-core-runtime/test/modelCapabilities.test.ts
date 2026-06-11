@@ -79,3 +79,31 @@ describe('getModelCapabilities — built-in profile precedence', () => {
     expect(caps.supportsToolCalling).toBe(false);
   });
 });
+
+describe('getModelCapabilities — vendor-prefixed id normalization', () => {
+  // OpenAI-compatible servers and routers (vLLM, OpenRouter, Together)
+  // report HuggingFace-style ids. These must reach the same hand-tuned
+  // family profiles as their Ollama-style names instead of falling to
+  // worst-case defaults.
+
+  it('matches llama3.1 caps for a Together-style vendor-prefixed id', () => {
+    const caps = getModelCapabilities('meta-llama/Meta-Llama-3.1-8B-Instruct');
+    expect(caps).toEqual(getModelCapabilities('llama3.1'));
+  });
+
+  it('matches qwen2.5-coder caps for an HF-style scoped id', () => {
+    const caps = getModelCapabilities('Qwen/Qwen2.5-Coder-32B-Instruct');
+    expect(caps).toEqual(getModelCapabilities('qwen2.5-coder'));
+  });
+
+  it('leaves plain Ollama-style ids untouched', () => {
+    const caps = getModelCapabilities('qwen3.6:27b');
+    expect(caps.supportsToolCalling).toBe(true);
+  });
+
+  it('still returns defaults for genuinely unknown vendor ids', () => {
+    const caps = getModelCapabilities('acme/unknown-model-9b');
+    expect(caps.tier).toBe('small');
+    expect(caps.supportsToolCalling).toBe(false);
+  });
+});
