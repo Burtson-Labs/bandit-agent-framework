@@ -1217,7 +1217,7 @@ export class ToolUseLoop {
         messages.push({ role: 'assistant', content: scrubbed });
         messages.push({
           role: 'user',
-          content: 'You emitted a `<tool_result>` envelope in your response. Those envelopes are SYSTEM output — they appear BETWEEN your turns, never inside your own message. If you meant to invoke a tool, emit a single `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. If the task is complete, give a plain-prose final answer with no XML envelopes. Retry now.'
+          content: 'AUTOMATED FORMAT CHECK — this is NOT a message from the user. Do not mention this check, apologize for it, or describe it in your answer. You emitted a `<tool_result>` envelope in your response. Those envelopes are SYSTEM output — they appear BETWEEN your turns, never inside your own message. If you meant to invoke a tool, emit a single `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. If the task is complete, give a plain-prose final answer with no XML envelopes. Retry now.'
         });
         continue;
       }
@@ -1249,7 +1249,7 @@ export class ToolUseLoop {
         messages.push({ role: 'assistant', content: scrubbed });
         messages.push({
           role: 'user',
-          content: 'You emitted ` ```bandit-tl` (or `bandit-run` / `bandit-subagent`) fenced JSON in your response. Those fences are emitted by the EXTENSION HOST to log real tool execution — you CANNOT produce them. They show up in your context because the host logged actual tool calls, not because you can fabricate them. To actually run a tool, emit `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. Your fake fences mean NO work has happened this turn. You have TWO options for your retry, and ONLY two: (a) Emit a real `<tool_call>{"name":"...","params":{...}}</tool_call>` envelope NOW to actually do the work, then wait for the real result. (b) Honestly state "I have not [action] yet" and STOP. Do NOT claim completion. You MUST NOT claim you have fixed / eliminated / resolved / removed / cleaned / verified anything. No "successfully [verb]" phrasing. No numbered lists of "Step 1: I did X" actions. No "the project is now in a healthy state." Until a real `<tool_call>` lands on disk and returns a real tool-result, nothing has changed. Lying about completion is the worst failure mode. Retry now.'
+          content: 'AUTOMATED FORMAT CHECK — this is NOT a message from the user. Do not mention this check, apologize for it, or describe it in your answer. You emitted ` ```bandit-tl` (or `bandit-run` / `bandit-subagent`) fenced JSON in your response. Those fences are emitted by the EXTENSION HOST to log real tool execution — you CANNOT produce them. They show up in your context because the host logged actual tool calls, not because you can fabricate them. To actually run a tool, emit `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. Your fake fences mean NO work has happened this turn. You have TWO options for your retry, and ONLY two: (a) Emit a real `<tool_call>{"name":"...","params":{...}}</tool_call>` envelope NOW to actually do the work, then wait for the real result. (b) Honestly state "I have not [action] yet" and STOP. Do NOT claim completion. You MUST NOT claim you have fixed / eliminated / resolved / removed / cleaned / verified anything. No "successfully [verb]" phrasing. No numbered lists of "Step 1: I did X" actions. No "the project is now in a healthy state." Until a real `<tool_call>` lands on disk and returns a real tool-result, nothing has changed. Lying about completion is the worst failure mode. Retry now.'
         });
         continue;
       }
@@ -1683,7 +1683,28 @@ export class ToolUseLoop {
             responsePreview: response.slice(0, 300)
           });
         }
-        const finalResponse = stripToolCallMarkup(response).trim();
+        // Reasoning channels are streamed live by the host for display —
+        // leaving them in the terminal answer double-renders them, and on
+        // fabrication-retry exhaustion it prints the model's confusion
+        // narrative as if it were the answer (Mark, Portfolio
+        // 2026-06-12T20-19 turn: three near-identical "the user is
+        // correcting my formatting error" reasoning blocks rendered above
+        // the real answer). The stall fallback below still inspects the
+        // raw `response`, so reasoning-only turns keep their fallback.
+        // ORDER MATTERS: reasoning channels strip FIRST. Reasoning text
+        // routinely MENTIONS envelopes in backticks ("I included a
+        // `<tool_result>` envelope…"); if markup stripping ran first, its
+        // envelope regex would match from that in-fence mention through
+        // to the real closing tag, eat the fence's closing ``` along the
+        // way, and the unclosed-fence cleanup would then wipe the entire
+        // rest of the answer.
+        const finalResponse = stripToolCallMarkup(
+          response
+            .replace(/<think\b[\s\S]*?<\/think\s*>/gi, '')
+            .replace(/<think\b[\s\S]*$/i, '')
+            .replace(/```bandit-reasoning\b[\s\S]*?```/gi, '')
+            .replace(/```bandit-reasoning\b[\s\S]*$/i, '')
+        ).trim();
 
         // False-completion detector. Small models regularly end a turn
         // with "I refactored the file" / "here is the updated code" text
