@@ -265,6 +265,26 @@ export function registerModelCapabilities(modelId: string, caps: ModelCapabiliti
  * Returns capability profile for a given model ID.
  * Check order: (1) built-in prefix profiles, (2) runtime cache, (3) default.
  */
+/**
+ * Which tool protocol should drive this model's turns.
+ *
+ * Hand-tuned behavior profiles always win — they encode bake-off results
+ * (e.g. small Gemma sizes are MORE reliable on the XML envelope than the
+ * native one even where the chat template technically supports tools).
+ * For models with no profile (the catch-all 'default'), trust the
+ * runtime-detected capability instead of assuming the worst: the Ollama
+ * /api/show and /v1/models probes register supportsToolCalling, and the
+ * tool-use loop's nativeToolFailureFallback degrades to text-tools
+ * mid-turn if the native envelope fails. Native-with-fallback is a
+ * strictly better default than text-only for a model that advertises
+ * tools.
+ */
+export function resolvePreferredToolProtocol(modelId: string): 'native-tools' | 'text-tools' {
+  const profile = getModelBehaviorProfile(modelId);
+  if (profile.id !== 'default') {return profile.protocol.preferred;}
+  return getModelCapabilities(modelId).supportsToolCalling ? 'native-tools' : 'text-tools';
+}
+
 export function getModelCapabilities(modelId: string): ModelCapabilities {
   if (!modelId) {return DEFAULT_CAPABILITIES;}
   for (const candidate of candidateModelIds(modelId)) {

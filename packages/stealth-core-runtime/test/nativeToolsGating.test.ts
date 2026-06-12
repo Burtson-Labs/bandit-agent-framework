@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getModelCapabilities,
-  getModelBehaviorProfile,
+  resolvePreferredToolProtocol,
   registerModelCapabilities
 } from '../src';
 
@@ -37,9 +37,8 @@ import {
  * the moment the gating drifts in either direction. */
 function gateNativeTools(modelId: string, providerKind: 'ollama' | 'bandit' | 'openai-compatible'): boolean {
   const caps = getModelCapabilities(modelId);
-  const behavior = getModelBehaviorProfile(modelId);
   return caps.supportsToolCalling
-    && behavior.protocol.preferred === 'native-tools'
+    && resolvePreferredToolProtocol(modelId) === 'native-tools'
     && (providerKind === 'ollama' || providerKind === 'bandit' || providerKind === 'openai-compatible');
 }
 
@@ -138,5 +137,52 @@ describe('nativeTools gating — openai-compatible providers gate by capability,
 
   it('still returns false for unknown models on openai-compatible (conservative default)', () => {
     expect(gateNativeTools('acme/unknown-model-9b', 'openai-compatible')).toBe(false);
+  });
+});
+
+describe('nativeTools gating — unknown models with PROBED tool support default to native-with-fallback', () => {
+  // The default behavior profile used to force text-tools on every model
+  // outside the built-in family list, even when the /api/show or
+  // /v1/models probe had just registered supportsToolCalling: true.
+  // resolvePreferredToolProtocol now trusts detected capability for
+  // catch-all models — the loop's nativeToolFailureFallback covers the
+  // case where the native envelope turns out flaky in practice.
+  it('probed tools=true on an unknown model resolves native-tools on every provider kind', () => {
+    registerModelCapabilities('communitylab/new-coder-12b', {
+      contextWindow: 65536,
+      supportsJsonMode: true,
+      supportsToolCalling: true,
+      supportsVision: false,
+      tier: 'medium',
+      label: 'communitylab/new-coder-12b'
+    });
+    expect(resolvePreferredToolProtocol('communitylab/new-coder-12b')).toBe('native-tools');
+    expect(gateNativeTools('communitylab/new-coder-12b', 'ollama')).toBe(true);
+    expect(gateNativeTools('communitylab/new-coder-12b', 'openai-compatible')).toBe(true);
+  });
+
+  it('probed tools=false (or never probed) stays on text-tools', () => {
+    expect(resolvePreferredToolProtocol('totally-unknown-model')).toBe('text-tools');
+    expect(gateNativeTools('totally-unknown-model', 'ollama')).toBe(false);
+  });
+
+  it('built-in capability profiles are NOT overridden by a probed tools=true cache entry', () => {
+    // gemma4:e4b is excluded from native tools at the CAPABILITY layer:
+    // the built-in caps profile says supportsToolCalling=false (Ollama
+    // doesn't serve tools for the small Gemma sizes), and built-ins win
+    // over the runtime cache. A polluted cache entry claiming tool
+    // support must not flip the gate. (The gemma4 family BEHAVIOR
+    // profile prefers native-tools — that's for the ≥26B sizes that do
+    // support it; the capability layer is what keeps e4b on text.)
+    registerModelCapabilities('gemma4:e4b', {
+      contextWindow: 16384,
+      supportsJsonMode: true,
+      supportsToolCalling: true,
+      supportsVision: true,
+      tier: 'small',
+      label: 'gemma4:e4b'
+    });
+    expect(getModelCapabilities('gemma4:e4b').supportsToolCalling).toBe(false);
+    expect(gateNativeTools('gemma4:e4b', 'ollama')).toBe(false);
   });
 });
