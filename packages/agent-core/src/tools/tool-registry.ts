@@ -57,25 +57,7 @@ export class ToolRegistry {
   buildSystemPromptBlock(): string {
     if (this.tools.size === 0) {return '';}
 
-    const toolDefs = this.getAll().map(tool => {
-      const params = tool.parameters.map(p => {
-        // Surface the JSON-Schema-derived type hint inline in the
-        // description so the model knows when to emit a nested object
-        // or an array instead of a bare string. Without this hint the
-        // XML-prompt format describes every param as opaque text,
-        // which is what produced the "Expected object, received
-        // string" failures on createFilter / modifyMessageLabels.
-        const typeHint = formatParamTypeHint(p.schema);
-        const desc = typeHint ? `${typeHint} ${p.description}` : p.description;
-        return `  <param name="${p.name}"${p.required ? ' required="true"' : ''}>${desc}</param>`;
-      }).join('\n');
-      return [
-        `<tool name="${tool.name}">`,
-        `  <description>${tool.description}</description>`,
-        params,
-        `</tool>`
-      ].join('\n');
-    }).join('\n\n');
+    const toolDefs = this.getAll().map(tool => this.renderToolXml(tool)).join('\n\n');
 
     return [
       '## Available Tools',
@@ -84,14 +66,75 @@ export class ToolRegistry {
       '',
       toolDefs,
       '',
-      '## How to Use Tools',
+      ...TOOL_PROTOCOL_LINES
+    ].join('\n');
+  }
+
+  /**
+   * Compact variant of `buildSystemPromptBlock` for small-tier models.
+   * The full XML block measures ~27 KB with the default CLI tool set —
+   * the single largest component of a small model's prompt, and the
+   * reason the default config used to overflow its own num_ctx on turn
+   * one (Ollama then truncates the context HEAD, which is where the
+   * identity + tool protocol live — producing narrated-instead-of-acted
+   * tool calls and fabricated results).
+   *
+   * Edit-critical tools (where param discipline matters most) keep their
+   * full XML definitions; everything else renders as a one-line
+   * signature. The `## How to Use Tools` protocol envelope is IDENTICAL
+   * to the full block — the loop's parsers and detectors key off it.
+   */
+  buildCompactSystemPromptBlock(fullDefinitionTools: ReadonlySet<string> = DEFAULT_FULL_DEFINITION_TOOLS): string {
+    if (this.tools.size === 0) {return '';}
+
+    const all = this.getAll();
+    const fullDefs = all
+      .filter(tool => fullDefinitionTools.has(tool.name))
+      .map(tool => this.renderToolXml(tool));
+    const compact = all
+      .filter(tool => !fullDefinitionTools.has(tool.name))
+      .map(tool => {
+        const params = tool.parameters.map(p => {
+          const type = p.schema?.type && p.schema.type !== 'string' ? `:${p.schema.type}` : '';
+          return `${p.name}${p.required ? '' : '?'}${type}`;
+        }).join(', ');
+        return `- ${tool.name}(${params}) — ${firstSentence(tool.description)}`;
+      });
+
+    return [
+      '## Available Tools',
       '',
-      'To call a tool, respond with ONLY a tool call on its own line:',
-      '<tool_call>{"name": "tool_name", "params": {"param1": "value1"}}</tool_call>',
+      'You have access to the following tools to help you complete tasks:',
       '',
-      'Wait for the tool result before continuing.',
-      'When you have all the information needed and are ready to give your final response,',
-      'respond normally without any <tool_call> tags.',
+      ...fullDefs,
+      '',
+      'Additional tools — same call protocol. Params marked `?` are optional;',
+      '`:object` / `:array` params take JSON values, not strings:',
+      '',
+      ...compact,
+      '',
+      ...TOOL_PROTOCOL_LINES
+    ].join('\n');
+  }
+
+  /** Shared XML rendering for one tool — used by both prompt-block builders. */
+  private renderToolXml(tool: AgentTool): string {
+    const params = tool.parameters.map(p => {
+      // Surface the JSON-Schema-derived type hint inline in the
+      // description so the model knows when to emit a nested object
+      // or an array instead of a bare string. Without this hint the
+      // XML-prompt format describes every param as opaque text,
+      // which is what produced the "Expected object, received
+      // string" failures on createFilter / modifyMessageLabels.
+      const typeHint = formatParamTypeHint(p.schema);
+      const desc = typeHint ? `${typeHint} ${p.description}` : p.description;
+      return `  <param name="${p.name}"${p.required ? ' required="true"' : ''}>${desc}</param>`;
+    }).join('\n');
+    return [
+      `<tool name="${tool.name}">`,
+      `  <description>${tool.description}</description>`,
+      params,
+      `</tool>`
     ].join('\n');
   }
 
@@ -173,6 +216,43 @@ function renderParamForNativeSchema(p: AgentToolParameter): Record<string, unkno
  * difference between createFilter working and Google rejecting the
  * request with "Expected object, received string."
  */
+/**
+ * The tool-call protocol envelope. MUST stay byte-identical between the
+ * full and compact prompt blocks — the loop's stream parser, the
+ * fabrication detectors, and several eval fixtures key off this text.
+ */
+const TOOL_PROTOCOL_LINES: readonly string[] = [
+  '## How to Use Tools',
+  '',
+  'To call a tool, respond with ONLY a tool call on its own line:',
+  '<tool_call>{"name": "tool_name", "params": {"param1": "value1"}}</tool_call>',
+  '',
+  'Wait for the tool result before continuing.',
+  'When you have all the information needed and are ready to give your final response,',
+  'respond normally without any <tool_call> tags.',
+];
+
+/**
+ * Tools that keep full XML definitions in the compact block — the ones
+ * where param discipline (exact-match find strings, line ranges, hashes)
+ * is the difference between a clean edit and a corrupted file.
+ */
+const DEFAULT_FULL_DEFINITION_TOOLS: ReadonlySet<string> = new Set([
+  'read_file',
+  'apply_edit',
+  'replace_range',
+  'write_file',
+  'run_command',
+  'search_code'
+]);
+
+/** First sentence of a tool description, capped so one tool = one line. */
+function firstSentence(description: string): string {
+  const period = description.indexOf('. ');
+  const sentence = period === -1 ? description : description.slice(0, period + 1);
+  return sentence.length > 160 ? `${sentence.slice(0, 157)}…` : sentence;
+}
+
 function formatParamTypeHint(schema: AgentToolParameterSchema | undefined): string {
   if (!schema || !schema.type || schema.type === 'string') {return '';}
   if (schema.type === 'object') {

@@ -56,6 +56,17 @@ export interface ToolUseLoopOptions {
    * incomplete tool envelope. Defaults to true.
    */
   nativeToolFailureFallback?: boolean;
+  /**
+   * Render the text-protocol tool block in compact signature form —
+   * full XML kept only for the edit-critical tools where param
+   * discipline matters. Hosts set this for small-tier models: the full
+   * ~27 KB block is the largest single cause of context-head truncation
+   * on 4B-class models (which silently deletes the identity and tool
+   * protocol sections and produces narrated-instead-of-executed tool
+   * calls). No effect when nativeTools is true — no text block is
+   * injected at all on that path.
+   */
+  compactToolBlock?: boolean;
   /** Called on each event for external observability (streaming UI updates, telemetry). */
   emitEvent?: (type: string, payload?: unknown) => void;
   /**
@@ -433,7 +444,9 @@ export class ToolUseLoop {
     // explicit "this is a recovery attempt — answer the original goal"
     // framing succeeds. Last resort before terminal throw.
     let finalAnchorRetryUsed = false;
-    const textToolBlock = this.registry.buildSystemPromptBlock();
+    const textToolBlock = effectiveOptions.compactToolBlock
+      ? this.registry.buildCompactSystemPromptBlock()
+      : this.registry.buildSystemPromptBlock();
     const buildFullSystemPrompt = (useNativeTools: boolean): string => {
       if (useNativeTools) {return systemPrompt ?? '';}
       return systemPrompt

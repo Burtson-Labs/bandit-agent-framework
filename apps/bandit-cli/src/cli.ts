@@ -51,6 +51,7 @@ import {
   queryOpenAICompatibleModelInfo,
   queryOllamaModelCapabilities,
   resolveOllamaRuntimeOptions,
+  resolvePreferredToolProtocol,
   checkOllamaLoadedContext,
   type ProviderKind,
   type ProviderSettings
@@ -854,10 +855,12 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // forwards `tools: [...]` to upstream Ollama via AdditionalProperties,
   // so qwen3.6/bandit-logic gets the proper chat-template framing.
   // openai-compatible servers (vLLM, LM Studio, llama.cpp, OpenRouter…)
-  // take the same OpenAI-shape `tools` array natively.
+  // take the same OpenAI-shape `tools` array natively. Models without a
+  // hand-tuned profile default to native-with-text-fallback when the
+  // capability probe detected tool support (resolvePreferredToolProtocol).
   const nativeTools = (settings.kind === 'ollama' || settings.kind === 'bandit' || settings.kind === 'openai-compatible')
     && modelCaps.supportsToolCalling
-    && behaviorProfile.protocol.preferred === 'native-tools';
+    && resolvePreferredToolProtocol(model) === 'native-tools';
   const nativeToolFailureFallback = behaviorProfile.protocol.nativeToolFailureFallback !== false;
   const outputBudgetTokens = behaviorProfile.context.outputBudgetTokens;
   const maxParallelTools = behaviorProfile.reliability.maxParallelTools;
@@ -1386,6 +1389,10 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     outputBudgetTokens,
     maxParallelTools,
     nativeToolFailureFallback,
+    // Small-tier models get the compact text tool block (~11 KB vs the
+    // ~27 KB full XML) — the difference between fitting the default
+    // model's num_ctx and silently truncating the prompt head.
+    compactToolBlock: modelCaps.tier === 'small',
     emitEvent: async (type, payload) => {
       telemetryEvent(type, payload);
       if (type === 'tool_loop:llm_start') {

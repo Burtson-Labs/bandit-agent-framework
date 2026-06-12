@@ -32,7 +32,7 @@ import {
   CheckpointStore
 } from '@burtson-labs/host-kit';
 import type { AIChatRequest, AIChatResponse, AIMessageContentPart , OllamaEmbeddingClient} from '@burtson-labs/stealth-core-runtime';
-import { createProvider, type ProviderKind, type ProviderSettings, buildSlimContext, getModelCapabilities, getModelBehaviorProfile, resolveOllamaRuntimeOptions, type BuiltContext } from '@burtson-labs/stealth-core-runtime';
+import { createProvider, type ProviderKind, type ProviderSettings, buildSlimContext, getModelCapabilities, getModelBehaviorProfile, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, type BuiltContext } from '@burtson-labs/stealth-core-runtime';
 import type { StealthAgentRuntime} from '../agent/agentRuntime';
 import { type IUndoManager } from '../agent/agentRuntime';
 import { buildTurnRunContext } from '../agent/toolLoopSetup';
@@ -2027,8 +2027,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       // key which the gateway's BuildOllamaRequestPayloadAsync relays
       // to upstream Ollama via AdditionalProperties.
       const nativeTools = modelCaps.supportsToolCalling
-        && behaviorProfile.protocol.preferred === 'native-tools'
+        && resolvePreferredToolProtocol(model) === 'native-tools'
         && (providerKind === 'ollama' || providerKind === 'bandit' || providerKind === 'openai-compatible');
+      // Small-tier models get the compact text tool block — the full XML
+      // block is the largest single cause of context-head truncation on
+      // 4B-class models. No effect when nativeTools is true.
+      const compactToolBlock = modelCaps.tier === 'small';
       const nativeToolFailureFallback = behaviorProfile.protocol.nativeToolFailureFallback !== false;
       const outputBudgetTokens = behaviorProfile.context.outputBudgetTokens;
       const maxParallelTools = behaviorProfile.reliability.maxParallelTools;
@@ -2078,7 +2082,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
           nativeToolFailureFallback,
           messageTokenBudget,
           maxParallelTools,
-          outputBudgetTokens
+          outputBudgetTokens,
+          compactToolBlock
         }),
         onEvent: (type, payload) => {
           handleSubagentEvent(type, payload, subagentEventDeps);
@@ -2229,6 +2234,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         nativeToolFailureFallback,
         maxParallelTools,
         outputBudgetTokens,
+        compactToolBlock,
         signal: turnSignal,
         // Mid-turn injection of completed-subagent synopses (v1.7.336+).
         // backgroundTasks coordinator subscribes to the store's
