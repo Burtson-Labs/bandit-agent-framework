@@ -447,6 +447,10 @@ export class ToolUseLoop {
     const textToolBlock = effectiveOptions.compactToolBlock
       ? this.registry.buildCompactSystemPromptBlock()
       : this.registry.buildSystemPromptBlock();
+    // Lowercased registered tool names — used by the narrated-call
+    // detector to anchor on "I call <real tool>" with near-zero false
+    // positives.
+    const registeredToolNames = new Set(this.registry.getAll().map(t => t.name.toLowerCase()));
     const buildFullSystemPrompt = (useNativeTools: boolean): string => {
       if (useNativeTools) {return systemPrompt ?? '';}
       return systemPrompt
@@ -1370,6 +1374,25 @@ export class ToolUseLoop {
         stripped.length < 240 &&
         NARRATE_INTENT_RE.test(tail) &&
         NARRATE_VERB_RE.test(tail);
+      // Performative narrated call: "I call read_file with path=README.md".
+      // The generic gate above caps stripped.length at 240 to avoid false
+      // positives on real answers that merely contain narrate verbs — but
+      // when the final clause NAMES A REGISTERED TOOL in a performative
+      // phrase, the length cap is wrong: a long planning recap that ends
+      // "I call read_file with path=…" is a stall no matter how long the
+      // recap is, and tool-name anchoring keeps the false-positive rate
+      // near zero. Captured 2026-06-12 (Mark, Portfolio CLI session,
+      // gemma4:e4b): iteration 1 emitted a reasoning recap ending with
+      // exactly that sentence and no tool_call — the generic gate missed
+      // it (over the length cap; intent list lacks present-tense "I
+      // call") and the turn closed as a final answer.
+      const narratedCallMatch = stripped.slice(-300).match(
+        /\b(?:i\s+(?:will\s+|now\s+|then\s+)?(?:call|invoke|run|use)|calling|invoking|let'?s\s+(?:call|run|use))\s+(?:the\s+)?`?([a-z][a-z0-9_]*)`?/i
+      );
+      const narratedToolCallNoAction =
+        !hasToolCalls(response) &&
+        !!narratedCallMatch &&
+        registeredToolNames.has(narratedCallMatch[1].toLowerCase());
       // Empty-response retry: was previously gated to `iterations > 0`
       // under the assumption "empty first response = provider outage."
       // That assumption was wrong — with bandit-logic
@@ -1382,7 +1405,7 @@ export class ToolUseLoop {
       // below can flip it to non-thinking mode if the second pass also
       // empties).
       const shouldNudge =
-        (!response.trim() || reasoningOnly || narratedButNoAction) &&
+        (!response.trim() || reasoningOnly || narratedButNoAction || narratedToolCallNoAction) &&
         !hitLimit &&
         consecutiveEmptyRetries < 2 &&
         !thinkingOffRecoveryAttempted;
@@ -1392,9 +1415,10 @@ export class ToolUseLoop {
           iteration: iterations,
           attempt: consecutiveEmptyRetries,
           reasoningOnly,
-          narratedButNoAction
+          narratedButNoAction,
+          narratedToolCallNoAction
         });
-        const nudgeMessage = narratedButNoAction
+        const nudgeMessage = (narratedButNoAction || narratedToolCallNoAction)
           ? 'You announced your next step in prose ("we will search…" / "let me check…" / "use X to find Y") but did NOT emit a `<tool_call>` envelope. Announcing intent is not enough — you must actually invoke the tool. Emit the call now in this exact format, OUTSIDE of any reasoning block, with NO commentary and NO markdown fence:\n\n<tool_call>{"name":"<tool>","params":{"<key>":"<value>"}}</tool_call>\n\nReplace name/params with the right values for your task. Or, if the task is already answerable from what you know, give a final answer instead.'
           : reasoningOnly
             ? 'You completed reasoning but emitted no tool_call AND no final answer. The reasoning text alone does not run a tool — you must emit a `<tool_call>` envelope OUTSIDE the reasoning block. Format example (replace name/params for your task):\n\n<tool_call>{"name":"<tool>","params":{"<key>":"<value>"}}</tool_call>\n\nNo prose around it, no markdown fence, just the bare tag. If the task is answerable without a tool, write a complete final answer instead. Do not stop after only thinking.'
