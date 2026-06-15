@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.373
+
+- **Ollama Cloud — run frontier models with no local GPU.** Sign in with `ollama signin`, pull a cloud-tagged model, and Bandit uses it like any local one. Ships tuned profiles for the **Kimi K2 family** (native tool calling, 256K context), including the multimodal `kimi-k2.5` / `k2.6` / `k2.7-code` variants. Both cloud tag shapes (`:1t-cloud` and `:cloud`) resolve automatically, and a 401/403 now points you at `ollama signin` instead of a bare error. Apple-silicon **MLX builds** (`qwen3.6:27b-mlx`, `gemma4:26b-mlx`) resolve to their base profiles too. New **Ollama Cloud** section and a recommended-models table in the README.
+
 ## 1.7.372
 
 - **Local models on OpenAI-compatible servers can now use native tool calling.** Point Bandit at an OpenAI-compatible endpoint (LM Studio, vLLM, llama.cpp server, OpenRouter, and the like) and tool-capable models route tools through native function-calling instead of the text fallback — more reliable agent turns. Community Ollama models outside the built-in list now get their real context window and tool support auto-detected, and vendor-prefixed model ids (e.g. `Qwen/Qwen2.5-Coder-32B`) resolve to the right tuned profile.
