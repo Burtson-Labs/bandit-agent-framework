@@ -1,9 +1,10 @@
 import type { JSX, MouseEvent } from "react";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { sanitizeModelOutput } from "@burtson-labs/core-chat";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
 import MarkdownIt from "markdown-it";
+import morphdom from "morphdom";
 // The Token constructor lives under markdown-it/lib/token and isn't typed in @types,
 // so suppress the type error on import.
 // @ts-expect-error no types for markdown-it/lib/token
@@ -177,6 +178,38 @@ export const MarkdownMessage = ({
     return DOMPurify.sanitize(rendered, { ADD_ATTR: ["data-file-ref", "target", "rel"] });
   }, [renderHtml, resolveFileHref, sanitizedContent]);
 
+  // Morph the new HTML into the existing DOM instead of replacing
+  // innerHTML wholesale. `el.innerHTML = html` (what
+  // dangerouslySetInnerHTML does on every change) tears down and rebuilds
+  // the entire subtree on every stream token — at ~30 tokens/sec the
+  // reasoning <details> cards were destroyed and recreated constantly,
+  // which is the "reasoning flash" the user saw and the reason a
+  // mid-stream expand click was lost (2026-06-14, Mark). morphdom patches
+  // only the nodes that actually changed, so a card that hasn't changed
+  // keeps the SAME DOM node — no flash, scroll/selection/open-state
+  // preserved. onBeforeElUpdated keeps a user-toggled <details> open
+  // across the brief window before the next render's HTML (driven by the
+  // host's stable-key open-state map) catches up.
+  const containerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) {return;}
+    morphdom(el, `<div>${html}</div>`, {
+      childrenOnly: true,
+      onBeforeElUpdated(fromEl, toEl) {
+        if (
+          fromEl instanceof HTMLDetailsElement &&
+          toEl instanceof HTMLDetailsElement &&
+          fromEl.open &&
+          !toEl.hasAttribute("open")
+        ) {
+          toEl.setAttribute("open", "");
+        }
+        return true;
+      }
+    });
+  }, [html]);
+
   const handleClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (!onFileReferenceClick) {
       return;
@@ -192,11 +225,11 @@ export const MarkdownMessage = ({
 
   const mergedClassName = className ? `markdown-message ${className}` : "markdown-message";
 
+  // Children are managed by morphdom (via the ref + effect above), NOT by
+  // React — so this div intentionally has no JSX children and no
+  // dangerouslySetInnerHTML. The initial paint is handled by the effect
+  // running after mount.
   return (
-    <div
-      className={mergedClassName}
-      onClick={handleClick}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div ref={containerRef} className={mergedClassName} onClick={handleClick} />
   );
 };

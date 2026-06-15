@@ -236,6 +236,57 @@ describe('handleChatEvent', () => {
     expect(deps.syncState).toHaveBeenCalled();
   });
 
+  it('llm_chunk preserves streamed reasoning and closes an unclosed fence when a tool_call follows', async () => {
+    // Real CLI run 2026-06-12: the model streamed a reasoning fence,
+    // then emitted a tool_call in the SAME chunk run. The old code wiped
+    // the entire iteration segment (reasoning flicker) AND left the
+    // ```bandit-reasoning fence unclosed, so the next host bandit-tl
+    // fence parsed as the reasoning closer and dumped raw JSON.
+    const entry = makeEntry('');
+    const state = new TurnState(entry);
+    state.currentIteration = 0;
+    state.currentIterationStartLength = 0;
+
+    const deps = makeDeps(state);
+    await handleChatEvent('tool_loop:llm_chunk', {
+      iteration: 0,
+      chunk: '\n```bandit-reasoning\nI should read the file.\n```\nNow I act.<tool_call>{"name":"read_file"}'
+    }, deps);
+
+    // Reasoning kept (not wiped to the iteration start).
+    expect(entry.content).toContain('I should read the file.');
+    // Tool-call markup is dropped from the visible transcript.
+    expect(entry.content).not.toContain('<tool_call');
+    // Fence is balanced — no dangling open marker for the next host fence.
+    const opens = (entry.content.match(/```bandit-reasoning/g) ?? []).length;
+    const closes = (entry.content.match(/\n```/g) ?? []).length;
+    expect(closes).toBeGreaterThanOrEqual(opens);
+    expect(state.inReasoningFence).toBe(false);
+    expect(state.ignoreIterationChunks).toBe(true);
+    expect(state.iterationsWithToolCalls.has(0)).toBe(true);
+  });
+
+  it('llm_chunk closes a never-closed reasoning fence before the tool_call marker', async () => {
+    // The fence-only variant: model opened ```bandit-reasoning, never
+    // emitted a bare ``` closer, then went straight to the tool call.
+    const entry = makeEntry('');
+    const state = new TurnState(entry);
+    state.currentIteration = 0;
+    state.currentIterationStartLength = 0;
+
+    const deps = makeDeps(state);
+    await handleChatEvent('tool_loop:llm_chunk', {
+      iteration: 0,
+      chunk: '\n```bandit-reasoning\nThe user wants an overview.<tool_call>{"name":"ls"}'
+    }, deps);
+
+    expect(entry.content).toContain('The user wants an overview.');
+    expect(entry.content).not.toContain('<tool_call');
+    // A closing fence was synthesized so the block renders as finished.
+    expect(entry.content.trimEnd().endsWith('```')).toBe(true);
+    expect(state.inReasoningFence).toBe(false);
+  });
+
   it('llm_retry preserves attempt counters in trace + status message', async () => {
     const state = new TurnState(makeEntry());
     const deps = makeDeps(state);

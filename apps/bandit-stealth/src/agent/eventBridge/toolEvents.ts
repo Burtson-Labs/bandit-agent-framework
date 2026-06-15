@@ -205,6 +205,15 @@ export function handleToolEvent(type: string, payload: unknown, deps: ToolEventD
         /<\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^>]*)?$|<$/,
         ''
       );
+      // Close any unclosed reasoning fence before the tool marker —
+      // appending a bandit-tl fence inside an open ```bandit-reasoning
+      // fence makes the renderer read the tl opener as the reasoning
+      // closer and dump the tl JSON as a raw code block.
+      const lastReasoningOpen = assistantEntry.content.lastIndexOf('```bandit-reasoning');
+      if (lastReasoningOpen !== -1
+        && !/\n\s*```/.test(assistantEntry.content.slice(lastReasoningOpen + '```bandit-reasoning'.length))) {
+        assistantEntry.content = assistantEntry.content.replace(/\s*$/, '') + '\n```\n';
+      }
       assistantEntry.content += marker;
       assistantEntry.payload = assistantEntry.content;
       updateConversation();
