@@ -79,7 +79,7 @@ export const SUPPRESSED_BLOCKS: ReadonlyArray<{ kind: 'tool_call' | 'think'; ope
  * trailing tag — those held-back bytes are real content the user
  * needs to see. Without this drain they get silently dropped, which
  * shows up as the last 5–9 characters of an assistant turn going
- * missing ("rtfolio" instead of "portfolio", "ode" instead of "code").
+ * missing ("uild" instead of "build", "ode" instead of "code").
  *
  * Only emits when not currently inside a suppressed block; if the
  * stream ended mid-`<tool_call>` we discard the buffer (corrupt

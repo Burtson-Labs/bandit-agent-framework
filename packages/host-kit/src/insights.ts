@@ -378,7 +378,7 @@ function loadSessions(): SessionFile[] {
  *
  * The report itself is global (`~/.bandit/insights.html`) and sessions
  * are global, so excluding the global turn directory makes the report
- * miss cross-repo arcs like Gmail/MCP cleanup or portfolio work that
+ * miss cross-repo arcs like Gmail/MCP cleanup or frontend work that
  * happened outside the repo where `/insights` was invoked.
  */
 function loadTurnFiles(cwd: string): TurnFile[] {
@@ -1135,14 +1135,14 @@ function buildLocalStory(data: InsightsData): string[] {
     return `The Google/MCP work now shows up as a real cross-repo arc: ${details}. Bandit can see both the server buildout and the Gmail cleanup/tooling work instead of treating them as disconnected snippets.${outcome ? ` One logged outcome: ${outcome}` : ''}`;
   });
 
-  addTheme(findTheme([/\bPortfolio\b/i, /\bBurtson\.io\b/i, /\bApp\.(?:jsx|tsx)\b/i]), (theme, outcome) => {
+  addTheme(findTheme([/\bApp\.(?:jsx|tsx)\b/i, /\bcomponents?\//i, /\.(?:jsx|tsx)\b/i, /\bvite\b/i]), (theme, outcome) => {
     const details = [
       turnWord(theme.turns),
       theme.filesTouched > 0 ? `${countLabel(theme.filesTouched, 'file')} touched` : '',
       theme.editsAndWrites > 0 ? `${theme.editsAndWrites} edits/writes` : '',
       theme.testsRun > 0 ? countLabel(theme.testsRun, 'validation run') : ''
     ].filter(Boolean).join(', ');
-    return `The portfolio work reads as an iterative product push, not a one-off edit: ${details}. The turn history captures content passes, repo/path fixes, and larger refactor loops across the portfolio codebase.${outcome ? ` One logged outcome: ${outcome}` : ''}`;
+    return `The frontend work reads as an iterative product push, not a one-off edit: ${details}. The turn history captures content passes, repo/path fixes, and larger refactor loops across the UI codebase.${outcome ? ` One logged outcome: ${outcome}` : ''}`;
   });
 
   addTheme(findTheme([/^Bandit CLI$/i, /^VS Code extension$/i, /^Agent core$/i, /^Host kit$/i, /^Stealth runtime$/i]), (theme, outcome) => {
