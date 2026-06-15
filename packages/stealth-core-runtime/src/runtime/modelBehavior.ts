@@ -253,6 +253,40 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
     }
   },
   {
+    // Kimi K2 (Moonshot) — 1T-MoE / 32B-active agentic coding model, served
+    // via Ollama Cloud as `kimi-k2:1t-cloud`. RL-tuned for tool calling, so
+    // native tools first with a text fallback. 256K context; keep a healthy
+    // input budget but not the full window (cloud round-trips get slow on
+    // very long prompts). Broad `kimi` match so K2.x point releases inherit
+    // this until they get their own entry.
+    id: 'kimi',
+    match: ['kimi-k2', 'kimi'],
+    label: 'Kimi K2 (agentic coding) profile',
+    protocol: {
+      preferred: 'native-tools',
+      fallback: 'text-tools',
+      envelope: 'ollama-tools',
+      nativeToolFailureFallback: true
+    },
+    context: {
+      safeInputTokens: 200000,
+      outputBudgetTokens: 8192,
+      compaction: 'normal'
+    },
+    prompting: {
+      template: 'default-agent',
+      examples: 'minimal',
+      thinking: 'auto'
+    },
+    reliability: {
+      maxParallelTools: 6,
+      retryableErrors: COMMON_RETRYABLE_ERRORS,
+      knownFailureModes: [
+        'Cloud-served: a 401/403 means the user is not signed in (run `ollama signin`) or the cloud key is missing/expired, not a model fault.'
+      ]
+    }
+  },
+  {
     id: 'default',
     match: [''],
     label: 'Default conservative profile',

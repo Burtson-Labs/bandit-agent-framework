@@ -385,7 +385,15 @@ function createDirectOllamaProvider(
 
         if (!response.ok) {
           const detail = await safeReadText(response);
-          throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}`);
+          // Ollama Cloud models (`*-cloud` tags, or pointing baseUrl at
+          // ollama.com) 401/403 when the user isn't signed in or the cloud
+          // key is missing/expired. Turn that into an actionable hint
+          // instead of a bare status line.
+          const looksCloud = /-cloud\b/i.test(request.model) || /ollama\.com/i.test(baseUrl);
+          const authHint = (response.status === 401 || response.status === 403) && looksCloud
+            ? ' — this is an Ollama Cloud model. Run `ollama signin` (local daemon), or set an Ollama Cloud API key as the Authorization header (CLI: `ollama.headers`, extension: the Ollama auth-token field).'
+            : '';
+          throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${authHint}`);
         }
 
         if (payload.stream !== false) {

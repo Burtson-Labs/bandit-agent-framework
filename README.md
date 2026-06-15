@@ -296,11 +296,22 @@ Type a follow-up while the agent is still working and it queues (`queued: N · s
 
 Built-in capability profiles ship for the families listed below. Anything else gets auto-introspected through Ollama's `/api/show` and matched to a behavior profile by name pattern. The canonical inventory lives in [`packages/stealth-core-runtime/src/runtime/modelCapabilities.ts`](packages/stealth-core-runtime/src/runtime/modelCapabilities.ts).
 
+**Recommended starting points** — the proven set, aligned with the models the Ollama ecosystem promotes for agent work:
+
+| Your hardware | Pick |
+|---|---|
+| Any machine, no GPU | `kimi-k2.6:cloud` or `kimi-k2.7-code:cloud` (Ollama Cloud — see [below](#ollama-cloud)) |
+| 24–48 GB GPU / unified memory | `qwen3.6:27b` (best local agent pick) |
+| 16–32 GB | `gemma4:26b` |
+| Laptop / smaller | `gemma4:12b` or `gemma4:e4b` |
+| Apple silicon | `qwen3.6:27b-mlx`, `gemma4:26b-mlx` (MLX builds resolve to the same profiles) |
+
 | Model | Size | Native tool calling | Vision | Context | Best for |
 |---|---|---|---|---|---|
 | `bandit-logic` (Qwen 3.6 27B, hosted) | — | ✓ | ✓ | 256K | Cloud default — agent-tuned, no local install, thinking mode |
 | `qwen3.6:27b` | ~17 GB | ✓ | ✓ | 256K | Best local pick — same family as `bandit-logic`, M-series 48GB+ or H100-class |
 | `qwen3.6:35b` | ~24 GB | ✓ | ✓ | 256K | Larger Qwen 3.6; tends to stall in reasoning-only output, prefer 27B for agent loops |
+| `kimi-k2*` (Ollama Cloud) | — | ✓ | varies | 256K | Frontier agentic-coding family (1T MoE / 32B active). `kimi-k2` / `kimi-k2-thinking` are text-only; `kimi-k2.5` / `:2.6` / `:2.7-code` are multimodal. Runs on Ollama Cloud, no local GPU — see [Ollama Cloud](#ollama-cloud) |
 | `gemma4:31b` | ~19 GB | text-fallback | ✓ | 128K | RTX 5090 / GPU node — high-fidelity local |
 | `gemma4:26b` | ~17 GB | text-fallback | ✓ | 128K | Mac 32GB+ alternative when Qwen 3.6 is too heavy |
 | `gemma4:e4b` | ~3 GB | text-fallback | ✓ | 16K | Lightweight laptop pick — punches above its weight on tool sequencing |
@@ -321,6 +332,56 @@ Built-in capability profiles ship for the families listed below. Anything else g
 **Primary development and test targets** are `bandit-logic` (cloud) and the **gemma4 / qwen3.6** local families. **Models we don't recommend for autonomous agent work** — `gpt-oss:120b` (post-trained for OpenAI's harmony tool-call format, narrates without emitting tool calls), and code-completion tunes like `qwen2.5-coder:32b` on ambiguous prompts (asks for paths instead of probing). See [`apps/bandit-stealth/README.md`](apps/bandit-stealth/README.md#models-we-dont-recommend-for-agent-work) for the full caveats.
 
 Model behavior profiles now sit beside capability detection. `/profile` explains the active model's harness strategy — native vs text tools, fallback policy, safe context/output budget, thinking default, max tool parallelism, and reliability guardrails. Both the CLI and extension load `.bandit/model-profiles.json`, and the tool loop now uses those profile values to choose native-vs-text tools, serialize risky edit batches, cap parallel calls, and decide whether native failures should fall back to text tools.
+
+### Ollama Cloud
+
+Want a frontier model without the GPU? [Ollama Cloud](https://docs.ollama.com/cloud) runs large
+models — like **Kimi K2** (1T MoE, 256K context, built for agentic coding) and `gpt-oss:120b` —
+on Ollama's hosted infrastructure, accessed through the same API Bandit already speaks. Your
+prompts run in the cloud; your repo still stays on your machine except for the context the model
+needs (same as any hosted model).
+
+**Easiest path — local daemon (recommended):**
+
+```bash
+# 1. Sign in to Ollama once (opens a browser)
+ollama signin
+
+# 2. Pull a cloud model — the cloud tag offloads to Ollama Cloud
+ollama pull kimi-k2.7-code:cloud      # multimodal coding agent
+#   or:  ollama pull kimi-k2:1t-cloud  # text-only base K2
+
+# 3. Use it in Bandit like any local model
+bandit --model kimi-k2.7-code:cloud
+#   or inside the REPL:  /model kimi-k2.7-code:cloud
+```
+
+That's it — Bandit talks to your local Ollama daemon (`localhost:11434`), which transparently
+offloads cloud-tagged models. Bandit ships tuned profiles for the whole Kimi family (native tool
+calling, 256K context, vision on the multimodal `k2.5` / `k2.6` / `k2.7-code` variants), and both
+cloud tag shapes — `:1t-cloud` and `:cloud` — resolve automatically.
+
+**Direct cloud API (no local daemon):** point Bandit straight at `ollama.com` with an
+[API key](https://ollama.com/settings/keys):
+
+```jsonc
+// ~/.bandit/config.json
+{
+  "provider": "ollama",
+  "model": "kimi-k2:1t",
+  "ollama": {
+    "url": "https://ollama.com",
+    "headers": { "Authorization": "Bearer <your-ollama-api-key>" }
+  }
+}
+```
+
+In the **VS Code / Cursor extension**, set the Ollama base URL to `https://ollama.com` and paste
+your key into the **Ollama auth token** field (stored in the OS secret store, sent as
+`Authorization: Bearer`).
+
+> If a cloud model returns **401/403**, you're not signed in or the key is missing/expired —
+> Bandit surfaces a hint pointing you at `ollama signin`. The model itself is fine.
 
 ---
 
