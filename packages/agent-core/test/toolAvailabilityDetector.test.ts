@@ -99,3 +99,32 @@ describe('buildToolAvailabilityNudge', () => {
     expect(nudge).toContain('burtson-labs.archiveMessage');
   });
 });
+
+describe('false-positive guards (2026-06-12 local-repo regression)', () => {
+  // The reasoning closer "No further tool calls are needed" plus an
+  // in-text mention of a registered tool fired the detector and
+  // replaced a fully-formed final answer with meta-commentary about
+  // tool availability. Completion statements about tool CALLS must
+  // never read as absence claims.
+  const REGISTERED = ['read_file', 'list_files', 'list_tasks', 'todo_write'];
+
+  it('does not fire on "No further tool calls are needed"', () => {
+    const text = 'I have used read_file to gather everything. No further tool calls are needed.';
+    expect(detectFalseToolAbsence(text, REGISTERED).detected).toBe(false);
+  });
+
+  it('does not fire on "no additional tool calls required"', () => {
+    const text = 'The overview is complete from list_files output; no additional tool calls required.';
+    expect(detectFalseToolAbsence(text, REGISTERED).detected).toBe(false);
+  });
+
+  it('still fires on a genuine absence claim naming a registered tool', () => {
+    const text = 'I cannot complete this: there is no read_file tool available to me.';
+    expect(detectFalseToolAbsence(text, REGISTERED).detected).toBe(true);
+  });
+
+  it('nudge identifies itself as an automated check', () => {
+    const result = detectFalseToolAbsence('there is no read_file tool available', REGISTERED);
+    expect(buildToolAvailabilityNudge(result)).toMatch(/^AUTOMATED HARNESS CHECK/);
+  });
+});

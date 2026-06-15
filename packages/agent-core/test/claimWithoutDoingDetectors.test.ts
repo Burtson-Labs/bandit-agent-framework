@@ -126,6 +126,46 @@ describe('false-completion detector (tool_loop:false_completion_nudge)', () => {
     const lastUser = [...retryMessages].reverse().find((m) => m.role === 'user');
     expect(lastUser?.content ?? '').toMatch(/write_file|apply_edit|tool call|nothing on disk/i);
   });
+
+  it('does NOT fire on a purely informational goal even when the answer says "completed"', async () => {
+    // real CLI run 2026-06-12: "tell me about this repo" is analysis-only.
+    // The model correctly said "I have completed the repository overview"
+    // (a completion phrase) with no edit — the detector used to demand an
+    // edit, replacing the good overview with a defensive "no edits
+    // required" answer plus a wall of harness-check reasoning.
+    const registry = new ToolRegistry();
+    let turn = 0;
+    const { chat } = buildMockChat(() => {
+      turn += 1;
+      return 'I have completed the repository overview and generated a comprehensive todo list in markdown.';
+    });
+    const { events, emit } = buildEmitRecorder();
+    const loop = new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 4 });
+
+    const result = await loop.run('tell me about this repo and show a todo list', chat);
+    const fires = events.filter((e) => e.type === 'tool_loop:false_completion_nudge');
+    expect(fires.length).toBe(0);
+    // The first (good) answer is what the user sees — not a degraded retry.
+    expect(result.finalResponse).toContain('repository overview');
+  });
+
+  it('STILL fires on an analysis goal that ALSO implies an edit', async () => {
+    // "review the auth flow and fix the bug" is analysis + edit. Claiming
+    // completion with no edit is still a false completion.
+    const registry = new ToolRegistry();
+    let turn = 0;
+    const { chat } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) {return 'I have updated the auth flow and the implementation is complete.';}
+      return 'Real answer now.';
+    });
+    const { events, emit } = buildEmitRecorder();
+    const loop = new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 4 });
+
+    await loop.run('review the auth flow and update the token refresh logic', chat);
+    const fires = events.filter((e) => e.type === 'tool_loop:false_completion_nudge');
+    expect(fires.length).toBe(1);
+  });
 });
 
 describe('partial-completion detector (tool_loop:partial_completion_nudge)', () => {

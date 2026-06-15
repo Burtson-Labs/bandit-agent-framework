@@ -178,7 +178,7 @@ const readFileTool: AgentTool = {
       // models (4B-class) routinely copy-paste those prefix bytes
       // into apply_edit `find` strings, where they never match the
       // real file content and the edit silently no-ops. Observed
-      // 2026-05-01 on a portfolio sandbox with gemma4:e4b: model
+      // 2026-05-01 on a React/TS sandbox with gemma4:e4b: model
       // emitted `Find: " 10 │ <link href=..."` and the loop
       // terminated with no edit landed. The header note + the
       // explicit reminder in apply_edit's `find` parameter
@@ -815,7 +815,7 @@ const replaceRangeTool: AgentTool = {
     // into a replace_range(43-50) call, hashes diverge (because they
     // cover different bytes), edit rejected, model re-reads, picks
     // up a still-wrong hash from the wider read, retries — repeat
-    // indefinitely. Captured 2026-05-26 Portfolio session: 3-5
+    // indefinitely. Captured 2026-05-26 real CLI session: 3-5
     // iterations spinning on a single 8-line replacement.
     //
     // The hash was always weaker safety than the read-tracking guard

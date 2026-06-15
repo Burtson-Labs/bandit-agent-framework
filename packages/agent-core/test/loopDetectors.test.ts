@@ -242,7 +242,7 @@ describe('todo-churn detector (tool_loop:todo_churn_nudge)', () => {
 });
 
 describe('no-tool-call hard cap (tool_loop:no_tool_call_hard_cap)', () => {
-  // Mark Portfolio session 2026-05-26 turn-02-30-37: model emitted 6
+  // Real CLI session 2026-05-26 turn-02-30-37: model emitted 6
   // sequential reasoning-only responses within iteration 4 before the
   // loop terminated with a useless final answer. Each individual
   // detector (empty_retry, narratedButNoAction, thinking_off_recovery)
