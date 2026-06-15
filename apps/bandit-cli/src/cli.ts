@@ -625,7 +625,7 @@ interface RunOptions {
    *  function appends successful `read_file` results so the model can
    *  see "## Already read this session" in its system context next
    *  turn and skip redundant reads of files it just consumed. Captured
-   *  2026-05-25 on a Portfolio React refactor where bandit-logic spent
+   *  2026-05-25 on a local React refactor where bandit-logic spent
    *  iter 1 re-reading the same 4 files turn 1 had read 6 minutes
    *  prior — wasted ~30s of prefill on cached content. Omit in
    *  one-shot mode (no cross-turn benefit there). */
