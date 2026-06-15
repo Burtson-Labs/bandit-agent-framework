@@ -632,17 +632,17 @@ export function App(): JSX.Element {
         }
       }
       // Chain-of-thought reasoning block — extension emits one
-      // `bandit-reasoning` fence per chunk from models with thinking
-      // mode on (Qwen 3.x, DeepSeek R1). Rendered as <details open>
-      // so the reasoning is visible by default — the user asked to
-      // be able to read it while the agent is still working
-      // (2026-04-30). Previously rendered as <details> (closed) and
-      // any user expand was lost on the next stream chunk because
-      // React re-renders the dangerouslySetInnerHTML each time, which
-      // wipes the user's toggle state. Defaulting to `open` so the
-      // user sees reasoning stream live; they can still click the
-      // disclosure triangle to collapse, and once streaming stops
-      // re-rendering the DOM stays put.
+      // `bandit-reasoning` fence per iteration. Rendered as <details>
+      // CLOSED by default (2026-06-13, Mark): text-protocol models
+      // (Gemma) self-emit a fresh reasoning fence every iteration, so a
+      // multi-tool turn stacks 4-6 open walls of restated chain-of-
+      // thought above the answer — noise the user has to scroll past.
+      // Collapsed-by-default shows a compact "reasoning (N lines)"
+      // triangle per iteration; the user expands the ones they want.
+      // The persisted `reasoningOpenState` map keeps an expanded card
+      // open across the per-chunk React re-renders of
+      // dangerouslySetInnerHTML. (Reverses the 2026-04-30 open-by-
+      // default behavior, which predated the per-iteration stacking.)
       if (normalized === "bandit-reasoning") {
         // Strip host-formatted log fences that small models hallucinate
         // INTO their reasoning channel. The existing fake-tool-log
@@ -680,17 +680,27 @@ export function App(): JSX.Element {
         if (looksMidStream) {return '';}
         const lineCount = text.split("\n").filter(l => l.trim().length > 0).length;
         const summary = `reasoning (${lineCount} line${lineCount === 1 ? "" : "s"})`;
-        // Stable key + persisted toggle. Default open so the user sees
-        // chain-of-thought live; once they collapse it, subsequent
-        // chunks of the SAME fence don't pop it back open.
-        const reasoningKeyBody = text.slice(0, 256);
-        let rh = 5381;
-        for (let i = 0; i < reasoningKeyBody.length; i++) {
-          rh = ((rh << 5) + rh + reasoningKeyBody.charCodeAt(i)) | 0;
+        // Stable key by ORDINAL POSITION, not content. A content hash
+        // (the prior approach) changes on every stream chunk while the
+        // block is still growing — so the <details> got a new identity
+        // each render, the user's expand click never stuck to the next
+        // chunk's card, and the card appeared to flash/disappear and
+        // could not be opened until the whole turn finished (2026-06-13,
+        // Mark). The Nth reasoning fence in the message keeps key
+        // `r-ord-N` from its first chunk to turn-end, so an expand
+        // persists live via reasoningOpenState and the node stays put.
+        let reasoningOrdinal = 0;
+        for (let i = 0; i < index; i++) {
+          const t = tokens[i];
+          if (t.type === "fence"
+            && ((t.info || "").trim().split(/\s+/)[0] ?? "").toLowerCase() === "bandit-reasoning") {
+            reasoningOrdinal++;
+          }
         }
-        const reasoningKey = `r-${reasoningKeyBody.length}-${(rh >>> 0).toString(36)}`;
+        const reasoningKey = `r-ord-${reasoningOrdinal}`;
         const userToggle = reasoningOpenState.get(reasoningKey);
-        const isOpen = userToggle === undefined ? true : userToggle;
+        // Collapsed by default; honor an explicit user expand/collapse.
+        const isOpen = userToggle === undefined ? false : userToggle;
         return (
           `<details class="bandit-reasoning" data-reasoning-key="${escapeHtml(reasoningKey)}"${isOpen ? " open" : ""}>` +
             `<summary>${escapeHtml(summary)}</summary>` +
@@ -877,6 +887,19 @@ export function App(): JSX.Element {
       // between the real subagent announcements. Drop silently.
       if (normalized && normalized.startsWith('bandit-')) {
         return "";
+      }
+      // ```markdown / ```md fences render as REAL markdown in the chat,
+      // not a raw code panel (2026-06-13, Mark: code snippets and diffs
+      // stay code blocks, but markdown should render directly). Models
+      // asked to "show markdown of the repo" wrap the answer in a
+      // ```markdown fence; in a markdown-rendering chat that should
+      // display rendered, not as a COPY-button source panel. Nested
+      // render is safe: the instance has html:false, so any raw HTML in
+      // the body is escaped. Wrapped in a marker div so it's visually
+      // distinguishable from the surrounding prose.
+      if (normalized === "markdown" || normalized === "md") {
+        const rendered = instance.render(raw);
+        return `<div class="bandit-rendered-markdown">${rendered}</div>`;
       }
       const label = normalized || "text";
       const display = escapeHtml(label.toUpperCase());
@@ -1365,10 +1388,9 @@ export function App(): JSX.Element {
     document.addEventListener("click", handleDiffSummaryClick);
 
     // Reasoning fence open-state persistence — same pattern. The
-    // `bandit-reasoning` <details> is rendered <details open> by
-    // default so the user sees chain-of-thought live; once they
-    // collapse it, this handler records the choice so the next
-    // stream chunk doesn't pop it back open.
+    // `bandit-reasoning` <details> renders CLOSED by default; once the
+    // user expands one, this handler records the choice so the next
+    // stream chunk doesn't collapse it back.
     const handleReasoningSummaryClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) {return;}

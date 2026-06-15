@@ -217,14 +217,37 @@ export function handleChatEvent(type: string, payload: unknown, deps: ChatEventD
     assistantEntry.payload = assistantEntry.content;
     assistantEntry.timestamp = Date.now();
 
-    const iterationText = assistantEntry.content.slice(state.currentIterationStartLength).toLowerCase();
-    if (iterationText.includes('<tool_call')) {
-      assistantEntry.content = assistantEntry.content.slice(0, state.currentIterationStartLength);
+    const iterationSegment = assistantEntry.content.slice(state.currentIterationStartLength);
+    const lowerSegment = iterationSegment.toLowerCase();
+    // Detect BOTH tool-call shapes: the XML envelope and the fenced
+    // form. The fenced form previously leaked straight through (only
+    // '<tool_call' was checked), so raw ```tool_call JSON stayed
+    // visible and — worse — any unclosed reasoning fence stayed open,
+    // making the next host bandit-tl append parse as the reasoning
+    // CLOSER and render its JSON as a raw code block (real CLI run,
+    // 2026-06-12: raw bandit-tl rows after a dangling
+    // "```bandit-reasoning" stub).
+    const xmlIdx = lowerSegment.indexOf('<tool_call');
+    const fenceIdx = lowerSegment.indexOf('```tool_call');
+    const markerIdx = xmlIdx === -1 ? fenceIdx : fenceIdx === -1 ? xmlIdx : Math.min(xmlIdx, fenceIdx);
+    if (markerIdx !== -1) {
+      // Keep the reasoning streamed BEFORE the tool-call markup —
+      // wiping the whole iteration segment was the "reasoning streams
+      // then vanishes on every tool call" flicker. Close the fence
+      // when the model never did, so the kept text renders as a
+      // finished card.
+      let kept = iterationSegment.slice(0, markerIdx);
+      const lastOpen = kept.lastIndexOf('```bandit-reasoning');
+      if (lastOpen !== -1 && !/\n\s*```/.test(kept.slice(lastOpen + '```bandit-reasoning'.length))) {
+        kept = kept.replace(/\s*$/, '') + '\n```\n';
+      }
+      state.inReasoningFence = false;
+      assistantEntry.content = assistantEntry.content.slice(0, state.currentIterationStartLength) + kept;
       assistantEntry.payload = assistantEntry.content;
       assistantEntry.timestamp = Date.now();
       state.ignoreIterationChunks = true;
       state.iterationsWithToolCalls.add(state.currentIteration);
-      state.streamedCharsByIteration.set(state.currentIteration, 0);
+      state.streamedCharsByIteration.set(state.currentIteration, kept.length);
       // Start the "generating tool call" indicator so the user
       // sees progress while the tool_call JSON payload streams
       // in invisibly. On big write_file calls this period can be

@@ -87,8 +87,11 @@ describe('wrap-up template picker', () => {
   it('always leads the wrap-up with the original user goal', async () => {
     const goal = 'review the auth flow and explain how tokens get refreshed';
     const wrapUp = await runUntilWrapUp(goal);
-    // Goal-recall block is the first thing in the message body.
-    expect(wrapUp.startsWith('## ORIGINAL USER GOAL')).toBe(true);
+    // The automated-check marker leads (so small models don't narrate
+    // the wrap-up as user feedback), with the goal-recall block
+    // immediately after — still the first substantive content.
+    expect(wrapUp.startsWith('AUTOMATED HARNESS CHECK')).toBe(true);
+    expect(wrapUp).toContain('## ORIGINAL USER GOAL');
     // Includes the literal goal text.
     expect(wrapUp).toContain(goal);
   });

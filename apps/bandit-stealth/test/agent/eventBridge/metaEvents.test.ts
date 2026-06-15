@@ -81,6 +81,30 @@ describe('handleMetaEvent', () => {
     expect(deps._append).toHaveBeenCalledWith({ type: 'tool-calls', iteration: 0, tools: ['search_code'] });
   });
 
+  it('tool_calls KEEPS streamed reasoning while dropping the tool-call prose preamble', async () => {
+    // Regression for the "reasoning disappears when a tool runs, then all
+    // reappears at finalize" churn (2026-06-15, Mark). The iteration
+    // streamed a reasoning fence AND a prose preamble; only the prose is
+    // noise — the reasoning must stay as a stable card through the turn.
+    const prefix = 'earlier transcript\n\n';
+    const reasoning = '```bandit-reasoning\nI should read the manifest first.\n```';
+    const preamble = '\nOkay, I will read package.json now.';
+    const state = new TurnState(makeEntry(prefix + reasoning + preamble));
+    state.currentIteration = 1;
+    state.currentIterationStartLength = prefix.length;
+    state.ignoreIterationChunks = false;
+
+    const deps = makeDeps(state);
+    await handleMetaEvent('tool_loop:tool_calls', { iteration: 1, tools: ['read_file'] }, deps);
+
+    // Reasoning survives; prose preamble is gone.
+    expect(state.assistantEntry.content).toContain('I should read the manifest first.');
+    expect(state.assistantEntry.content).toContain('```bandit-reasoning');
+    expect(state.assistantEntry.content).not.toContain('Okay, I will read package.json');
+    expect(state.assistantEntry.content.startsWith('earlier transcript')).toBe(true);
+    expect(state.iterationsWithToolCalls.has(1)).toBe(true);
+  });
+
   it('cancelled and compacted write distinct trace entries and never touch state', async () => {
     const state = new TurnState(makeEntry('original'));
     state.currentIteration = 3;

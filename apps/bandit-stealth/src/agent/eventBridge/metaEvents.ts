@@ -25,9 +25,10 @@ export interface MetaEventDeps {
  * `tool_loop:fired_and_forgotten_nudge`,
  * `tool_loop:announce_intent_nudge`, `tool_loop:json_todo_auto_promoted`.
  *
- * Behavior preserved byte-for-byte from the inline switch. `tool_calls`
- * carries the iteration-bookkeeping mutation that the rest of the loop
- * relies on; the others are trace-only.
+ * `tool_calls` carries the iteration-bookkeeping mutation that the rest
+ * of the loop relies on, and now also preserves streamed reasoning when
+ * it strips the iteration's tool-call prose preamble (2026-06-15); the
+ * others are trace-only.
  */
 export function handleMetaEvent(type: string, payload: unknown, deps: MetaEventDeps): void {
   const { state, turnLog, getToolLoopIteration, syncState } = deps;
@@ -41,7 +42,21 @@ export function handleMetaEvent(type: string, payload: unknown, deps: MetaEventD
     state.ignoreIterationChunks = true;
     state.streamedCharsByIteration.set(iteration, 0);
     if (assistantEntry.content.length !== state.currentIterationStartLength) {
-      assistantEntry.content = assistantEntry.content.slice(0, state.currentIterationStartLength);
+      // Drop this iteration's tool-call PROSE preamble ("Okay, I'll read
+      // the file…") but KEEP any reasoning the model streamed. Slicing
+      // the whole iteration segment deleted the reasoning the moment a
+      // tool ran, so cards vanished mid-turn and only reappeared at
+      // finalize when the full message re-rendered — the "reasoning
+      // disappears then all reappears" churn (2026-06-15, Mark). Keeping
+      // the reasoning fences here leaves a stable collapsed card in place
+      // through the whole turn.
+      const prefix = assistantEntry.content.slice(0, state.currentIterationStartLength);
+      const segment = assistantEntry.content.slice(state.currentIterationStartLength);
+      const reasoning = segment.match(/```bandit-reasoning[\s\S]*?```/gi);
+      const keptReasoning = reasoning ? reasoning.join('\n\n') : '';
+      assistantEntry.content = keptReasoning
+        ? `${prefix.replace(/\s*$/, '')}\n\n${keptReasoning}\n`
+        : prefix;
       assistantEntry.payload = assistantEntry.content;
       assistantEntry.timestamp = Date.now();
       syncState();
