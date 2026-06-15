@@ -22,6 +22,7 @@
 
 import { build } from 'esbuild';
 import { chmodSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const publishOnly = process.argv.includes('--publish');
 
@@ -44,8 +45,12 @@ const common = {
   // the devtools, but ink statically imports the module at the top of
   // its devtools.js. Aliasing it to an empty stub keeps the import
   // resolvable while shipping zero devtools code in the bundle.
+  // Use fileURLToPath, NOT `.pathname`: on Windows `.pathname` yields
+  // `/D:/…/empty-stub.mjs` (leading slash before the drive letter),
+  // which esbuild can't resolve and broke the Windows build. fileURLToPath
+  // returns a real OS path on every platform.
   alias: {
-    'react-devtools-core': new URL('./scripts/empty-stub.mjs', import.meta.url).pathname
+    'react-devtools-core': fileURLToPath(new URL('./scripts/empty-stub.mjs', import.meta.url))
   },
   // ESM doesn't have `require`, `__dirname`, or `__filename`. The CLI
   // source uses `require('../package.json')` etc. The banner exposes
