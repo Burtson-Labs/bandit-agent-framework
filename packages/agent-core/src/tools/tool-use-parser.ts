@@ -403,3 +403,52 @@ export function stripToolMarkup(text: string): string {
     .replace(/<tool_result[^>]*>[\s\S]*?<\/tool_result>/gi, '')
     .trim();
 }
+
+/**
+ * Strips reasoning channels — `<think>` blocks and host-display
+ * ```bandit-reasoning fences (closed or trailing-unclosed) — leaving
+ * only user-visible answer text. Detectors that pattern-match prose
+ * MUST run on this, not the raw response: reasoning narrates normal
+ * tool usage by name ("I used `read_file`", "No further tool calls
+ * are needed") and false-positives every prose detector otherwise.
+ */
+export function stripReasoningChannels(text: string): string {
+  return text
+    .replace(/<think\b[\s\S]*?<\/think\s*>/gi, '')
+    .replace(/<think\b[\s\S]*$/i, '')
+    .replace(/```bandit-reasoning\b[\s\S]*?```/gi, '')
+    .replace(/```bandit-reasoning\b[\s\S]*$/i, '');
+}
+
+/**
+ * "Is there any real answer content here?" — strips reasoning channels
+ * AND stray code-fence scaffolding so the empty/reasoning-only stall
+ * detectors aren't fooled by leftover backtick markers.
+ *
+ * Small models (Gemma) sometimes prefix a turn with a bare ``` fence
+ * opener — `\`\`\`\n\n\`\`\`bandit-reasoning\n…\n\`\`\`` — that wraps the
+ * reasoning. After the reasoning fence is removed, the orphan ``` made
+ * the response look non-empty, so the reasoning-only nudge never fired,
+ * the loop accepted ``` as the "answer", and the model never called the
+ * tool it had announced — the turn ended with no answer (real CLI run,
+ * 2026-06-15). Removing bare fence-marker lines and empty fences makes
+ * "reasoning + scaffolding only" correctly read as empty so the model
+ * gets nudged to actually act. A genuine code-block answer keeps its
+ * inner content, so this never silences a real reply.
+ */
+export function stripToAnswerContent(text: string): string {
+  return stripReasoningChannels(text)
+    // Bare fence-marker lines: a line that is only ``` or ```lang.
+    .replace(/^[ \t]*`{3,}[a-zA-Z0-9_-]*[ \t]*$/gm, '')
+    // Empty fences: ```lang\n   \n``` with nothing but whitespace inside.
+    .replace(/`{3,}[a-zA-Z0-9_-]*\s*`{3,}/g, '')
+    .trim();
+}
+
+/**
+ * Leading marker for every harness-injected corrective message. Small
+ * models narrate user-role nudges back as "the user is pointing out…"
+ * — the marker plus the explicit do-not-mention instruction is what
+ * keeps the correction out of the visible answer.
+ */
+export const AUTOMATED_NUDGE_PREFIX = 'AUTOMATED HARNESS CHECK — this is NOT a message from the user. Do not mention this check, quote it, apologize for it, or describe it in your answer. ';

@@ -84,19 +84,25 @@ export class PythonAdapter implements LanguageAdapter {
 export class TypeScriptAdapter implements LanguageAdapter {
   readonly extensions = ['ts', 'tsx'];
 
-  async validate(_filePath: string, content: string, ctx: ToolExecutionContext): Promise<ValidationResult> {
+  async validate(filePath: string, content: string, ctx: ToolExecutionContext): Promise<ValidationResult> {
     // Base64-encode content so it can be safely embedded in the node -e script.
     const b64 = Buffer.from(content).toString('base64');
 
-    // The script tries to require 'typescript' from the workspace node_modules.
-    // If TypeScript is not installed, the catch block exits 0 (silent skip).
-    // ts.transpileModule() is the standard public API for isolated syntax checking —
-    // it reports parse errors without needing a full compiler project.
+    // ScriptKind matters: transpileModule defaults to plain .ts, where
+    // JSX is a syntax error — `</header>` parses as an unterminated
+    // regex and EVERY valid .tsx file fails with "'>' expected /
+    // Unterminated regular expression literal". That wall made models
+    // conclude "the tool environment cannot write TSX" (real CLI run,
+    // 2026-06-12 refactor turn: three write_file rejections on valid
+    // JSX). Pass a matching fileName + jsx:Preserve so .tsx parses as
+    // TSX; .ts stays strict so `<Foo>bar` type assertions still parse
+    // as before.
+    const isTsx = /\.tsx$/i.test(filePath);
     const script = [
       'try{',
       "const ts=require('typescript');",
       `const r=ts.transpileModule(Buffer.from('${b64}','base64').toString(),`,
-      '{reportDiagnostics:true,compilerOptions:{strict:false,skipLibCheck:true}});',
+      `{reportDiagnostics:true,fileName:'${isTsx ? 'check.tsx' : 'check.ts'}',compilerOptions:{strict:false,skipLibCheck:true${isTsx ? ',jsx:ts.JsxEmit.Preserve' : ''}}});`,
       'const d=r.diagnostics||[];',
       'if(d.length){',
       "process.stdout.write(d.map(x=>typeof x.messageText==='string'?x.messageText:x.messageText.messageText).join('\\n'));",

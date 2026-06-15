@@ -2,7 +2,7 @@
  * Contract tests for `apply_patch` per-hunk recovery (v1.7.298).
  *
  * Prior behavior aborted the ENTIRE multi-file patch on first hunk
- * failure. Mark Portfolio session 2026-05-26: 5-file unified diff,
+ * failure. Real CLI session 2026-05-26: 5-file unified diff,
  * first hunk applied cleanly, second hunk's context lines had
  * drifted by one character from a prior edit, whole patch rejected
  * with "Applied 1 hunk" and the remaining 4 files silently skipped.

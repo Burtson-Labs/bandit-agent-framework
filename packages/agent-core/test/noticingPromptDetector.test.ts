@@ -7,7 +7,7 @@
  * a one-time synthetic user-role hint into the loop's message stream
  * so the model addresses the gap before continuing the prior plan.
  *
- * Captured 2026-05-25 on a Portfolio React refactor where the model
+ * Captured 2026-05-25 on a local React refactor where the model
  * read the user's question as a generic "keep going" prompt and wrote
  * 5 more new files without ever wiring App.jsx to consume them.
  */

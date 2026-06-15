@@ -1,7 +1,7 @@
 /**
  * Detector contract: narrated-tool-call stall.
  *
- * Replays the 2026-06-12 Portfolio CLI failure (gemma4:e4b): the model
+ * Replays a 2026-06-12 CLI failure on a local React/TS repo (gemma4:e4b): the model
  * emits a LONG reasoning recap that ends with a performative prose call
  * — "I call read_file with path=README.md" — and no tool_call envelope.
  * The generic narrate gate misses it (over its 240-char cap; intent list
@@ -27,7 +27,7 @@ function buildReadFileTool(captured: { reads: number }): AgentTool {
     ],
     async execute(): Promise<ToolResult> {
       captured.reads += 1;
-      return { output: '# Portfolio\nA personal site.' };
+      return { output: '# Sample App\nA personal site.' };
     }
   };
 }
@@ -50,7 +50,7 @@ describe('narrated-tool-call detector (narratedToolCallNoAction)', () => {
       turn += 1;
       if (turn === 1) {return LONG_RECAP;}
       if (turn === 2) {return '<tool_call>{"name":"read_file","params":{"path":"README.md"}}</tool_call>';}
-      return 'This repo is a Vite personal portfolio site.';
+      return 'This repo is a Vite + React single-page app.';
     });
     const { events, emit } = buildEmitRecorder();
     const loop = new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 6 });
@@ -63,7 +63,7 @@ describe('narrated-tool-call detector (narratedToolCallNoAction)', () => {
     );
     expect(nudges.length).toBe(1);
     expect(captured.reads).toBe(1);
-    expect(result.finalResponse).toContain('portfolio');
+    expect(result.finalResponse).toContain('Vite');
   });
 
   it('does NOT fire when the narrated name is not a registered tool', async () => {

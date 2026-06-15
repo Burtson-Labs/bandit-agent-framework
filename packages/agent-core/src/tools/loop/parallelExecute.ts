@@ -14,7 +14,7 @@
  * Why the serial mode exists: smaller models (4B–12B) generate
  * malformed JSON in the tail of a multi-file emission once their
  * effective output budget is exhausted. on a
- * portfolio build — even a strong model produced a malformed
+ * React/TS build — even a strong model produced a malformed
  * `todo_write` after writing four files of ~7 KB each in one
  * assistant turn. Serialising lets the model react to each result
  * before committing further output, and gives the user one approval

@@ -60,6 +60,45 @@ describe('empty-retry / shouldNudge (tool_loop:empty_retry)', () => {
     expect((fires[0].payload as { reasoningOnly?: boolean }).reasoningOnly).toBe(true);
   });
 
+  it('fires when a stray ``` fence wraps reasoning-only output (no tool call)', async () => {
+    // Real CLI run 2026-06-15 (gemma4:e4b): the model prefixed its turn
+    // with a bare ``` opener wrapping the reasoning —
+    // "```\n\n```bandit-reasoning\n…my first step is to get an overview…\n```".
+    // After the reasoning fence was stripped, the orphan ``` made the
+    // response look non-empty, the reasoning-only nudge never fired, the
+    // loop accepted ``` as the answer, and the model never called the
+    // tool it announced — the turn ended with NO answer. The
+    // stripToAnswerContent scaffolding-strip must make this read as a
+    // stall so the model is nudged to act.
+    const captured = { calls: 0 };
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'ls',
+      description: 'List files.',
+      parameters: [{ name: 'path', description: 'Dir.', required: false }],
+      async execute() { captured.calls += 1; return { output: 'README.md\npackage.json' }; }
+    } as unknown as AgentTool);
+    let turn = 0;
+    const { chat } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) {
+        return '```\n\n\n```bandit-reasoning\nI need to understand the repo. My first step is to get an overview of the project files.\n```';
+      }
+      if (turn === 2) {return '<tool_call>{"name":"ls","params":{"path":"."}}</tool_call>';}
+      return 'This repo is a Vite + React app.';
+    });
+    const { events, emit } = buildEmitRecorder();
+    const loop = new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 6 });
+
+    const result = await loop.run('tell me about this repo', chat);
+    const fires = events.filter((e) => e.type === 'tool_loop:empty_retry');
+    expect(fires.length).toBe(1);
+    expect((fires[0].payload as { reasoningOnly?: boolean }).reasoningOnly).toBe(true);
+    expect(captured.calls).toBe(1);
+    expect(result.finalResponse).toContain('Vite + React');
+    expect(result.finalResponse.trim()).not.toBe('```');
+  });
+
   it('fires on a narratedButNoAction "let me X" shape', async () => {
     const registry = new ToolRegistry();
     let turn = 0;
@@ -419,8 +458,8 @@ describe('parse-retry (tool_loop:parse_retry)', () => {
 });
 
 describe('narrate-but-no-action terminal annotator (loop.run finalResponse)', () => {
-  it('appends a stall note when the model ends with "Let me X:" prose but no tool_call AND the inline empty-retry detector is exhausted — Portfolio 2026-05-31 regression', async () => {
-    // Reproduces Portfolio 2026-05-31T17-39-53 cleanup turn: after a
+  it('appends a stall note when the model ends with "Let me X:" prose but no tool_call AND the inline empty-retry detector is exhausted — 2026-05-31 regression', async () => {
+    // Reproduces a 2026-05-31T17-39-53 cleanup turn: after a
     // native→text channel recovery, the model emitted a bandit-
     // reasoning block followed by "Let me revert it:" prose with a
     // dangling colon and NO tool_call. The user read the prose,

@@ -35,6 +35,7 @@
  */
 import type { ToolLoopMessage } from '../tool-types';
 import type { ToolRegistry } from '../tool-registry';
+import { AUTOMATED_NUDGE_PREFIX } from '../tool-use-parser';
 
 export type AnchorEmit = (type: string, payload?: unknown) => void;
 
@@ -158,7 +159,7 @@ export function applyGoalAnchorIfNeeded(args: ApplyGoalAnchorArgs): ApplyGoalAnc
   messages.push({
     role: 'user',
     content:
-      `${compactionPreamble}## CURRENT GOAL — answer THIS, nothing else:\n\n  "${originalGoal.trim()}"\n\nRules:\n  - Use what you have gathered to answer the goal above.\n  - Do not pivot to a related topic that happens to be salient in recent tool results.${ignoreEarlier}\n  - If the available tools cannot finish the goal, own that honestly in your final answer — do NOT redirect to an easier question.`
+      AUTOMATED_NUDGE_PREFIX + `${compactionPreamble}## CURRENT GOAL — answer THIS, nothing else:\n\n  "${originalGoal.trim()}"\n\nRules:\n  - Use what you have gathered to answer the goal above.\n  - Do not pivot to a related topic that happens to be salient in recent tool results.${ignoreEarlier}\n  - If the available tools cannot finish the goal, own that honestly in your final answer — do NOT redirect to an easier question.`
   });
 
   return { lastGoalAnchorIteration: iteration, anchored: true };

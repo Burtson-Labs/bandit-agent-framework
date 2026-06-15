@@ -1,3 +1,4 @@
+import { AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
 /**
  * Tool-availability self-correction detector.
  *
@@ -25,10 +26,17 @@
 
 /**
  * Phrases that signal the model is asserting tool unavailability.
- * Tuned for sensitivity — we'd rather false-positive once than miss
- * the failure mode. The verification step (does the named tool ACTUALLY
- * exist in the registry?) is what gates the corrective nudge, so a
- * false positive here is harmless.
+ *
+ * The registry-membership check is NOT a sufficient false-positive
+ * guard on its own: reasoning/plan text routinely names registered
+ * tools while narrating normal work ("I used `read_file`", "No further
+ * tool calls are needed"), so callers MUST strip reasoning channels
+ * before passing text here, and the "no … tool" phrases must not match
+ * completion statements about tool CALLS. Captured 2026-06-12 (Mark,
+ * a local CLI session, gemma4:e4b): the reasoning closer "No further tool
+ * calls are needed" + an in-reasoning `read_file` mention fired the
+ * nudge and replaced a fully-formed final answer with confused
+ * meta-commentary about tool availability.
  */
 const ABSENCE_PHRASES: RegExp[] = [
   // "I don't have access to" / "I do not have a … tool"
@@ -37,9 +45,13 @@ const ABSENCE_PHRASES: RegExp[] = [
   /\b(?:I'?m|I am)\s+unable\s+to\s+(?:find|locate|access|use)/i,
   // "cannot find / locate / access X tool"
   /\b(?:cannot|can'?t)\s+(?:find|locate|access|use|call|invoke)\s+/i,
-  // "no such tool" / "no … tool is available"
-  /\bno\s+(?:such\s+)?\S+(?:\s+\S+){0,3}\s+tool\b/i,
-  /\bthere\s+is\s+no\s+\S+(?:\s+\S+){0,3}\s+tool\b/i,
+  // "no such tool" / "no … tool is available". The negative lookahead
+  // excludes completion statements about tool CALLS ("no further tool
+  // calls are needed", "no additional tool calls required") — those
+  // assert DONE-ness, not absence; the trailing guard skips "tool
+  // call(s)" so only "<some kind of> tool" matches.
+  /\bno\s+(?:such\s+)?(?!further\b|additional\b|more\b|extra\b|other\b|new\b)\S+(?:\s+\S+){0,3}\s+tool\b(?!\s*call)/i,
+  /\bthere\s+is\s+no\s+(?!further\b|additional\b|more\b|extra\b|other\b|new\b)\S+(?:\s+\S+){0,3}\s+tool\b(?!\s*call)/i,
   // "X is not available / unavailable"
   /\b(?:is\s+not\s+available|isn'?t\s+available|are\s+not\s+available|aren'?t\s+available|is\s+unavailable|are\s+unavailable)\b/i,
   /\b(?:not\s+available|unavailable)\s+(?:in|for|to|here|right\s+now|at\s+the\s+moment)/i,
@@ -144,6 +156,7 @@ export function buildToolAvailabilityNudge(result: ToolAvailabilityCheckResult):
   const names = result.suggestedTools.length > 0 ? result.suggestedTools : result.matchedToolNames;
   const list = names.map((n) => `  - ${n}`).join('\n');
   return (
+    AUTOMATED_NUDGE_PREFIX +
     'You claimed a tool is unavailable, but the following tool(s) ARE registered for this turn ' +
     '(check the system tool list — they were sent in the native-tools schema, even if a prior compaction collapsed earlier results):\n' +
     `${list}\n\n` +

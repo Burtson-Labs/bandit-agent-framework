@@ -19,7 +19,7 @@
 
 import type { ToolExecutionContext, ChatFn, ToolLoopMessage } from './tool-types';
 import type { ToolRegistry } from './tool-registry';
-import { parseToolCalls, hasToolCalls, buildToolResultsMessage, looksLikeAttemptedToolCall, stripToolCallMarkup, hasFabricatedToolResult, applySecretRedactionIfEnabled } from './tool-use-parser';
+import { parseToolCalls, hasToolCalls, buildToolResultsMessage, looksLikeAttemptedToolCall, stripToolCallMarkup, stripReasoningChannels, stripToAnswerContent, hasFabricatedToolResult, applySecretRedactionIfEnabled, AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
 import { normalizeToolCallBatch } from './loop/toolCallNormalize';
 import { createToolDispatcher } from './loop/singleToolExecute';
 import { resolveTurnGoal } from './loop/turnSetup';
@@ -148,7 +148,7 @@ export interface ToolUseLoopOptions {
    *
    * Why: smaller models (4B–12B) generate malformed JSON in the tail
    * of a multi-file emission once their effective output budget is
-   * exhausted. on a portfolio build — even a
+   * exhausted. on a React/TS build — even a
    * strong model produced a malformed `todo_write` after writing four
    * files of ~7 KB each in one assistant turn. Serialising lets the
    * model react to each result before committing further output, and
@@ -274,7 +274,7 @@ export function isContinuationPrompt(text: string): boolean {
  * work. These signal that the user spotted a gap in the prior turn
  * and wants the agent to address it — NOT continue the prior plan.
  *
- * Real failure mode captured 2026-05-25 on a Portfolio React refactor:
+ * Real failure mode captured 2026-05-25 on a local React refactor:
  * user asked "I dont think we actually are using these new files are
  * we?" after the agent wrote data files but never wired them into
  * App.jsx. Bandit read the question as a generic "keep going" prompt,
@@ -499,7 +499,7 @@ export class ToolUseLoop {
       messages.push({
         role: 'user',
         content:
-          '[Reading-comprehension note for the assistant: the user\'s last message above is a noticing / clarifying question — they spotted a possible gap from prior turns and are asking you to confirm or correct, NOT to continue any prior plan. Before you take any new action, identify what gap the question points at and address it directly. If the question is "are we using X?" the correct first move is to verify whether X is actually being used (read the consumer file, grep for the import, check the call site) and answer honestly — yes/no with evidence. Do NOT create more new artifacts unless the user explicitly says to.]'
+          AUTOMATED_NUDGE_PREFIX + '[Reading-comprehension note for the assistant: the user\'s last message above is a noticing / clarifying question — they spotted a possible gap from prior turns and are asking you to confirm or correct, NOT to continue any prior plan. Before you take any new action, identify what gap the question points at and address it directly. If the question is "are we using X?" the correct first move is to verify whether X is actually being used (read the consumer file, grep for the import, check the call site) and answer honestly — yes/no with evidence. Do NOT create more new artifacts unless the user explicitly says to.]'
       });
     }
 
@@ -529,7 +529,7 @@ export class ToolUseLoop {
     // recovery, etc.) each have their own caps, but they can chain — a
     // model can spin through 6+ no-tool-call responses because
     // thinking-off recovery resets consecutiveEmptyRetries=0. Captured
-    // 2026-05-26 in Mark's Portfolio session (turn-2026-05-26T02-30-37):
+    // 2026-05-26 in a real CLI session (turn-2026-05-26T02-30-37):
     // model emitted 6 sequential reasoning-only responses inside
     // iteration 4 before the loop finally terminated with a useless
     // final answer ("I need to stop wrapping tool calls in reasoning
@@ -892,7 +892,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              `You've been making good progress and the iteration budget has been extended by ${CAP_EXTENSION_SIZE} (new limit: ${max}). Keep going, but tighten up: prefer batched edits over single-line ones, and start wrapping up when you have a complete answer rather than running to the new cap. This is the ${iterationCapExtensions === 1 ? 'first' : 'second'} of at most ${MAX_CAP_EXTENSIONS} extensions for this turn.`
+              AUTOMATED_NUDGE_PREFIX + `You've been making good progress and the iteration budget has been extended by ${CAP_EXTENSION_SIZE} (new limit: ${max}). Keep going, but tighten up: prefer batched edits over single-line ones, and start wrapping up when you have a complete answer rather than running to the new cap. This is the ${iterationCapExtensions === 1 ? 'first' : 'second'} of at most ${MAX_CAP_EXTENSIONS} extensions for this turn.`
           });
         } else {
           hitLimit = true;
@@ -903,7 +903,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              `${goalRecallBlock}` +
+              AUTOMATED_NUDGE_PREFIX + `${goalRecallBlock}` +
               `You have reached the tool-use iteration limit (${max}). Stop calling tools. Produce a final answer with three short sections, in this exact shape:\n` +
               '\n' +
               wrapUpBody +
@@ -918,7 +918,7 @@ export class ToolUseLoop {
         messages.push({
           role: 'user',
           content:
-            `${goalRecallBlock}` +
+            AUTOMATED_NUDGE_PREFIX + `${goalRecallBlock}` +
             `You have executed ${totalToolsExecuted} tool calls this turn — the per-turn cap (${maxTotalTools}) has been reached. Stop calling tools. Produce a final answer with three short sections:\n` +
             '\n' +
             wrapUpBody +
@@ -1047,7 +1047,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                `[Provider error mid-turn — tool channel switched.] The previous attempt failed with: ${summarizeLlmError(error)}. ` +
+                AUTOMATED_NUDGE_PREFIX + `[Provider error mid-turn — tool channel switched.] The previous attempt failed with: ${summarizeLlmError(error)}. ` +
                 `I retried with the text-based tool-call channel. ` +
                 `Re-emit your pending action using the text envelope: ` +
                 `<tool_call>{"name":"...","params":{...}}</tool_call> outside of any reasoning block. ` +
@@ -1100,7 +1100,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                `[Recovery attempt — previous channel attempts hit ${summarizeLlmError(error)}. ` +
+                AUTOMATED_NUDGE_PREFIX + `[Recovery attempt — previous channel attempts hit ${summarizeLlmError(error)}. ` +
                 `Discarding any partial tool_call or reasoning state from those attempts. ` +
                 `Original user goal restated as a fresh anchor:]\n\n${originalGoal.trim()}`
             });
@@ -1141,7 +1141,7 @@ export class ToolUseLoop {
       // have their own caps, but they chain — thinking-off recovery
       // resets consecutiveEmptyRetries=0, parse-retry has its own
       // counter, and the model can move between failure modes faster
-      // than any one detector can give up. Mark Portfolio session
+      // than any one detector can give up. Real CLI session
       // 2026-05-26 turn-02-30-37: 6 sequential reasoning-only
       // responses inside one iteration before the loop terminated
       // silently. This counter increments on EVERY response without
@@ -1217,7 +1217,7 @@ export class ToolUseLoop {
         messages.push({ role: 'assistant', content: scrubbed });
         messages.push({
           role: 'user',
-          content: 'AUTOMATED FORMAT CHECK — this is NOT a message from the user. Do not mention this check, apologize for it, or describe it in your answer. You emitted a `<tool_result>` envelope in your response. Those envelopes are SYSTEM output — they appear BETWEEN your turns, never inside your own message. If you meant to invoke a tool, emit a single `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. If the task is complete, give a plain-prose final answer with no XML envelopes. Retry now.'
+          content: AUTOMATED_NUDGE_PREFIX + 'You emitted a `<tool_result>` envelope in your response. Those envelopes are SYSTEM output — they appear BETWEEN your turns, never inside your own message. If you meant to invoke a tool, emit a single `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. If the task is complete, give a plain-prose final answer with no XML envelopes. Retry now.'
         });
         continue;
       }
@@ -1249,7 +1249,7 @@ export class ToolUseLoop {
         messages.push({ role: 'assistant', content: scrubbed });
         messages.push({
           role: 'user',
-          content: 'AUTOMATED FORMAT CHECK — this is NOT a message from the user. Do not mention this check, apologize for it, or describe it in your answer. You emitted ` ```bandit-tl` (or `bandit-run` / `bandit-subagent`) fenced JSON in your response. Those fences are emitted by the EXTENSION HOST to log real tool execution — you CANNOT produce them. They show up in your context because the host logged actual tool calls, not because you can fabricate them. To actually run a tool, emit `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. Your fake fences mean NO work has happened this turn. You have TWO options for your retry, and ONLY two: (a) Emit a real `<tool_call>{"name":"...","params":{...}}</tool_call>` envelope NOW to actually do the work, then wait for the real result. (b) Honestly state "I have not [action] yet" and STOP. Do NOT claim completion. You MUST NOT claim you have fixed / eliminated / resolved / removed / cleaned / verified anything. No "successfully [verb]" phrasing. No numbered lists of "Step 1: I did X" actions. No "the project is now in a healthy state." Until a real `<tool_call>` lands on disk and returns a real tool-result, nothing has changed. Lying about completion is the worst failure mode. Retry now.'
+          content: AUTOMATED_NUDGE_PREFIX + 'You emitted ` ```bandit-tl` (or `bandit-run` / `bandit-subagent`) fenced JSON in your response. Those fences are emitted by the EXTENSION HOST to log real tool execution — you CANNOT produce them. They show up in your context because the host logged actual tool calls, not because you can fabricate them. To actually run a tool, emit `<tool_call>{"name":"...","params":{...}}</tool_call>` and wait for the real result. Your fake fences mean NO work has happened this turn. You have TWO options for your retry, and ONLY two: (a) Emit a real `<tool_call>{"name":"...","params":{...}}</tool_call>` envelope NOW to actually do the work, then wait for the real result. (b) Honestly state "I have not [action] yet" and STOP. Do NOT claim completion. You MUST NOT claim you have fixed / eliminated / resolved / removed / cleaned / verified anything. No "successfully [verb]" phrasing. No numbered lists of "Step 1: I did X" actions. No "the project is now in a healthy state." Until a real `<tool_call>` lands on disk and returns a real tool-result, nothing has changed. Lying about completion is the worst failure mode. Retry now.'
         });
         continue;
       }
@@ -1274,7 +1274,10 @@ export class ToolUseLoop {
         && toolAbsenceCorrectionsFired < TOOL_ABSENCE_CORRECTION_CAP
       ) {
         const registeredNames = this.registry.getAll().map((t) => t.name);
-        const absence = detectFalseToolAbsence(response, registeredNames);
+        // Reasoning channels MUST be stripped before prose-matching:
+        // reasoning narrates tool usage by name and false-positives the
+        // absence phrases (see toolAvailabilityDetector.ts header).
+        const absence = detectFalseToolAbsence(stripReasoningChannels(response), registeredNames);
         if (absence.detected) {
           toolAbsenceCorrectionsFired++;
           emit('tool_loop:false_tool_absence', {
@@ -1310,7 +1313,7 @@ export class ToolUseLoop {
         messages.push({
           role: 'user',
           content:
-            'The previous tool call returned an error and you produced no follow-up tool_call. ' +
+            AUTOMATED_NUDGE_PREFIX + 'The previous tool call returned an error and you produced no follow-up tool_call. ' +
             'Do NOT silently abandon the request — the user expects you to either retry with corrected parameters OR state explicitly which precondition failed and why you cannot proceed. ' +
             'Choose one: (a) emit a corrected `<tool_call>{"name":"...","params":{...}}</tool_call>` now, fixing the param shape or value the error pointed at; ' +
             '(b) give a one-line final answer naming the exact precondition you lack (e.g. "I cannot trash message X because the message id is unknown — please provide it"). ' +
@@ -1331,12 +1334,12 @@ export class ToolUseLoop {
       // without emitting an actual tool_call. Visually the user sees a
       // wall of reasoning text and nothing happens. Strip the reasoning
       // fences before checking emptiness so the same nudge fires.
-      const stripped = response
-        .replace(/<think\b[\s\S]*?<\/think\s*>/gi, '')
-        .replace(/<think\b[\s\S]*$/i, '')
-        .replace(/```bandit-reasoning\b[\s\S]*?```/gi, '')
-        .replace(/```bandit-reasoning\b[\s\S]*$/i, '')
-        .trim();
+      // Strip reasoning channels AND stray fence scaffolding (a bare
+      // leading ``` opener that wraps the reasoning) so the
+      // reasoning-only check isn't fooled into seeing the orphan ``` as
+      // a real answer — which let a "reasoning + no tool call" turn end
+      // with no answer (real CLI run, 2026-06-15).
+      const stripped = stripToAnswerContent(response);
       const reasoningOnly = !stripped && response.trim().length > 0;
       // "Narrated but didn't act" detector. Some models (notably ones
       // post-trained for a different tool-call envelope, e.g. OpenAI
@@ -1352,8 +1355,8 @@ export class ToolUseLoop {
       // in the model's final clause, not an earlier "I have already
       // searched the file" preamble before a real answer.
       //
-      // Captured 2026-05-25 (Mark, Portfolio IDE session): model emitted
-      // "I'll redesign the portfolio... Let me rewrite both files." with
+      // Captured 2026-05-25 (real IDE session): model emitted
+      // "I'll redesign the page... Let me rewrite both files." with
       // NO tool_call and the turn closed as a final answer because
       // neither `redesign` nor `rewrite` was on the list. A long
       // session ended with zero work shipped. Missing a verb here =
@@ -1361,10 +1364,13 @@ export class ToolUseLoop {
       const NARRATE_VERB_RE = /\b(use|uses|used|using|call|calls|called|calling|invoke|invokes|invoked|invoking|execute|executes|executed|executing|run|runs|running|ran|search|searches|searched|searching|look|looks|looked|looking|read|reads|reading|check|checks|checked|checking|find|finds|finding|found|list|lists|listed|listing|fetch|fetches|fetched|fetching|grep|greps|grepped|grepping|explore|explores|explored|exploring|locate|locates|located|locating|plan|plans|planned|planning|start|starts|started|starting|begin|begins|began|beginning|create|creates|created|creating|write|writes|wrote|writing|rewrite|rewrites|rewrote|rewriting|rewritten|build|builds|built|building|rebuild|rebuilds|rebuilt|rebuilding|update|updates|updated|updating|implement|implements|implemented|implementing|refactor|refactors|refactored|refactoring|redesign|redesigns|redesigned|redesigning|design|designs|designed|designing|generate|generates|generated|generating|scaffold|scaffolds|scaffolded|scaffolding|set\s+up|setting\s+up|tackle|tackles|tackled|tackling|do|does|did|doing|make|makes|made|making|batch|batches|batched|batching|execute|prepare|prepares|prepared|preparing|draft|drafts|drafted|drafting|outline|outlines|outlined|outlining|organize|organizes|organized|organizing|structure|structures|structured|structuring|kick\s+off|kicking\s+off|fix|fixes|fixed|fixing|edit|edits|edited|editing|modify|modifies|modified|modifying|patch|patches|patched|patching|adjust|adjusts|adjusted|adjusting|replace|replaces|replaced|replacing|swap|swaps|swapped|swapping|polish|polishes|polished|polishing|clean\s+up|cleaning\s+up|tidy|tidies|tidied|tidying|finalize|finalizes|finalized|finalizing|finish|finishes|finished|finishing|complete|completes|completed|completing|wire|wires|wired|wiring|hook|hooks|hooked|hooking|render|renders|rendered|rendering|style|styles|styled|styling|theme|themes|themed|theming|redo|redoes|redid|redoing|port|ports|ported|porting|migrate|migrates|migrated|migrating|configure|configures|configured|configuring|install|installs|installed|installing|remove|removes|removed|removing|delete|deletes|deleted|deleting|rename|renames|renamed|renaming)\b/i;
       const NARRATE_INTENT_RE = /\b(we (?:will|need to|should)|we'?ll|we'?re going to|i'?ll|i will|let me|let'?s|going to|i'?m going to|i need to)\b/i;
       // Real code fences pass through; narrate only fires when the
-      // model emitted no structured payload at all. Check the STRIPPED
-      // response, not the raw one — `bandit-reasoning` fences are
-      // reasoning, not structured output.
-      const hasCodeFence = /```[a-zA-Z0-9_-]*\s*\n/.test(stripped);
+      // model emitted no structured payload at all. Use the
+      // reasoning-stripped response (NOT `stripped`, which also removes
+      // bare fence-marker lines) so a genuine ```json / ```diff payload
+      // still suppresses the narrate nudge and reaches its own
+      // auto-promote detector. `bandit-reasoning` fences are reasoning,
+      // not structured output, so they're excluded either way.
+      const hasCodeFence = /```[a-zA-Z0-9_-]*\s*\n/.test(stripReasoningChannels(response));
       const tailMatch = stripped.match(/(?:[.!?]\s+)([^.!?]*)$/);
       const tail = (tailMatch ? tailMatch[1] : stripped).slice(-200);
       const narratedButNoAction =
@@ -1381,7 +1387,7 @@ export class ToolUseLoop {
       // phrase, the length cap is wrong: a long planning recap that ends
       // "I call read_file with path=…" is a stall no matter how long the
       // recap is, and tool-name anchoring keeps the false-positive rate
-      // near zero. Captured 2026-06-12 (Mark, Portfolio CLI session,
+      // near zero. Captured 2026-06-12 (real CLI session,
       // gemma4:e4b): iteration 1 emitted a reasoning recap ending with
       // exactly that sentence and no tool_call — the generic gate missed
       // it (over the length cap; intent list lacks present-tense "I
@@ -1425,7 +1431,7 @@ export class ToolUseLoop {
             : 'Your previous response was empty. Either emit a `<tool_call>{"name":"<tool>","params":{...}}</tool_call>` to invoke a tool, OR produce a complete final answer using what you have. Do not respond with an empty message.';
         messages.push({
           role: 'user',
-          content: nudgeMessage
+          content: AUTOMATED_NUDGE_PREFIX + nudgeMessage
         });
         continue;
       }
@@ -1460,7 +1466,7 @@ export class ToolUseLoop {
         });
         messages.push({
           role: 'user',
-          content: 'Switching to non-thinking mode for this attempt because reasoning-only retries exhausted. Emit either a tool_call or a complete final answer. No more reasoning preamble.'
+          content: AUTOMATED_NUDGE_PREFIX + 'Switching to non-thinking mode for this attempt because reasoning-only retries exhausted. Emit either a tool_call or a complete final answer. No more reasoning preamble.'
         });
         continue;
       }
@@ -1511,8 +1517,8 @@ export class ToolUseLoop {
         messages.push({
           role: 'user',
           content: firstRetry
-            ? 'Your previous tool_call was not valid JSON — I could not parse it. Common cause: unescaped `"` characters inside a string value (for example `["", "", ""]` inside a `content` string). Retry the tool call with properly escaped JSON: every `"` inside a string value must be written as `\\"`, and every newline as `\\n`. If the content is very long, consider `replace_range` for a line-numbered block or breaking the change into smaller edits.'
-            : 'Your tool_call still did not parse. Do NOT retry with the same shape or the same escaping failure. Switch tactics: (a) call `replace_range` for a large block whose line numbers you just read, (b) call `write_file` for a new file, or (c) split the change into multiple small `apply_edit` calls that each target just one method or block (e.g. 3-5 lines of `find`, 5-10 lines of `replace`) instead of rewriting the whole class. Pick the smallest scope that accomplishes the next step. If you cannot produce a valid tool call, respond with a plain-prose final answer acknowledging you could not complete the edit.'
+            ? AUTOMATED_NUDGE_PREFIX + 'Your previous tool_call was not valid JSON — I could not parse it. Common cause: unescaped `"` characters inside a string value (for example `["", "", ""]` inside a `content` string). Retry the tool call with properly escaped JSON: every `"` inside a string value must be written as `\\"`, and every newline as `\\n`. If the content is very long, consider `replace_range` for a line-numbered block or breaking the change into smaller edits.'
+            : AUTOMATED_NUDGE_PREFIX + 'Your tool_call still did not parse. Do NOT retry with the same shape or the same escaping failure. Switch tactics: (a) call `replace_range` for a large block whose line numbers you just read, (b) call `write_file` for a new file, or (c) split the change into multiple small `apply_edit` calls that each target just one method or block (e.g. 3-5 lines of `find`, 5-10 lines of `replace`) instead of rewriting the whole class. Pick the smallest scope that accomplishes the next step. If you cannot produce a valid tool call, respond with a plain-prose final answer acknowledging you could not complete the edit.'
         });
         continue;
       }
@@ -1559,7 +1565,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              'STOP deliberating. Your last response either repeated itself, contradicted itself (e.g. "Wait, I see X / Actually I\'ll try X"), or was aborted mid-stream as a loop. Do NOT continue speculating about what files might exist. Take exactly one of these actions now: (a) invoke a tool (`list_files`, `read_file`, `search_code`, etc.) to answer the question with real data, OR (b) give up and tell the user plainly that you could not complete the task and why. Do not write more than two sentences of prose before either calling a tool or terminating.'
+              AUTOMATED_NUDGE_PREFIX + 'STOP deliberating. Your last response either repeated itself, contradicted itself (e.g. "Wait, I see X / Actually I\'ll try X"), or was aborted mid-stream as a loop. Do NOT continue speculating about what files might exist. Take exactly one of these actions now: (a) invoke a tool (`list_files`, `read_file`, `search_code`, etc.) to answer the question with real data, OR (b) give up and tell the user plainly that you could not complete the task and why. Do not write more than two sentences of prose before either calling a tool or terminating.'
           });
           recentNonToolResponses.length = 0;
           continue;
@@ -1655,7 +1661,7 @@ export class ToolUseLoop {
                 messages.push({
                   role: 'user',
                   content:
-                    'Note: I detected a JSON todo list in your response and auto-promoted it to a todo_write call. Next time, emit `<tool_call>{"name":"todo_write","params":{"items":"..."}}</tool_call>` directly instead of pasting JSON as a code block — pasted JSON does not update your plan, only the tool call does.'
+                    AUTOMATED_NUDGE_PREFIX + 'Note: I detected a JSON todo list in your response and auto-promoted it to a todo_write call. Next time, emit `<tool_call>{"name":"todo_write","params":{"items":"..."}}</tool_call>` directly instead of pasting JSON as a code block — pasted JSON does not update your plan, only the tool call does.'
                 });
                 iterations++;
                 continue;
@@ -1686,7 +1692,7 @@ export class ToolUseLoop {
         // Reasoning channels are streamed live by the host for display —
         // leaving them in the terminal answer double-renders them, and on
         // fabrication-retry exhaustion it prints the model's confusion
-        // narrative as if it were the answer (Mark, Portfolio
+        // narrative as if it were the answer (real CLI run,
         // 2026-06-12T20-19 turn: three near-identical "the user is
         // correcting my formatting error" reasoning blocks rendered above
         // the real answer). The stall fallback below still inspects the
@@ -1715,7 +1721,18 @@ export class ToolUseLoop {
         // this turn, push one corrective user message into the loop
         // and continue for one more iteration. The nudge is capped at
         // one per turn so a truly confused model can still terminate.
-        if (!hitLimit && !falseCompletionNudged && editToolsInvoked === 0) {
+        //
+        // ONLY fires when the goal actually implies an edit. Without this
+        // gate the detector demanded an edit on a purely informational
+        // "tell me about this repo" turn: the model correctly said "I have
+        // completed the overview" (a completion phrase), no edit ran
+        // (none was asked for), so the nudge fired and replaced the good
+        // markdown overview with a defensive "no edits are required"
+        // answer — plus a wall of "automated harness check" reasoning.
+        // An analysis goal that does NOT also imply an edit can never
+        // false-complete, so skip it. (real CLI run, 2026-06-12.)
+        const goalCouldExpectEdit = promptImpliesFileEdit || !promptWantsAnalysis;
+        if (!hitLimit && !falseCompletionNudged && editToolsInvoked === 0 && goalCouldExpectEdit) {
           const claimsCompletion = FALSE_COMPLETION_PATTERNS.some(re => re.test(finalResponse));
           if (claimsCompletion) {
             falseCompletionNudged = true;
@@ -1723,7 +1740,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                'Your response either claims work is done OR apologizes and asks what to do next — but I see NO successful `write_file`, `apply_edit`, `replace_range`, or `apply_patch` tool call in this turn, so nothing on disk has changed. ' +
+                AUTOMATED_NUDGE_PREFIX + 'Your response either claims work is done OR apologizes and asks what to do next — but I see NO successful `write_file`, `apply_edit`, `replace_range`, or `apply_patch` tool call in this turn, so nothing on disk has changed. ' +
                 'Do NOT ask the user which task to resume, do NOT promise to escape JSON "in your next tool call", and do NOT defer. Either (a) emit a real edit tool call NOW with the actual change — use `replace_range` for a large block whose line numbers you just read, `apply_edit` for a small exact replacement, or `write_file` for a new file — or (b) respond honestly that you could not complete the task and briefly explain why. Retry the tool call yourself; the user cannot help you escape JSON.'
             });
             continue;
@@ -1764,7 +1781,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                `Your response describes edits to ${fileSet.size} files (${[...fileSet].slice(0, 8).join(', ')}${fileSet.size > 8 ? ', …' : ''}), but only ${editToolsInvoked} successful edit${editToolsInvoked === 1 ? '' : 's'} actually fired this turn. ` +
+                AUTOMATED_NUDGE_PREFIX + `Your response describes edits to ${fileSet.size} files (${[...fileSet].slice(0, 8).join(', ')}${fileSet.size > 8 ? ', …' : ''}), but only ${editToolsInvoked} successful edit${editToolsInvoked === 1 ? '' : 's'} actually fired this turn. ` +
                 `The remaining ${fileSet.size - editToolsInvoked} file(s) were NOT modified — nothing landed on disk for them. ` +
                 'Either (a) emit the missing `apply_edit` / `replace_range` / `write_file` tool calls now to actually do the work, OR (b) revise your response to honestly describe ONLY the edits that successfully applied. Do not summarize work that did not happen.'
             });
@@ -1776,7 +1793,7 @@ export class ToolUseLoop {
         // ("break out", "split", "refactor", "extract", "move") imply
         // mutation of the SOURCE file the user wants restructured, not
         // just creation of new sibling files. Failure mode observed
-        // 2026-05-25 on a Portfolio React refactor: model read App.jsx,
+        // 2026-05-25 on a local React refactor: model read App.jsx,
         // wrote 5 new component files, never touched App.jsx, declared
         // completion. User had to follow up "are we using these?" to
         // force the integration step — and even that follow-up turn
@@ -1811,7 +1828,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                `The user's goal contains a refactor verb (refactor/break out/split/extract/move) which implies the SOURCE file(s) should be modified, not just supplemented with new siblings. You read ${readPreview}${readNotWritten.length > 3 ? ' and others' : ''} for context, then wrote ${writeCount} NEW file(s), but you NEVER modified the file(s) you read. The refactor is incomplete: the source file still contains the old monolithic code. ` +
+                AUTOMATED_NUDGE_PREFIX + `The user's goal contains a refactor verb (refactor/break out/split/extract/move) which implies the SOURCE file(s) should be modified, not just supplemented with new siblings. You read ${readPreview}${readNotWritten.length > 3 ? ' and others' : ''} for context, then wrote ${writeCount} NEW file(s), but you NEVER modified the file(s) you read. The refactor is incomplete: the source file still contains the old monolithic code. ` +
                 `Emit the missing apply_edit/replace_range/write_file call on the source file now — it should import from the new files and drop the inlined code that's been extracted. If the refactor is genuinely a "scaffold only, leave source untouched" task, say so explicitly and explain why the source doesn't need to change.`
             });
             continue;
@@ -1855,7 +1872,7 @@ export class ToolUseLoop {
             messages.push({
               role: 'user',
               content:
-                'You produced a substantial code block in your reply but never emitted a `write_file`, `apply_edit`, `replace_range`, or `apply_patch` tool call — so the change is NOT on disk. ' +
+                AUTOMATED_NUDGE_PREFIX + 'You produced a substantial code block in your reply but never emitted a `write_file`, `apply_edit`, `replace_range`, or `apply_patch` tool call — so the change is NOT on disk. ' +
                 'Do not ask the user to paste your code into a file themselves. Take exactly one of these actions now: (a) call `replace_range`, `apply_edit`, or `write_file` with the real change to the correct file, OR (b) say plainly that you could not locate the target file and explain what you searched for. Do not wrap up with another prose + code-fence response.'
             });
             continue;
@@ -1944,7 +1961,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              'Your first response had reasoning but emitted NO tool call — that is a hard stall for a subagent (you exist to gather information; reasoning alone produces zero output). ' +
+              AUTOMATED_NUDGE_PREFIX + 'Your first response had reasoning but emitted NO tool call — that is a hard stall for a subagent (you exist to gather information; reasoning alone produces zero output). ' +
               'For your next response, emit a tool call. The minimum viable starting move for ANY exploration goal is:\n\n' +
               '<tool_call>{"name":"list_files","params":{"path":"."}}</tool_call>\n\n' +
               'Copy that exact envelope as the very first thing you emit (you may keep the reasoning block before it if your model needs to think first, but the tool_call envelope MUST appear in this turn). ' +
@@ -1967,7 +1984,7 @@ export class ToolUseLoop {
         // user saw nothing.
         //
         // The gate also covers the "regurgitated reasoning after
-        // native→text channel fallback" case. Mark Portfolio
+        // native→text channel fallback" case. Real CLI
         // 2026-05-31T17-39-53 cleanup turn: native-tool path 500'd,
         // text-channel recovery prompted the model to re-emit its
         // pending action, but the model just echoed its prior
@@ -1979,12 +1996,7 @@ export class ToolUseLoop {
         // before testing emptiness — if the response would render to
         // the user as nothing-actionable, the fallback fires and the
         // user sees what the model was thinking instead of silence.
-        const reasoningStripped = response
-          .replace(/<think\b[\s\S]*?<\/think\s*>/gi, '')
-          .replace(/<think\b[\s\S]*$/i, '')
-          .replace(/```bandit-reasoning\b[\s\S]*?```/gi, '')
-          .replace(/```bandit-reasoning\b[\s\S]*$/i, '')
-          .trim();
+        const reasoningStripped = stripToAnswerContent(response);
         const visibleAfterStrip = stripToolCallMarkup(reasoningStripped).trim();
         if (!visibleAfterStrip) {
           // Pull the last 1-2 sentences of reasoning so the user sees
@@ -2013,7 +2025,7 @@ export class ToolUseLoop {
         // and the inline empty-retry / narrate-no-action detector
         // already used its retry budget (consecutiveEmptyRetries >= 2)
         // so it couldn't nudge again, the user is left reading a
-        // promise the model never kept. Mark Portfolio
+        // promise the model never kept. Real CLI
         // 2026-05-31T17-39-53 cleanup turn: after a native→text channel
         // recovery, the model emitted "Let me revert it:" with a
         // dangling colon and no tool call; the user saw the prose end
@@ -2030,7 +2042,7 @@ export class ToolUseLoop {
         // The trailing colon + intent phrase combination is the
         // smoking gun. We DON'T also require NARRATE_VERB_RE here:
         // the existing inline detector's verb list misses "revert"
-        // (Portfolio 2026-05-31) and would miss any other one-off
+        // (real run 2026-05-31) and would miss any other one-off
         // action verb a model might use. The colon alone is rare
         // enough in a legit final answer that pairing it with
         // "let me" / "I'll" / "we'll" / etc. is specific enough.
@@ -2160,7 +2172,7 @@ export class ToolUseLoop {
         messages.push({
           role: 'user',
           content:
-            `You have revised the plan in ${consecutiveTodoOnlyIterations + 1} consecutive iterations without executing any step. ` +
+            AUTOMATED_NUDGE_PREFIX + `You have revised the plan in ${consecutiveTodoOnlyIterations + 1} consecutive iterations without executing any step. ` +
             'Execute the first pending task now using a concrete tool — `search_code`, `read_file`, `apply_edit`, `replace_range`, `write_file`, or `run_command`. ' +
             'Once a task is actually DONE (tool call succeeded), you may call `todo_write` again to mark it completed — but not to re-plan. ' +
             'If you cannot identify a next step, respond to the user with a short honest explanation and stop.'
@@ -2187,7 +2199,7 @@ export class ToolUseLoop {
         messages.push({
           role: 'user',
           content:
-            `You have spent ${consecutiveApplyEditOnlyIterations} consecutive iterations on apply_edit alone. ` +
+            AUTOMATED_NUDGE_PREFIX + `You have spent ${consecutiveApplyEditOnlyIterations} consecutive iterations on apply_edit alone. ` +
             'If these are mechanical fixes of the same shape (one type annotation, one rename, one import path, one missing semicolon per call), STOP doing them one at a time — you will exhaust the iteration budget before the file is clean.\n' +
             '\n' +
             'Better tactics, in order of preference:\n' +
@@ -2311,7 +2323,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              `You just spawned ${bgSpawns.length} background subagents:\n${goalLines}\n\n` +
+              AUTOMATED_NUDGE_PREFIX + `You just spawned ${bgSpawns.length} background subagents:\n${goalLines}\n\n` +
               'Do NOT do those same explorations yourself in the next iteration — the subagents will deliver their synopses via the auto-inject path on a later turn. ' +
               'Choose ONE of: ' +
               '(a) work on a different, independent piece of the task that those subagents are NOT covering, ' +
@@ -2355,7 +2367,7 @@ export class ToolUseLoop {
           messages.push({
             role: 'user',
             content:
-              'You set up a plan with `todo_write` earlier but have since completed ' +
+              AUTOMATED_NUDGE_PREFIX + 'You set up a plan with `todo_write` earlier but have since completed ' +
               `${editsSinceLastTodo} edit${editsSinceLastTodo === 1 ? '' : 's'} without updating it. ` +
               'Call `todo_write` now with the current status — mark finished items as `completed` and leave remaining items as `pending`. ' +
               "The Plan block in the user's UI mirrors your last `todo_write`, so skipping this leaves them looking at a stale checklist while real work has landed."

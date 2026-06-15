@@ -4,7 +4,7 @@
  * Reasoning channels (```bandit-reasoning fences, <think> blocks) are
  * streamed live by the host for display — leaving them in the returned
  * final answer double-renders them. Replays the 2026-06-12T20-19
- * Portfolio turn (gemma4:e4b): the model fabricated <tool_result>
+ * turn on a local React/TS repo (gemma4:e4b): the model fabricated <tool_result>
  * envelopes through BOTH fabrication retries, and the accepted final
  * response carried three reasoning blocks of nudge-confusion narrative
  * ("the user is correcting my formatting error…") above the real
@@ -18,7 +18,7 @@ const FABRICATING_RESPONSE =
   '\n```bandit-reasoning\nThe user is correcting my formatting error: I included a ' +
   '`<tool_result>` envelope in my last response. I will re-issue the final answer.\n```\n' +
   '<tool_result name="todo_write">{"ok":true}</tool_result>\n' +
-  'This repo is a Vite + React portfolio site with source in src/.';
+  'This repo is a Vite + React single-page app with source in src/.';
 
 describe('final response scrub', () => {
   it('strips reasoning fences and fabricated envelopes from the accepted final answer', async () => {
@@ -31,7 +31,7 @@ describe('final response scrub', () => {
 
     const result = await loop.run('tell me about this repo', chat);
 
-    expect(result.finalResponse).toContain('Vite + React portfolio');
+    expect(result.finalResponse).toContain('Vite + React single-page');
     expect(result.finalResponse).not.toContain('bandit-reasoning');
     expect(result.finalResponse).not.toContain('<tool_result');
     expect(result.finalResponse).not.toContain('correcting my formatting error');
