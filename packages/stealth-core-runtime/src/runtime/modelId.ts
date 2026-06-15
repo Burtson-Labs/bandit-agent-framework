@@ -16,16 +16,27 @@ export function candidateModelIds(modelId: string): string[] {
     if (value && !out.includes(value)) {out.push(value);}
   };
   const lower = modelId.toLowerCase().trim();
-  push(lower);
-  // 'qwen/qwen2.5-coder-32b-instruct' → 'qwen2.5-coder-32b-instruct'
-  const slash = lower.lastIndexOf('/');
-  const base = slash === -1 ? lower : lower.slice(slash + 1);
-  push(base);
-  // 'meta-llama-3.1-8b-instruct' → 'llama-3.1-8b-instruct'
-  const unvendored = base.replace(/^meta-/, '');
-  push(unvendored);
-  // 'llama-3.1-8b-instruct' → 'llama3.1-8b-instruct' (Ollama family names
-  // drop the dash between family and version digits)
-  push(unvendored.replace(/^([a-z]+)-(?=\d)/, '$1'));
+  // Strip runtime/placement markers that don't change WHICH model it is, so
+  // the variant resolves to the same family profile + runtime cache entry as
+  // its base tag:
+  //   - Ollama Cloud: a `-cloud` suffix on a tag ('kimi-k2:1t-cloud',
+  //     'gpt-oss:120b-cloud') OR a bare `:cloud` tag ('kimi-k2.7-code:cloud').
+  //   - Apple-silicon MLX builds: a `-mlx` suffix ('qwen3.6:27b-mlx',
+  //     'gemma4:26b-mlx') — same weights, different runtime.
+  const deSuffix = lower.replace(/(?:[-:]cloud|-mlx)$/, '');
+  const forms = deSuffix !== lower ? [lower, deSuffix] : [lower];
+  for (const form of forms) {
+    push(form);
+    // 'qwen/qwen2.5-coder-32b-instruct' → 'qwen2.5-coder-32b-instruct'
+    const slash = form.lastIndexOf('/');
+    const base = slash === -1 ? form : form.slice(slash + 1);
+    push(base);
+    // 'meta-llama-3.1-8b-instruct' → 'llama-3.1-8b-instruct'
+    const unvendored = base.replace(/^meta-/, '');
+    push(unvendored);
+    // 'llama-3.1-8b-instruct' → 'llama3.1-8b-instruct' (Ollama family names
+    // drop the dash between family and version digits)
+    push(unvendored.replace(/^([a-z]+)-(?=\d)/, '$1'));
+  }
   return out;
 }

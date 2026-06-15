@@ -107,3 +107,41 @@ describe('getModelCapabilities — vendor-prefixed id normalization', () => {
     expect(caps.supportsToolCalling).toBe(false);
   });
 });
+
+describe('getModelCapabilities — Kimi family + Ollama Cloud tags', () => {
+  it('base kimi-k2 (and its -cloud tag) is text-only with tools, large, 256K', () => {
+    const caps = getModelCapabilities('kimi-k2:1t-cloud');
+    expect(caps.supportsToolCalling).toBe(true);
+    expect(caps.tier).toBe('large');
+    expect(caps.contextWindow).toBe(262144);
+    expect(caps.supportsVision).toBe(false);
+  });
+
+  it('kimi-k2-thinking is text-only (falls to the base kimi-k2 entry)', () => {
+    expect(getModelCapabilities('kimi-k2-thinking').supportsVision).toBe(false);
+    expect(getModelCapabilities('kimi-k2-thinking').supportsToolCalling).toBe(true);
+  });
+
+  it('multimodal variants (K2.5 / K2.6 / K2.7-code) report vision — NOT masked by base kimi-k2', () => {
+    expect(getModelCapabilities('kimi-k2.5').supportsVision).toBe(true);
+    expect(getModelCapabilities('kimi-k2.6').supportsVision).toBe(true);
+    expect(getModelCapabilities('kimi-k2.7-code').supportsVision).toBe(true);
+    expect(getModelCapabilities('kimi-k2.7-code').supportsToolCalling).toBe(true);
+  });
+
+  it('strips both cloud tag shapes: -cloud and :cloud', () => {
+    // -cloud suffix on a tag
+    expect(getModelCapabilities('kimi-k2:1t-cloud')).toEqual(getModelCapabilities('kimi-k2:1t'));
+    // :cloud bare tag (kimi-k2.7-code:cloud) — and stays vision-capable
+    expect(getModelCapabilities('kimi-k2.7-code:cloud').supportsVision).toBe(true);
+  });
+});
+
+describe('getModelCapabilities — Apple-silicon MLX builds (-mlx) resolve to base', () => {
+  it('qwen3.6:27b-mlx matches qwen3.6:27b caps', () => {
+    expect(getModelCapabilities('qwen3.6:27b-mlx')).toEqual(getModelCapabilities('qwen3.6:27b'));
+  });
+  it('gemma4:26b-mlx matches gemma4:26b caps', () => {
+    expect(getModelCapabilities('gemma4:26b-mlx')).toEqual(getModelCapabilities('gemma4:26b'));
+  });
+});

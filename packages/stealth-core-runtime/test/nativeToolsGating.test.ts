@@ -186,3 +186,10 @@ describe('nativeTools gating — unknown models with PROBED tool support default
     expect(gateNativeTools('gemma4:e4b', 'ollama')).toBe(false);
   });
 });
+
+describe('nativeTools gating — Kimi K2 cloud tag', () => {
+  it('gates native tools on for kimi-k2:1t-cloud across provider kinds', () => {
+    expect(gateNativeTools('kimi-k2:1t-cloud', 'ollama')).toBe(true);
+    expect(gateNativeTools('kimi-k2:1t-cloud', 'openai-compatible')).toBe(true);
+  });
+});

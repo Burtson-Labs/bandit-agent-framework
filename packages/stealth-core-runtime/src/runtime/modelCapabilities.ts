@@ -226,6 +226,39 @@ const BUILT_IN_PROFILES: Array<{ prefix: string; caps: ModelCapabilities }> = [
     caps: { contextWindow: 4096, supportsJsonMode: false, supportsToolCalling: false, supportsVision: true, tier: 'small', label: 'LLaVA' }
   },
 
+  // ── Kimi (Moonshot, agentic coding — served via Ollama Cloud) ─────────────
+  // 1T-class MoE (32B active), 256K context, all tool-capable. The family
+  // splits on vision: K2.5 / K2.6 / K2.7-code are native multimodal; base K2
+  // and K2-Thinking are text-only. Built-in caps WIN over /api/show probing,
+  // so the vision flag must be right per variant — the multimodal entries are
+  // listed FIRST (first-prefix-match wins) so they aren't masked by the
+  // text-only `kimi-k2`. Cloud tags (`:1t-cloud`, `:cloud`) are de-suffixed
+  // by candidateModelIds, so these prefixes match either form.
+  {
+    prefix: 'kimi-k2.7',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Kimi K2.7 Code (multimodal)' }
+  },
+  {
+    prefix: 'kimi-k2.6',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Kimi K2.6 (multimodal)' }
+  },
+  {
+    prefix: 'kimi-k2.5',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Kimi K2.5 (multimodal)' }
+  },
+  {
+    // Base K2 + K2-Thinking — both text-only (K2-Thinking starts with
+    // `kimi-k2`, so it lands here correctly).
+    prefix: 'kimi-k2',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: false, tier: 'large', label: 'Kimi K2 (1T MoE)' }
+  },
+  {
+    // Family fallback for any other Kimi tag — conservative on vision; the
+    // /api/show probe corrects it for local-daemon pulls.
+    prefix: 'kimi',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: false, tier: 'large', label: 'Kimi' }
+  },
+
   // ── Small / fast ─────────────────────────────────────────────────────────
   {
     prefix: 'deepseek-coder:6.7b',

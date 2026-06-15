@@ -129,3 +129,16 @@ describe('getModelBehaviorProfile — vendor-prefixed id normalization', () => {
     expect(getModelBehaviorProfile('acme/unknown-model-9b').id).toBe('default');
   });
 });
+
+describe('getModelBehaviorProfile — Kimi K2 / Ollama Cloud tags', () => {
+  it('resolves the kimi profile (native-tools) for kimi-k2:1t-cloud', () => {
+    const profile = getModelBehaviorProfile('kimi-k2:1t-cloud');
+    expect(profile.id).toBe('kimi');
+    expect(profile.protocol.preferred).toBe('native-tools');
+    expect(profile.protocol.fallback).toBe('text-tools');
+  });
+
+  it('the -cloud suffix resolves to the same profile as the bare tag', () => {
+    expect(getModelBehaviorProfile('kimi-k2:1t-cloud').id).toBe(getModelBehaviorProfile('kimi-k2:1t').id);
+  });
+});
