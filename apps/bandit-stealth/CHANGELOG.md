@@ -2,6 +2,13 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.372
+
+- **Local models on OpenAI-compatible servers can now use native tool calling.** Point Bandit at an OpenAI-compatible endpoint (LM Studio, vLLM, llama.cpp server, OpenRouter, and the like) and tool-capable models route tools through native function-calling instead of the text fallback — more reliable agent turns. Community Ollama models outside the built-in list now get their real context window and tool support auto-detected, and vendor-prefixed model ids (e.g. `Qwen/Qwen2.5-Coder-32B`) resolve to the right tuned profile.
+- **Small local models are far steadier.** Leaner per-tier system prompts and a compact tool-description format keep the default model from overflowing its context on the first turn. New recovery checks stop a model from stalling after it "thinks" without acting, claiming completion on a read-only question, fabricating tool results, or wrapping its whole answer in stray code fences.
+- **Reasoning streams smoothly in the panel.** Chain-of-thought renders in place without flashing — collapsed by default, expandable while the agent works, and it stays put through tool calls instead of vanishing and reappearing. Markdown the agent includes in its reply renders inline rather than as a raw code block.
+- **Writing `.tsx` / JSX files works.** Pre-write validation no longer rejects valid JSX as a syntax error.
+
 ## 1.7.371
 
 - **Workbench gains the full IDE shell — Explorer, Source Control, Extensions + a marketplace.** Building on the 1.7.370 redesign, `apps/agent-ui-workbench` now mounts the rest of the VS Code activity-bar surface around the Bandit panel: a file-tree **Explorer**, a **Source Control** sidebar (with a pending-change badge on the activity bar), and an **Extensions** sidebar backed by a browsable **Extensions Marketplace** panel. Adds a **Tool Palette** for inspecting the agent's tool set, an **Ask-User card** that renders the agent's clarifying-question prompts inline, and a **Settings overlay**. The conversation mocks and the workbench markdown renderer were extended to exercise the new surfaces. Still a component-review / screenshot harness — `pnpm -C apps/agent-ui-workbench dev` — not bundled in the extension VSIX.
