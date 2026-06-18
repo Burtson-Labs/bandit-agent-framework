@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.374
+
+- **Clearer Ollama Cloud errors.** When a cloud model returns a subscription/paywall error (some models, like Kimi K2, require a paid Ollama plan), Bandit now points you at the upgrade page and a free local fallback — instead of a misleading "run `ollama signin`" hint. The hint also recognizes both cloud tag shapes (`-cloud` and `:cloud`).
+
 ## 1.7.373
 
 - **Ollama Cloud — run frontier models with no local GPU.** Sign in with `ollama signin`, pull a cloud-tagged model, and Bandit uses it like any local one. Ships tuned profiles for the **Kimi K2 family** (native tool calling, 256K context), including the multimodal `kimi-k2.5` / `k2.6` / `k2.7-code` variants. Both cloud tag shapes (`:1t-cloud` and `:cloud`) resolve automatically, and a 401/403 now points you at `ollama signin` instead of a bare error. Apple-silicon **MLX builds** (`qwen3.6:27b-mlx`, `gemma4:26b-mlx`) resolve to their base profiles too. New **Ollama Cloud** section and a recommended-models table in the README.
