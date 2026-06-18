@@ -387,7 +387,11 @@ your key into the **Ollama auth token** field (stored in the OS secret store, se
 
 ## Benchmarks
 
-A single reproducible run — `bandit-logic` (Qwen 3.6 27B via the hosted gateway) given a fresh **"deep dive this repo and tell me what it does at a high level"** prompt against a real React + TypeScript + Vite project (the author's personal portfolio site — 11 projects, ~30 files, no inlined `@`-mentions).
+Two reproducible runs, same harness — a hosted model on a medium repo, and a frontier open model self-evaluating this monorepo. Not a leaderboard; just honest traces you can re-run.
+
+### A hosted model on a medium repo
+
+`bandit-logic` (Qwen 3.6 27B via the hosted gateway) given a fresh **"deep dive this repo and tell me what it does at a high level"** prompt against a real React + TypeScript + Vite project (the author's personal portfolio site — 11 projects, ~30 files, no inlined `@`-mentions).
 
 | Metric | Value |
 |---|---|
@@ -411,6 +415,36 @@ cd /path/to/any/medium-sized/repo
 BANDIT_PROVIDER=bandit BANDIT_MODEL=bandit-logic \
   bandit "deep dive this repo and tell me what it does at a high level"
 # Then read .bandit/turns/turn-*.jsonl for the full event timeline.
+```
+
+### A frontier open model on the framework's own monorepo
+
+A second run, same harness, harder target — a self-eval. **Kimi K2** (`kimi-k2.7-code:cloud` — a 1-trillion-parameter MoE, ~32B active, served through [Ollama Cloud](https://ollama.com)) given a deliberately two-part prompt against **this repository**, the Bandit monorepo itself (622 TypeScript files across 6 packages and 4 apps — an order of magnitude larger than the portfolio above):
+
+> deep dive this repo and tell me what it does at a high level — and what could be holding this repo back from being even better
+
+| Metric | Value |
+|---|---|
+| **Wall-clock turn duration** | 64.2 s |
+| **LLM iterations** | 14 (13 tool-call rounds + a forced final synthesis) |
+| **Tool calls** | 60, batched across the 13 tool rounds (~4.6/round) — `read_file` ×44, `ls` ×8, `search_code` ×5, `list_files` ×2, `run_command` ×1 (`git log --oneline -20`) |
+| **Final answer length** | 6,800 chars (~1,700 tokens) — both halves of the prompt answered |
+| **Per-iteration LLM time** | 2.1 s median, 20.6 s on the closing synthesis round |
+| **Provider** | `ollama`, the local daemon proxying to Ollama Cloud (`model=kimi-k2.7-code:cloud`) |
+| **Bandit version** | 1.7.373 (VS Code extension) |
+| **Trace** | `.bandit/turns/turn-2026-06-18T04-30-23-330Z-qo2s.jsonl` |
+
+What stands out is the **tool batching**: rather than one read per round, Kimi fires four-to-six file reads or searches in parallel each iteration — one round reads six files at once, another runs five `search_code` queries in a single pass. The trajectory is what you'd want from a senior engineer dropped into an unfamiliar repo: probe (`ls`), broaden, read the entry points deeply, run targeted `search_code` for the cross-cutting concerns, check `git log` for recent direction, then synthesize. The write-up correctly named the layered package architecture *and* answered the critique half — flagging a real structural smell on its own: the `agent-adapters/{provider,node,vscode,web,github}` packages as near-identical empty shells, paying monorepo overhead for little host-specific code.
+
+One caveat, reported honestly: this run hit the configured iteration ceiling (`hitLimit: true`) and was forced to commit to its answer after 13 rounds of exploration rather than stopping on its own. On a repo this size with a two-part prompt, that's the signal to raise `BANDIT_MAX_ITERATIONS` (or the extension's iteration setting) for monorepo-scale deep dives — the answer was complete, but Kimi clearly had more it wanted to read.
+
+**Reproduce it** (Kimi cloud requires a paid Ollama plan — swap in a free local model like `qwen3.6:27b` to exercise the same loop):
+
+```bash
+ollama signin                      # one-time: links your Ollama Cloud account
+ollama pull kimi-k2.7-code:cloud
+BANDIT_PROVIDER=ollama BANDIT_MODEL=kimi-k2.7-code:cloud BANDIT_MAX_ITERATIONS=30 \
+  bandit "deep dive this repo and tell me what it does at a high level — and what could be holding it back"
 ```
 
 ---
