@@ -216,7 +216,7 @@ ${c.bold('Environment')}
   OPENAI_BASE_URL        e.g. http://localhost:1234/v1, https://api.together.xyz/v1
   OPENAI_API_KEY         bearer token (LM Studio / llama.cpp can usually skip)
   OPENAI_MODEL           upstream-specific model id
-  BANDIT_MAX_ITERATIONS  tool-use loop cap (default: 20)
+  BANDIT_MAX_ITERATIONS  tool-use loop cap (default: 20, or 40 for Kimi/bandit-logic-2)
   BANDIT_AUTO_APPROVE    "1" to skip write-approval prompts
   NO_COLOR               disable ANSI color output
 
@@ -836,7 +836,14 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       : undefined
   });
 
-  const maxIterations = Number(process.env.BANDIT_MAX_ITERATIONS ?? '20');
+  // Kimi-class models (bandit-logic-2 / kimi-*) explore thoroughly and hit the
+  // default loop ceiling on large repos — the README self-eval benchmark showed
+  // Kimi K2 deep-diving this monorepo bumped the cap — so they get a higher
+  // default. An explicit BANDIT_MAX_ITERATIONS always wins.
+  const defaultMaxIterations = /(^|[/:])(bandit-logic-2|kimi)/i.test(model) ? 40 : 20;
+  const maxIterations = process.env.BANDIT_MAX_ITERATIONS
+    ? Number(process.env.BANDIT_MAX_ITERATIONS)
+    : defaultMaxIterations;
   const modelCaps = getModelCapabilities(model);
   const behaviorProfile = getModelBehaviorProfile(model);
   // Same compaction budget as the VS Code extension: 75% of the
