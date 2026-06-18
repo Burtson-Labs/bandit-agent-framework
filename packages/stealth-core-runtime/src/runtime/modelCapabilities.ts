@@ -609,3 +609,30 @@ export function resolveOllamaRuntimeOptions(modelId: string): OllamaRuntimeOptio
     ...(thinkDefault !== undefined ? { think: thinkDefault } : {})
   };
 }
+
+// Model-id patterns → default tool-use loop cap. Thorough models (Kimi /
+// bandit-logic-2, Qwen 3.6 / bandit-logic) explore more before answering and
+// stall short of a deep task at the generic default, so they get a higher cap.
+// First match wins, so bandit-logic-2 is listed ahead of bandit-logic.
+const MAX_ITERATION_PATTERNS: ReadonlyArray<readonly [RegExp, number]> = [
+  [/(^|[/:])(bandit-logic-2|kimi)/i, 40],
+  [/(^|[/:])(bandit-logic|qwen3\.6)/i, 30],
+  [/(^|[/:])bandit-core(?!-2)/i, 20]
+];
+
+/**
+ * Default tool-use loop cap for a model. Used when neither an explicit user
+ * override (BANDIT_MAX_ITERATIONS / banditStealth.toolUse.maxIterations) nor a
+ * gateway-advertised recommendedMaxIterations is present — callers apply that
+ * precedence (explicit > catalog recommended > this). Falls back to a tier
+ * default: small models get a tighter cap so they fail fast; everything else 20.
+ */
+export function resolveDefaultMaxIterations(modelId: string, tier?: ModelTier): number {
+  const id = (modelId ?? '').trim();
+  for (const [pattern, iterations] of MAX_ITERATION_PATTERNS) {
+    if (pattern.test(id)) {
+      return iterations;
+    }
+  }
+  return tier === 'small' ? 12 : 20;
+}

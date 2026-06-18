@@ -4,7 +4,7 @@ import {
   registerModelCapabilities,
   resolveOllamaEndpoint
 } from '@burtson-labs/stealth-core-runtime';
-import { API_KEY_SECRET_KEY } from '../storageKeys';
+import { API_KEY_SECRET_KEY, MODEL_MAX_ITER_CACHE_KEY } from '../storageKeys';
 
 export async function switchModel(
   updateStatusBarText: () => void,
@@ -145,6 +145,7 @@ export async function switchModel(
       description?: string;
       available?: boolean;
       unavailableReason?: string;
+      recommendedMaxIterations?: number;
     }
 
     // Built-in fallback, kept in sync with the gateway catalog for offline /
@@ -179,6 +180,17 @@ export async function switchModel(
             });
           if (fetched.length > 0) {
             banditModels = fetched;
+          }
+          // Cache per-model recommended loop caps so the agent loop can honor
+          // them at run time without re-fetching (see MODEL_MAX_ITER_CACHE_KEY).
+          const iterMap: Record<string, number> = {};
+          for (const m of data?.models ?? []) {
+            if (m && typeof m.id === 'string' && typeof m.recommendedMaxIterations === 'number' && m.recommendedMaxIterations > 0) {
+              iterMap[m.id] = m.recommendedMaxIterations;
+            }
+          }
+          if (context && Object.keys(iterMap).length > 0) {
+            await context.globalState.update(MODEL_MAX_ITER_CACHE_KEY, iterMap);
           }
         }
       } catch {

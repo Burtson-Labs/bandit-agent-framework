@@ -43,6 +43,7 @@ import {
 import {
   createProvider,
   getModelCapabilities,
+  resolveDefaultMaxIterations,
   getModelBehaviorProfile,
   registerModelCapabilities,
   clearModelBehaviorOverrides,
@@ -836,15 +837,13 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       : undefined
   });
 
-  // Kimi-class models (bandit-logic-2 / kimi-*) explore thoroughly and hit the
-  // default loop ceiling on large repos — the README self-eval benchmark showed
-  // Kimi K2 deep-diving this monorepo bumped the cap — so they get a higher
-  // default. An explicit BANDIT_MAX_ITERATIONS always wins.
-  const defaultMaxIterations = /(^|[/:])(bandit-logic-2|kimi)/i.test(model) ? 40 : 20;
+  const modelCaps = getModelCapabilities(model);
+  // Per-model loop cap: an explicit BANDIT_MAX_ITERATIONS wins; otherwise the
+  // shared resolver picks a model-aware default (thorough models like
+  // bandit-logic-2 / qwen3.6 get more rounds than a small local model).
   const maxIterations = process.env.BANDIT_MAX_ITERATIONS
     ? Number(process.env.BANDIT_MAX_ITERATIONS)
-    : defaultMaxIterations;
-  const modelCaps = getModelCapabilities(model);
+    : resolveDefaultMaxIterations(model, modelCaps.tier);
   const behaviorProfile = getModelBehaviorProfile(model);
   // Same compaction budget as the VS Code extension: 75% of the
   // model's num_ctx reserved for rolling tool history. For the

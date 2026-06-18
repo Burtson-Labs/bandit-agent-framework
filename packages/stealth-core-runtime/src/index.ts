@@ -34,7 +34,7 @@ export { GatewaySearchAdapter, GatewaySearchError } from './gatewaySearchAdapter
 export type { GatewaySearchChunk, GatewayFileSummary, GatewaySearchResult, GatewaySearchOptions } from './gatewaySearchAdapter';
 export { OllamaEmbeddingClient } from './ollamaEmbeddingClient';
 export type { OllamaEmbeddingClientOptions, OllamaEmbeddingHit } from './ollamaEmbeddingClient';
-export { getModelCapabilities, getContextFileLimit, getContextTokenBudget, getOutputTokenBudget, registerModelCapabilities, queryOllamaModelCapabilities, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, checkOllamaLoadedContext } from './runtime/modelCapabilities';
+export { getModelCapabilities, getContextFileLimit, getContextTokenBudget, getOutputTokenBudget, registerModelCapabilities, queryOllamaModelCapabilities, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, checkOllamaLoadedContext, resolveDefaultMaxIterations } from './runtime/modelCapabilities';
 export { MODEL_BEHAVIOR_CONFIG_SCHEMA_VERSION, getModelBehaviorProfile, getBuiltInModelBehaviorProfiles, registerModelBehaviorOverride, registerModelBehaviorConfig, parseModelBehaviorConfig, clearModelBehaviorOverrides } from './runtime/modelBehavior';
 export { queryModelsDevCapabilities, queryOpenAICompatibleModelInfo } from './runtime/modelsDevCatalog';
 export type { ModelCapabilities, ModelTier, OllamaRuntimeOptions, OllamaContextCheck } from './runtime/modelCapabilities';
