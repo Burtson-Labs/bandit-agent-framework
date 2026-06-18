@@ -32,7 +32,7 @@ import {
   CheckpointStore
 } from '@burtson-labs/host-kit';
 import type { AIChatRequest, AIChatResponse, AIMessageContentPart , OllamaEmbeddingClient} from '@burtson-labs/stealth-core-runtime';
-import { createProvider, type ProviderKind, type ProviderSettings, buildSlimContext, getModelCapabilities, getModelBehaviorProfile, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, type BuiltContext } from '@burtson-labs/stealth-core-runtime';
+import { createProvider, type ProviderKind, type ProviderSettings, buildSlimContext, getModelCapabilities, getModelBehaviorProfile, resolveDefaultMaxIterations, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, type BuiltContext } from '@burtson-labs/stealth-core-runtime';
 import type { StealthAgentRuntime} from '../agent/agentRuntime';
 import { type IUndoManager } from '../agent/agentRuntime';
 import { buildTurnRunContext } from '../agent/toolLoopSetup';
@@ -117,7 +117,8 @@ import {
   CONVERSATION_STORAGE_KEY,
   CONVERSATION_HISTORY_STORAGE_KEY,
   MODE_STORAGE_KEY,
-  INTENT_MEMORY_STORAGE_KEY
+  INTENT_MEMORY_STORAGE_KEY,
+  MODEL_MAX_ITER_CACHE_KEY
 } from '../storageKeys';
 import { createStatusIndicators } from '../agent/statusIndicators';
 import { SlowStateCache } from './slowStateCache';
@@ -2124,8 +2125,21 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       // requests. Large frontier models still finish in 3-5 iterations
       // by parallelizing; the extra headroom is dead weight for them
       // and a genuine unblock for the 12B/26B class.
-      const defaultMaxIterations = modelCaps.tier === 'large' ? 20 : modelCaps.tier === 'medium' ? 20 : 12;
-      const maxIterations = configuration.get<number>('toolUse.maxIterations', defaultMaxIterations);
+      // Per-model loop cap, in precedence order:
+      //   1. explicit user setting (banditStealth.toolUse.maxIterations)
+      //   2. the gateway-advertised recommendation, cached by the model picker
+      //      from /api/stealth/models (lets the API tune bandit models live)
+      //   3. the shared resolver — model-aware default (thorough models get
+      //      more rounds; small local models get a tighter cap)
+      const iterCache = this.context.globalState.get<Record<string, number>>(MODEL_MAX_ITER_CACHE_KEY) ?? {};
+      const recommended = typeof iterCache[model] === 'number' ? iterCache[model] : undefined;
+      const inspectedMaxIter = configuration.inspect<number>('toolUse.maxIterations');
+      const explicitMaxIter = inspectedMaxIter?.workspaceFolderValue
+        ?? inspectedMaxIter?.workspaceValue
+        ?? inspectedMaxIter?.globalValue;
+      const maxIterations = explicitMaxIter
+        ?? recommended
+        ?? resolveDefaultMaxIterations(model, modelCaps.tier);
 
       const maybeShowOllamaContextWarning = buildMaybeShowOllamaContextWarning({
         isAlreadyShown: () => this.ollamaContextWarned,

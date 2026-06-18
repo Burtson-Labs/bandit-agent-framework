@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getModelCapabilities, registerModelCapabilities } from '../src';
+import { getModelCapabilities, registerModelCapabilities, resolveDefaultMaxIterations } from '../src';
 
 describe('getModelCapabilities — built-in profile precedence', () => {
   // Regression for v1.7.339 bandit-logic agentic stall. The Ollama auto-detector
@@ -143,5 +143,29 @@ describe('getModelCapabilities — Apple-silicon MLX builds (-mlx) resolve to ba
   });
   it('gemma4:26b-mlx matches gemma4:26b caps', () => {
     expect(getModelCapabilities('gemma4:26b-mlx')).toEqual(getModelCapabilities('gemma4:26b'));
+  });
+});
+
+describe('resolveDefaultMaxIterations — per-model loop cap defaults', () => {
+  it('Kimi / bandit-logic-2 get the highest cap (thorough explorers)', () => {
+    expect(resolveDefaultMaxIterations('bandit-logic-2')).toBe(40);
+    expect(resolveDefaultMaxIterations('kimi-k2.7-code:cloud')).toBe(40);
+  });
+
+  it('bandit-logic-2 wins over the bandit-logic pattern (order matters)', () => {
+    expect(resolveDefaultMaxIterations('bandit-logic-2')).toBe(40);
+    expect(resolveDefaultMaxIterations('bandit-logic')).toBe(30);
+    expect(resolveDefaultMaxIterations('qwen3.6:27b')).toBe(30);
+  });
+
+  it('bandit-core is 20 but bandit-core-2 is not caught by that pattern', () => {
+    expect(resolveDefaultMaxIterations('bandit-core-1')).toBe(20);
+    expect(resolveDefaultMaxIterations('bandit-core-2', 'large')).toBe(20); // via tier, not the bandit-core pattern
+  });
+
+  it('falls back to tier: small is tighter, everything else 20', () => {
+    expect(resolveDefaultMaxIterations('gemma4:e4b', 'small')).toBe(12);
+    expect(resolveDefaultMaxIterations('gemma4:26b', 'large')).toBe(20);
+    expect(resolveDefaultMaxIterations('some-unknown-model')).toBe(20);
   });
 });

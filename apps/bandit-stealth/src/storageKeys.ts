@@ -12,3 +12,8 @@ export const CONVERSATION_STORAGE_KEY = 'banditStealth.conversation';
 export const CONVERSATION_HISTORY_STORAGE_KEY = 'banditStealth.conversationHistory';
 export const MODE_STORAGE_KEY = 'banditStealth.mode';
 export const INTENT_MEMORY_STORAGE_KEY = 'banditStealth.intentHistory';
+
+// Map of { modelId: recommendedMaxIterations } cached from the gateway model
+// catalog (/api/stealth/models) by the model picker. Lets the agent loop honor
+// a server-advertised per-model loop cap without a network call at run time.
+export const MODEL_MAX_ITER_CACHE_KEY = 'banditStealth.modelMaxIterations';
