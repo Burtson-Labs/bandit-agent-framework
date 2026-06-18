@@ -140,7 +140,8 @@ export async function switchModel(updateStatusBarText: () => void): Promise<void
     // from offering 404s. Add more here as the gateway grows upstreams.
     const banditModels: BanditPick[] = [
       { label: 'bandit-core-1', description: 'Default — balanced speed/quality', model: 'bandit-core-1' },
-      { label: 'bandit-logic', description: 'Agentic coding specialist (Qwen 3.6 27B, native tool calling, multimodal)', model: 'bandit-logic' }
+      { label: 'bandit-logic', description: 'Agentic coding specialist (Qwen 3.6 27B, native tool calling, multimodal)', model: 'bandit-logic' },
+      { label: 'bandit-logic-2', description: 'Frontier coding model (Kimi K2 1T MoE via Ollama Cloud, native tools, multimodal)', model: 'bandit-logic-2' }
     ];
     const items: BanditPick[] = banditModels.map(m => ({
       ...m,
