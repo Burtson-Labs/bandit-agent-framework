@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.375
+
+- **Bandit Logic 2 in the model picker.** The Bandit model picker now pulls the live model list from the gateway, so new models — like **Bandit Logic 2**, a Kimi K2 variant — appear automatically with availability and a short description, no update required. Agentic models also allow more tool-use rounds by default, so they don't cut a deep task short on large repos.
+
 ## 1.7.374
 
 - **Clearer Ollama Cloud errors.** When a cloud model returns a subscription/paywall error (some models, like Kimi K2, require a paid Ollama plan), Bandit now points you at the upgrade page and a free local fallback — instead of a misleading "run `ollama signin`" hint. The hint also recognizes both cloud tag shapes (`-cloud` and `:cloud`).
