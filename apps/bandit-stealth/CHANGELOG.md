@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.376
+
+- **Per-model tool-loop caps.** Each model now has a sensible default for how many tool-use rounds it runs before stopping — thorough models like Bandit Logic 2 get more headroom so they don't cut a deep task short, while small local models stay tight. Bandit cloud models take their cap from the gateway (so it can be tuned without an update); local Ollama models use a built-in default. An explicit `BANDIT_MAX_ITERATIONS` (CLI) or `banditStealth.toolUse.maxIterations` (extension) still wins.
+
 ## 1.7.375
 
 - **Bandit Logic 2 in the model picker.** The Bandit model picker now pulls the live model list from the gateway, so new models — like **Bandit Logic 2**, a Kimi K2 variant — appear automatically with availability and a short description, no update required. Agentic models also allow more tool-use rounds by default, so they don't cut a deep task short on large repos.
