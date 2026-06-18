@@ -4,8 +4,12 @@ import {
   registerModelCapabilities,
   resolveOllamaEndpoint
 } from '@burtson-labs/stealth-core-runtime';
+import { API_KEY_SECRET_KEY } from '../storageKeys';
 
-export async function switchModel(updateStatusBarText: () => void): Promise<void> {
+export async function switchModel(
+  updateStatusBarText: () => void,
+  context?: vscode.ExtensionContext
+): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('banditStealth');
   const providerKind = configuration.get<string>('provider', 'bandit');
 
@@ -128,26 +132,71 @@ export async function switchModel(updateStatusBarText: () => void): Promise<void
       }
     }
   } else {
-    // Bandit AI — show available cloud models + a manual-entry escape
-    // hatch for gateway-routed aliases (e.g. a cluster Ollama node
-    // exposed as "qwen2.5-coder:32b" behind api.burtson.ai). The
-    // built-in list covers the default trio; typing a custom name
-    // works as long as the gateway knows how to route it.
+    // Bandit AI — fetch the model catalog from the gateway so new models
+    // (e.g. bandit-logic-2) appear without an extension release. Falls back to
+    // a built-in list when the gateway is unreachable or no API key is set.
+    // A manual-entry escape hatch always routes custom gateway aliases.
     const currentModel = configuration.get<string>('model', 'bandit-core-1') ?? 'bandit-core-1';
+    const gatewayUrl = configuration.get<string>('gatewayUrl', 'https://api.burtson.ai');
     type BanditPick = vscode.QuickPickItem & { model?: string; action?: 'manual' };
-    // Only models that api.burtson.ai actually routes. bandit-core-flash
-    // and bandit-core-pro were placeholders; removed to stop the picker
-    // from offering 404s. Add more here as the gateway grows upstreams.
-    const banditModels: BanditPick[] = [
-      { label: 'bandit-core-1', description: 'Default — balanced speed/quality', model: 'bandit-core-1' },
-      { label: 'bandit-logic', description: 'Agentic coding specialist (Qwen 3.6 27B, native tool calling, multimodal)', model: 'bandit-logic' },
-      { label: 'bandit-logic-2', description: 'Frontier coding model (Kimi K2 1T MoE via Ollama Cloud, native tools, multimodal)', model: 'bandit-logic-2' }
+    interface CatalogModel {
+      id: string;
+      displayName?: string;
+      description?: string;
+      available?: boolean;
+      unavailableReason?: string;
+    }
+
+    // Built-in fallback, kept in sync with the gateway catalog for offline /
+    // unauthenticated use. Backend-neutral copy; bandit-logic-2 reads as a Kimi variant.
+    const fallbackModels: BanditPick[] = [
+      { label: 'bandit-core-1', description: 'Balanced speed and quality — the default.', model: 'bandit-core-1' },
+      { label: 'bandit-logic', description: 'Agentic coding specialist (Qwen 3.6 27B, native tools, multimodal).', model: 'bandit-logic' },
+      { label: 'bandit-logic-2', description: 'Frontier coding model — a Kimi K2 variant (native tools, multimodal).', model: 'bandit-logic-2' }
     ];
+
+    let banditModels: BanditPick[] = fallbackModels;
+    const apiKey = await context?.secrets.get(API_KEY_SECRET_KEY);
+    if (apiKey) {
+      try {
+        const response = await fetch(`${gatewayUrl.replace(/\/+$/, '')}/api/stealth/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(5000)
+        });
+        if (response.ok) {
+          const data = await response.json() as { models?: CatalogModel[] };
+          const fetched = (data?.models ?? [])
+            .filter((m): m is CatalogModel => !!m && typeof m.id === 'string' && m.id.length > 0)
+            .map<BanditPick>(m => {
+              const unavailable = m.available === false
+                ? `$(warning) ${m.unavailableReason ?? 'currently unavailable'}`
+                : undefined;
+              return {
+                label: m.displayName?.trim() || m.id,
+                description: [m.description?.trim(), unavailable].filter(Boolean).join(' · '),
+                model: m.id
+              };
+            });
+          if (fetched.length > 0) {
+            banditModels = fetched;
+          }
+        }
+      } catch {
+        // Gateway unreachable — keep the built-in fallback list.
+      }
+    }
+
+    // bandit-core and bandit-core-1 are the same upstream; treat them as equal
+    // so the "current" marker still lands when the catalog id is "bandit-core".
+    const sameModel = (a: string, b: string): boolean =>
+      a === b || a.replace(/-1$/, '') === b.replace(/-1$/, '');
     const items: BanditPick[] = banditModels.map(m => ({
       ...m,
-      description: m.model === currentModel ? `$(check) current · ${m.description}` : m.description
+      description: m.model && sameModel(m.model, currentModel)
+        ? `$(check) current${m.description ? ` · ${m.description}` : ''}`
+        : m.description
     }));
-    if (!items.some(it => it.model === currentModel)) {
+    if (!items.some(it => !!it.model && sameModel(it.model, currentModel))) {
       items.unshift({
         label: currentModel,
         description: '$(check) current · custom gateway alias',
