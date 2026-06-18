@@ -308,6 +308,27 @@ async function* streamOllamaResponse(response: Response): AsyncGenerator<AIChatR
   yield { message: { content: '', role: 'assistant' }, done: true };
 }
 
+/**
+ * Actionable suffix for an Ollama error, by failure mode:
+ *  - 403 with a subscription/upgrade message = a paid-plan gate (e.g. Kimi
+ *    K2 on Ollama Cloud), NOT a sign-in problem — point at the upgrade page
+ *    and a free local fallback. (Real run 2026-06-17: kimi-k2.7-code:cloud
+ *    403'd with "this model requires a subscription".)
+ *  - any other 401/403 on a cloud model = a sign-in / cloud-key problem.
+ * Cloud tags come in both shapes — `-cloud` (`kimi-k2:1t-cloud`) and `:cloud`
+ * (`kimi-k2.7-code:cloud`) — or the baseUrl points at ollama.com.
+ */
+export function buildOllamaErrorHint(status: number, model: string, baseUrl: string, detail: string): string {
+  if (status === 403 && /subscription|upgrade for access|ollama\.com\/upgrade/i.test(detail)) {
+    return ' — this Ollama Cloud model requires a paid Ollama plan. Upgrade at https://ollama.com/upgrade, or try a local model (e.g. `qwen3.6:27b`, `gemma4:26b`) which needs no subscription.';
+  }
+  const looksCloud = /[-:]cloud\b/i.test(model) || /ollama\.com/i.test(baseUrl);
+  if ((status === 401 || status === 403) && looksCloud) {
+    return ' — this is an Ollama Cloud model. Run `ollama signin` (local daemon), or set an Ollama Cloud API key as the Authorization header (CLI: `ollama.headers`, extension: the Ollama auth-token field).';
+  }
+  return '';
+}
+
 function createDirectOllamaProvider(
   baseUrl: string,
   defaultModel: string,
@@ -385,15 +406,8 @@ function createDirectOllamaProvider(
 
         if (!response.ok) {
           const detail = await safeReadText(response);
-          // Ollama Cloud models (`*-cloud` tags, or pointing baseUrl at
-          // ollama.com) 401/403 when the user isn't signed in or the cloud
-          // key is missing/expired. Turn that into an actionable hint
-          // instead of a bare status line.
-          const looksCloud = /-cloud\b/i.test(request.model) || /ollama\.com/i.test(baseUrl);
-          const authHint = (response.status === 401 || response.status === 403) && looksCloud
-            ? ' — this is an Ollama Cloud model. Run `ollama signin` (local daemon), or set an Ollama Cloud API key as the Authorization header (CLI: `ollama.headers`, extension: the Ollama auth-token field).'
-            : '';
-          throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${authHint}`);
+          const hint = buildOllamaErrorHint(response.status, request.model, baseUrl, detail);
+          throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${hint}`);
         }
 
         if (payload.stream !== false) {

@@ -9,6 +9,7 @@ export type { EmbeddingDocument, EmbeddingSearchHit, StealthEmbeddingClientOptio
 export { StealthEmbeddingClient } from './embeddingClient';
 export {
   createProvider,
+  buildOllamaErrorHint,
   type ChatProvider,
   type ProviderKind,
   type ProviderSettings
