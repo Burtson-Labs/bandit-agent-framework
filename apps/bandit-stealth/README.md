@@ -71,10 +71,22 @@ That's it. No API keys, no cloud services, and telemetry off by default. Prefer 
 <details>
 <summary><sub>See a quick session in action</sub></summary>
 
-<p align="center">
-  <img src="https://cdn.burtson.ai/images/ide-demo.gif" alt="Bandit Stealth in VS Code — agent reads, writes, runs commands, with diff approval" width="720" />
-  <br/><sub>Real session, sped up 5×. ~37 seconds.</sub>
-</p>
+<br/>
+
+<table>
+<tr>
+<td width="40%" align="center" valign="middle">
+  <img src="https://cdn.burtson.ai/images/ide-demo.gif" alt="Bandit Stealth panel in VS Code — the agent reads and searches across the repo, then proposes edits behind an approval gate" width="340" />
+</td>
+<td valign="middle">
+<b>A real session, sped up 6×.</b>
+<br/><br/>
+Bandit runs the whole agent loop right in the side panel — listing and reading files, searching the codebase, and planning its approach — with every tool call streaming live so you see exactly what it's doing. Edits land behind a diff you approve.
+<br/><br/>
+<sub>~33 seconds · captured in VS Code · recording unedited</sub>
+</td>
+</tr>
+</table>
 
 </details>
 
