@@ -188,6 +188,8 @@ ${c.bold('Usage')}
   bandit                      Start an interactive REPL
   bandit --resume <id>        Resume a prior session (see /session list)
   bandit --session <id>       Start / continue a named session
+  bandit doctor               Find and consolidate multiple bandit installs
+  bandit upgrade              Update the standalone binary to the latest release
   bandit --help               Show this message
   bandit --version            Show version
   bandit --no-ink             Fall back to the legacy readline input (or set BANDIT_INK_INPUT=0)
@@ -4837,6 +4839,21 @@ async function main(): Promise<void> {
     const { serveBanditMcp } = await import('@burtson-labs/agent-core');
     process.stderr.write(`bandit MCP server: workspace=${workspace}${readOnly ? ' (read-only)' : ''}, ${exposed.length} tools\n`);
     await serveBanditMcp({ tools: exposed, toolCtx, name: 'bandit', version: '1.0.0' });
+    return;
+  }
+
+  if (rawArgs[0] === 'doctor' || rawArgs[0] === 'upgrade' || rawArgs[0] === 'self-update') {
+    // Install management — `bandit doctor` finds/consolidates multiple installs,
+    // `bandit upgrade` self-updates the standalone binary. Branch before
+    // parseArgs so their flags don't get swept into the prompt buffer.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const version = (require('../package.json') as { version: string }).version;
+    const { runDoctor, runUpgrade } = await import('./install/manage');
+    if (rawArgs[0] === 'doctor') {
+      await runDoctor(rawArgs.slice(1), { version });
+    } else {
+      await runUpgrade(rawArgs.slice(1), { version });
+    }
     return;
   }
 
