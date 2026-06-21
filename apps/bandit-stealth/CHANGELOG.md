@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.379
+
+- **`bandit doctor` and `bandit upgrade`.** `bandit doctor` finds every `bandit` on your PATH, shows which one actually runs, and offers to remove the extras so a single install is in charge — your memory and settings in `~/.bandit` are never touched. `bandit upgrade` updates a standalone (curl-installed) binary to the latest release in place; npm installs are pointed at the right npm command. The installer also now offers to remove a conflicting older install so the new one runs.
+
 ## 1.7.378
 
 - **Fixed the standalone CLI binary crashing on first use.** The single-file binary installed via `curl … | sh` could fail on its first message with an internal error; it now runs correctly. Installs via npm were never affected.
