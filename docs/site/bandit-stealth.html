@@ -799,7 +799,8 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Visit <a href="https://burtson.ai/stealth">burtson.ai/stealth</a> for the product tour, model comparison, and recommended configurations.</p>
 <h2>Prefer the terminal?</h2>
 <p>Same runtime, same skills, same tool-use loop — in a shell instead of the IDE.</p>
-<pre><code class="language-bash">npm install -g bandit-stealth-cli
+<pre><code class="language-bash">curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh
+# or: npm install -g bandit-stealth-cli
 bandit
 </code></pre>
 <p>Flip <code>banditStealth.useTerminal</code> on and the Activity Bar icon (and <code>Alt+Shift+B</code>) will open the CLI in VS Code’s integrated terminal instead of the chat panel. Toggle back any time via <code>Bandit Stealth: Toggle Terminal Mode</code>.</p>
@@ -1034,7 +1035,7 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <p>The CLI exposes the same breakdown via <code>/usage</code> with colored meters.</p>
 <hr>
 <h2>CLI slash commands (quick reference)</h2>
-<p>Install once with <code>npm install -g bandit-stealth-cli</code>, then run <code>bandit</code> in any project. Type <code>?</code> at the prompt for the live overlay; <code>/help</code> for the full list.</p>
+<p>Install once with <code>curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh</code> (or <code>npm install -g bandit-stealth-cli</code>), then run <code>bandit</code> in any project. Type <code>?</code> at the prompt for the live overlay; <code>/help</code> for the full list.</p>
 <table>
 <thead>
 <tr>
