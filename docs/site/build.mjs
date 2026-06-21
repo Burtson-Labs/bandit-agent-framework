@@ -790,11 +790,13 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 .card p code { font-size: 0.85em; }
 
 /* Landing demo (CLI + extension GIFs) */
-.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 4px 0 36px; }
+.demo-grid { display: flex; flex-direction: column; gap: 28px; margin: 4px 0 36px; }
 .demo { margin: 0; }
 .demo img { width: 100%; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 18px 48px rgba(0,0,0,0.4); display: block; }
+.demo-portrait { text-align: center; }
+.demo-portrait img { width: auto; max-width: 100%; max-height: 460px; margin: 0 auto; }
 .demo figcaption { margin-top: 8px; font-size: 11.5px; color: var(--text-faint); text-align: center; letter-spacing: 0.06em; text-transform: uppercase; }
-@media (max-width: 700px) { .demo-grid { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .demo-portrait img { max-height: none; width: 100%; } }
 
 /* "Why Bandit" grid */
 .why-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin: 14px 0 36px; }
@@ -1001,7 +1003,7 @@ const INDEX_BODY = `<div align="center">
 
 <div class="demo-grid">
   <figure class="demo"><img src="https://cdn.burtson.ai/images/cli-demo.gif" alt="Bandit CLI running a turn in the terminal" loading="lazy"><figcaption>Terminal CLI</figcaption></figure>
-  <figure class="demo"><img src="https://cdn.burtson.ai/images/ide-demo.gif" alt="Bandit Stealth in VS Code with diff approval" loading="lazy"><figcaption>VS Code / Cursor extension</figcaption></figure>
+  <figure class="demo demo-portrait"><img src="https://cdn.burtson.ai/images/ide-demo.gif" alt="Bandit Stealth in VS Code with diff approval" loading="lazy"><figcaption>VS Code / Cursor extension</figcaption></figure>
 </div>
 
 <h2>Why Bandit</h2>
