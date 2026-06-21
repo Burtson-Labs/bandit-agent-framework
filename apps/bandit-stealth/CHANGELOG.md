@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.377
+
+- **Install the CLI without Node.** `curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh` now installs a standalone, single-file binary — no Node.js required (macOS and Linux, arm64/x64). On other platforms it falls back to the npm package; `BANDIT_INSTALL_METHOD=npm` forces the npm install either way.
+
 ## 1.7.376
 
 - **Per-model tool-loop caps.** Each model now has a sensible default for how many tool-use rounds it runs before stopping — thorough models like Bandit Logic 2 get more headroom so they don't cut a deep task short, while small local models stay tight. Bandit cloud models take their cap from the gateway (so it can be tuned without an update); local Ollama models use a built-in default. An explicit `BANDIT_MAX_ITERATIONS` (CLI) or `banditStealth.toolUse.maxIterations` (extension) still wins.
