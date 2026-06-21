@@ -42,8 +42,9 @@ Both talk to the same [`stealth-core-runtime`](packages/stealth-core-runtime/). 
 brew install ollama
 ollama pull gemma4:e4b              # CLI default — ~3 GB, multimodal, agent-ready
 
-# 2. Install the CLI
-npm i -g bandit-stealth-cli
+# 2. Install the CLI (curl, or npm if you prefer)
+curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh
+# npm i -g bandit-stealth-cli
 
 # 3. Run in any project
 cd ~/my-project

@@ -31,10 +31,11 @@ Your code never leaves your machine. Works with any Ollama model.
    ollama pull qwen2.5-coder:7b              # fast, tool-calling, ~4.7 GB
    ```
 
-2. Install the CLI globally:
+2. Install the CLI globally — curl, or npm if you prefer:
 
    ```bash
-   npm i -g bandit-stealth-cli
+   curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh
+   # or: npm i -g bandit-stealth-cli
    ```
 
 3. Run it:
