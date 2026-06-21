@@ -279,11 +279,26 @@ jobs:
   # Release for the tag (softprops appends to the release build-vsix creates).
   # The curl installer (burtson.ai/bandit-stealth-cli/install.sh) prefers these
   # and falls back to the npm install for platforms without a binary.
+  # Compile each OS family on its own NATIVE runner. bun's cross-OS
+  # `--compile` (e.g. building a darwin/windows binary on a Linux host) tree-shook
+  # the createToolUseLoop definition out of the binary, shipping an executable
+  # that crashed on first turn (v1.7.377). Native compilation avoids it, and
+  # build-binaries.mjs verifies every output before it can be attached.
   build-cli-binaries:
-    name: Build CLI binaries (release on tag)
+    name: Build CLI binaries (${{ matrix.family }})
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            family: darwin
+          - os: ubuntu-latest
+            family: linux
+          - os: windows-latest
+            family: windows
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -293,13 +308,34 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Compile standalone binaries (darwin/linux/windows)
-        run: node apps/bandit-cli/build-binaries.mjs
+      # Build only the CLI's dependency graph (agent-core, host-kit, …) so the
+      # macOS/Windows runners don't build unrelated web/vscode/demo packages.
+      - run: pnpm --filter "@burtson-labs/bandit-stealth-cli..." build
+      - name: Compile ${{ matrix.family }} binaries natively
+        run: node apps/bandit-cli/build-binaries.mjs --os ${{ matrix.family }}
+      - name: Upload ${{ matrix.family }} binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries-${{ matrix.family }}
+          path: apps/bandit-cli/dist/bin/*
+          if-no-files-found: error
+
+  # Collect every runner's native binaries and attach them to the release.
+  release-cli-binaries:
+    name: Attach CLI binaries to the release
+    needs: build-cli-binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-binaries-*
+          path: dist/bin
+          merge-multiple: true
       - name: Attach binaries to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/bandit-cli/dist/bin/*
+          files: dist/bin/*
 
   # ─── Publish @burtson-labs/* packages to npmjs.org ─────────────────────────
   # Re-enabled 2026-06-03 against registry.npmjs.org (the prior inline

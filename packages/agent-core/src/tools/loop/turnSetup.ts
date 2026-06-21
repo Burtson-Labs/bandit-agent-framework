@@ -8,7 +8,7 @@
  * stay grouped with the other Arc 3 modules.
  */
 import type { ToolLoopMessage } from '../tool-types';
-import { isContinuationPrompt } from '../tool-use-loop';
+import { isContinuationPrompt } from './loopShared';
 
 export interface ResolveTurnGoalArgs {
   seedMessages: ReadonlyArray<ToolLoopMessage>;
