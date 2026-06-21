@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.378
+
+- **Fixed the standalone CLI binary crashing on first use.** The single-file binary installed via `curl … | sh` could fail on its first message with an internal error; it now runs correctly. Installs via npm were never affected.
+
 ## 1.7.377
 
 - **Install the CLI without Node.** `curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh` now installs a standalone, single-file binary — no Node.js required (macOS and Linux, arm64/x64). On other platforms it falls back to the npm package; `BANDIT_INSTALL_METHOD=npm` forces the npm install either way.

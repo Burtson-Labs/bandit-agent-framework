@@ -1,7 +1,11 @@
 {
   "name": "@burtson-labs/agent-orchestrator",
-  "version": "1.0.4",
-  "author": { "name": "Burtson Labs", "email": "team@burtson.ai", "url": "https://burtson.ai" },
+  "version": "1.0.5",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

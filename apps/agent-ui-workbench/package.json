@@ -1,8 +1,12 @@
 {
   "name": "agent-ui-workbench",
   "private": true,
-  "version": "1.0.4",
-  "author": { "name": "Burtson Labs", "email": "team@burtson.ai", "url": "https://burtson.ai" },
+  "version": "1.0.5",
+  "author": {
+    "name": "Burtson Labs",
+    "email": "team@burtson.ai",
+    "url": "https://burtson.ai"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
