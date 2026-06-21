@@ -31,7 +31,8 @@ Visit [burtson.ai/stealth](https://burtson.ai/stealth) for the product tour, mod
 Same runtime, same skills, same tool-use loop — in a shell instead of the IDE.
 
 ```bash
-npm install -g bandit-stealth-cli
+curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh
+# or: npm install -g bandit-stealth-cli
 bandit
 ```
 
@@ -216,7 +217,7 @@ The CLI exposes the same breakdown via `/usage` with colored meters.
 
 ## CLI slash commands (quick reference)
 
-Install once with `npm install -g bandit-stealth-cli`, then run `bandit` in any project. Type `?` at the prompt for the live overlay; `/help` for the full list.
+Install once with `curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh | sh` (or `npm install -g bandit-stealth-cli`), then run `bandit` in any project. Type `?` at the prompt for the live overlay; `/help` for the full list.
 
 | Command | What it does |
 |---|---|
