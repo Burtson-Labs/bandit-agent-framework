@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.378",
+  "version": "1.7.379",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
