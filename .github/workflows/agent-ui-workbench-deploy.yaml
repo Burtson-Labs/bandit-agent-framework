@@ -1,0 +1,48 @@
+name: Agent UI Workbench — Build + Deploy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/agent-ui-workbench/**"
+      - "packages/**"
+      - "apps/bandit-stealth/**"
+      - "Dockerfile"
+      - "nginx/default.conf"
+      - "charts/agent-ui-workbench/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/agent-ui-workbench-deploy.yaml"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  # ─── Build + push web app Docker image ────────────────────────────────────
+  # The workbench is a Vite app inside this pnpm + turbo monorepo. The root
+  # Dockerfile installs the whole workspace and builds the single app via
+  # `pnpm --filter agent-ui-workbench build`, so the build context is the repo
+  # root (the reusable workflow's default).
+  build-web:
+    name: Build web app
+    uses: Burtson-Labs/actions/.github/workflows/build-push-docker-image.yaml@main
+    with:
+      imageName: burtson-labs/agent-ui-workbench
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit
+
+  # ─── Deploy web app to Kubernetes ─────────────────────────────────────────
+  # Helm chart lives under charts/ at the repo root. Image, namespace, ingress,
+  # and release name match the standalone static SPA deploy.
+  deploy-web:
+    name: Deploy web app
+    needs: build-web
+    uses: Burtson-Labs/actions/.github/workflows/package-push-deploy-helm-chart.yaml@main
+    with:
+      chart_path: charts/agent-ui-workbench
+      namespace: bandit
+      values_file: charts/agent-ui-workbench/values.yaml
+      release_name: agent-ui-workbench
+      runs_on: '"burtson-labs-runners"'
+    secrets: inherit

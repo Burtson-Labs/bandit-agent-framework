@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stealth.fullname" . }}
+  labels:
+    {{- include "stealth.labels" . | nindent 4 }}
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "stealth.name" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "stealth.labels" . | nindent 8 }}
+      annotations:
+        # Forces a rolling restart on every `helm upgrade`. Without this,
+        # when image.tag stays at `latest` and values.yaml hasn't changed,
+        # the rendered Deployment manifest is byte-identical and Kubernetes
+        # leaves the existing pods running the old image — even though a
+        # fresh image was pushed to GHCR. randAlphaNum re-rolls each render
+        # so every deploy sees a manifest diff and rolls the pods.
+        rollme: {{ randAlphaNum 8 | quote }}
+    spec:
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      containers:
+        - name: {{ include "stealth.name" . }}
+          image: ghcr.io/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.targetPort }}
+              name: http
+          livenessProbe:
+            httpGet:
+              path: {{ default "/health" .Values.healthCheck.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ default "/health" .Values.healthCheck.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

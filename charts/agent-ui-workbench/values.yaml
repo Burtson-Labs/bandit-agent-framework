@@ -1,0 +1,59 @@
+replicaCount: 2
+
+image:
+  repository: burtson-labs/agent-ui-workbench
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+    nginx.ingress.kubernetes.io/hsts-preload: "true"
+  hosts:
+    - host: stealth-demo.banditailabs.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - stealth-demo.banditailabs.com
+      secretName: banditlabs-tls
+
+healthCheck:
+  enabled: true
+  path: "/health"
+  pwaPath: "/pwa-health"
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: dedicated
+              operator: NotIn
+              values:
+                - ai
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  cpuAverageValue: 200m
+
+imagePullSecrets:
+  - name: ghcr-secret
