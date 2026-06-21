@@ -40,7 +40,7 @@
  * switch escalates.
  */
 import type { ChatFn, ToolLoopMessage, ChatCallOptions, NativeToolSchema } from '../tool-types';
-import { isRetryableLlmError, tagRetryableLlmError, summarizeLlmError, sleep } from '../tool-use-loop';
+import { isRetryableLlmError, tagRetryableLlmError, summarizeLlmError, sleep } from './loopShared';
 
 export type StreamEmit = (type: string, payload?: unknown) => void;
 
