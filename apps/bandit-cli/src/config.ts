@@ -503,6 +503,23 @@ export async function saveProvider(
   return GLOBAL_CONFIG;
 }
 
+/** Persist the chosen model to ~/.bandit/config.json so the next session
+ *  starts on it. Called when the user switches models in-session (`/model`,
+ *  the `switch_model` tool). Merges into the existing config — only the
+ *  `model` field is touched. */
+export async function saveModel(model: string): Promise<string> {
+  const dir = path.join(os.homedir(), '.bandit');
+  try { await fs.promises.mkdir(dir, { recursive: true }); } catch { /* exists */ }
+  let existing: BanditConfig = {};
+  try {
+    const raw = await fs.promises.readFile(GLOBAL_CONFIG, 'utf-8');
+    existing = JSON.parse(raw) as BanditConfig;
+  } catch { /* first run */ }
+  existing.model = model;
+  await fs.promises.writeFile(GLOBAL_CONFIG, JSON.stringify(existing, null, 2), { encoding: 'utf-8', mode: 0o600 });
+  return GLOBAL_CONFIG;
+}
+
 /** Persist OpenAI-compatible upstream config to ~/.bandit/config.json.
  *  Used by the /connect wizard so the user picks once and the choice
  *  survives the next launch. Each field is optional so callers can

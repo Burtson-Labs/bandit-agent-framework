@@ -82,7 +82,7 @@ import { consumeTablesInChunk, flushTableState } from './terminal/tableRender';
 import { consumeMarkdownInChunk, flushMarkdownState } from './terminal/markdownRender';
 import { fuzzyMatchWorkspaceFiles } from './input/fileCompleter';
 import { buildCliChatFn } from './agent/cliChatFn';
-import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
+import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, saveModel, saveProvider, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
 import { initTelemetry, resolveTelemetryConfig, telemetryStartTurn, telemetryEvent, telemetryEndTurn, telemetryEndTurnAwait } from './telemetry/otlp';
 import { notifyCli, type CliNotification } from './notifications';
 import {
@@ -3689,6 +3689,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         const rebuilt = buildProviderSettings(resolved);
         settings = rebuilt.settings;
         probeOllamaCapabilities(next);
+        // Persist so the next session starts on this model. Fire-and-forget —
+        // a write failure must not interrupt the switch.
+        void saveModel(next).catch(() => { /* non-fatal */ });
       }
     },
     setProvider(next) {
@@ -3711,6 +3714,8 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       settings = rebuilt.settings;
       kind = rebuilt.kind;
       probeOllamaCapabilities(nextModel);
+      // Persist the provider + its model so the next session starts here too.
+      void saveProvider(next, nextModel).catch(() => { /* non-fatal */ });
     },
     get providerKind() {
       return resolved.provider;
