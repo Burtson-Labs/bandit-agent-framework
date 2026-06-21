@@ -273,6 +273,34 @@ jobs:
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
+  # ─── Build standalone CLI binaries (Tier 2, release on tag) ─────────────────
+  # Node-free single-file binaries via `bun build --compile`, one per platform,
+  # cross-compiled from a single ubuntu runner and attached to the GitHub
+  # Release for the tag (softprops appends to the release build-vsix creates).
+  # The curl installer (burtson.ai/bandit-stealth-cli/install.sh) prefers these
+  # and falls back to the npm install for platforms without a binary.
+  build-cli-binaries:
+    name: Build CLI binaries (release on tag)
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Compile standalone binaries (darwin/linux/windows)
+        run: node apps/bandit-cli/build-binaries.mjs
+      - name: Attach binaries to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/bandit-cli/dist/bin/*
+
   # ─── Publish @burtson-labs/* packages to npmjs.org ─────────────────────────
   # Re-enabled 2026-06-03 against registry.npmjs.org (the prior inline
   # version targeted GitHub Packages and was disabled 2026-05-28 after the
