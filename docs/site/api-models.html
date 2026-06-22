@@ -843,7 +843,7 @@ integration keeps working as the models get better underneath it.</p>
 </ul>
 <h2>Calling a model</h2>
 <p>The API is OpenAI-compatible — set <code>model</code> to any ID above:</p>
-<pre><code class="language-bash">curl $BANDIT_API_URL/api/chat/completions \
+<pre><code class="language-bash">curl https://api.burtson.ai/api/chat/completions \
   -H &quot;Authorization: Bearer $BANDIT_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
   -d '{

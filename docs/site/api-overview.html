@@ -797,11 +797,11 @@ point your base URL at your Bandit gateway, send a <code>model</code> from the
 <a href="api-models.html">catalogue</a>, and Bandit handles routing, scaling, and keeping
 your data private.</p>
 <h2>Base URL</h2>
-<p>All requests go to your Bandit gateway:</p>
-<pre><code>$BANDIT_API_URL/api/chat/completions
+<p>All requests go to the Bandit API:</p>
+<pre><code>https://api.burtson.ai/api/chat/completions
 </code></pre>
-<p><code>BANDIT_API_URL</code> is the base URL of your Bandit deployment’s gateway. If you’re
-not sure what yours is, reach out and we’ll point you at the right host.</p>
+<p>The API is OpenAI-compatible, so any OpenAI client library works — just point its
+base URL here and use your Bandit API key.</p>
 <h2>Authentication</h2>
 <p>Send a bearer <a href="./glossary.html#token" class="glossary-link" title="Glossary">token</a> on every request:</p>
 <pre><code>Authorization: Bearer $BANDIT_API_KEY
@@ -812,7 +812,7 @@ not sure what yours is, reach out and we’ll point you at the right host.</p>
 <li><strong>API keys</strong> — long-lived keys for server-to-server, CLI, and partner usage.</li>
 </ul>
 <h2>Making a request</h2>
-<pre><code class="language-bash">curl $BANDIT_API_URL/api/chat/completions \
+<pre><code class="language-bash">curl https://api.burtson.ai/api/chat/completions \
   -H &quot;Authorization: Bearer $BANDIT_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
   -d '{

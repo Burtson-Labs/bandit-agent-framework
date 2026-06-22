@@ -33,7 +33,7 @@ each call to the right tier and keeps your data private.
 The API is OpenAI-compatible — set `model` to any ID above:
 
 ```bash
-curl $BANDIT_API_URL/api/chat/completions \
+curl https://api.burtson.ai/api/chat/completions \
   -H "Authorization: Bearer $BANDIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
