@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>@burtson-labs/host-kit — Bandit Agent Framework</title>
-  <meta name="description" content="Documentation for @burtson-labs/host-kit, part of the Bandit Agent Framework.">
-  <link rel="canonical" href="https://docs.burtson.ai/host-kit.html">
+  <title>Local development — Bandit Agent Framework</title>
+  <meta name="description" content="Documentation for Local development, part of the Bandit Agent Framework.">
+  <link rel="canonical" href="https://docs.burtson.ai/engine-local-dev.html">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#0a0c12">
   <meta property="og:type" content="article">
-  <meta property="og:title" content="@burtson-labs/host-kit — Bandit Agent Framework">
-  <meta property="og:description" content="Documentation for @burtson-labs/host-kit, part of the Bandit Agent Framework.">
-  <meta property="og:url" content="https://docs.burtson.ai/host-kit.html">
+  <meta property="og:title" content="Local development — Bandit Agent Framework">
+  <meta property="og:description" content="Documentation for Local development, part of the Bandit Agent Framework.">
+  <meta property="og:url" content="https://docs.burtson.ai/engine-local-dev.html">
   <meta property="og:site_name" content="Bandit Agent Framework">
   <meta property="og:locale" content="en_US">
-  <meta property="og:image" content="https://docs.burtson.ai/og/host-kit.png">
-  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/host-kit.png">
+  <meta property="og:image" content="https://docs.burtson.ai/og/engine-local-dev.png">
+  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/engine-local-dev.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="@burtson-labs/host-kit — Bandit Agent Framework">
-  <meta name="twitter:description" content="Documentation for @burtson-labs/host-kit, part of the Bandit Agent Framework.">
-  <meta name="twitter:image" content="https://docs.burtson.ai/og/host-kit.png">
+  <meta name="twitter:title" content="Local development — Bandit Agent Framework">
+  <meta name="twitter:description" content="Documentation for Local development, part of the Bandit Agent Framework.">
+  <meta name="twitter:image" content="https://docs.burtson.ai/og/engine-local-dev.png">
   <meta name="twitter:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:site" content="@BurtsonLabs">
   <meta name="twitter:creator" content="@BurtsonLabs">
@@ -755,7 +755,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
         <li><a href="./agent-core.html">@burtson-labs/agent-core</a></li>
         <li><a href="./agent-ui.html">@burtson-labs/agent-ui</a></li>
         <li><a href="./stealth-core-runtime.html">@burtson-labs/stealth-core-runtime</a></li>
-        <li><a href="./host-kit.html" class="active">@burtson-labs/host-kit</a></li>
+        <li><a href="./host-kit.html">@burtson-labs/host-kit</a></li>
         <li><a href="./core-chat.html">@burtson-labs/core-chat</a></li>
         <li><a href="./agent-adapters.html">@burtson-labs/agent-adapters</a></li>
         <li><a href="./agent-adapters-provider.html">@burtson-labs/agent-adapters-provider</a></li>
@@ -770,7 +770,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
         <li><a href="./engine-quickstart.html">Quickstart</a></li>
         <li><a href="./engine-gateway-api.html">Gateway API</a></li>
         <li><a href="./engine-providers.html">Provider integration</a></li>
-        <li><a href="./engine-local-dev.html">Local development</a></li>
+        <li><a href="./engine-local-dev.html" class="active">Local development</a></li>
         <li><a href="./engine-cli.html">CLI quickstart</a></li>
         <li><a href="./engine-licensing.html">Licensing (BUSL)</a></li>
       </ul>
@@ -790,94 +790,48 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
     </aside>
     <main id="content" class="content-pane">
       <div class="content">
-<div align="center">
-  <a href="https://burtson.ai">
-    <picture>
-      <img src="https://cdn.burtson.ai/logos/burtson-labs-logo.png" alt="Burtson Labs" width="200" style="width: 200px !important; max-width: 200px !important; height: auto; display: inline-block;" />
-    </picture>
-  </a>
-<h1>@burtson-labs/host-kit</h1>
-<p><strong>Host-agnostic building blocks shared between the Bandit CLI and the VS Code extension.</strong></p>
-<p>Writing a new host (a Cursor sidebar, a JetBrains plugin, a custom CLI)? Pull from here.</p>
-</div>
-<hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
-<pre><code class="language-bash">pnpm add @burtson-labs/host-kit
-</code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s in the box</h2>
+<h1>Local Development &amp; Advanced Services</h1>
+<h2>Overview</h2>
+<p>This guide describes how to run Bandit Engine locally with optional services including vector memory, document ingestion, and voice features. Use it to simulate production behaviour while keeping sensitive credentials on your machine.</p>
+<h2>Endpoints / API Usage</h2>
 <ul>
-<li><strong>Memory loader</strong> — discovers and merges <code>BANDIT.md</code> / <code>CLAUDE.md</code> / <code>AGENTS.md</code> files across workspace + global locations; deduplicates overlapping content at load time; <code>consolidateMemory()</code> unifies multiple entry files into a single canonical <code>BANDIT.md</code> (symlink on macOS/Linux, copy-with-drift-warning on Windows)</li>
-<li><strong>Topic memory</strong> — lazy-load index at <code>.bandit/memory/MEMORY.md</code> (preferred) with back-compat reads from legacy root <code>MEMORY.md</code>; writes always go to <code>.bandit/memory/</code>; <code>migrateMemoryToBanditDir()</code> moves an existing root <code>memory/</code> layout into <code>.bandit/memory/</code> idempotently</li>
-<li><strong><code>@-mention</code> expansion</strong> — detects <code>@path/to/file</code> in user input and inlines file contents (with secret redaction) or attaches images as base64</li>
-<li><strong>Hook runner</strong> — executes PreToolUse / PostToolUse / Stop / UserPromptSubmit hooks; <code>loadHookSettings</code> merges the <strong>global</strong> <code>~/.bandit/settings.json</code> under the workspace <code>.bandit/settings.json</code> so hooks + permissions + the guard apply across every repo</li>
-<li><strong>Pre-tool security guard</strong> — <code>evaluateSecurityGuard(call, settings, ctx)</code>: an opt-in, in-process safety net (no shell spawn) that blocks catastrophic tool calls (<code>rm -rf /</code>, <code>curl … | sh</code>, disk wipes, credential exfil, writes to system/credential paths) before they run. Wired into <code>beforeToolExecute</code> in both hosts</li>
-<li><strong><a href="./glossary.html#mcp" class="glossary-link" title="Glossary">MCP</a> loader</strong> — reads <code>mcp-servers.json</code> (global + workspace, workspace wins), auto-injects <code>BANDIT_API_KEY</code>, registers servers with the pool</li>
-<li><strong>Turn trace reader</strong> — parses workspace and global <code>.bandit/turns/*.jsonl</code> into summaries and markdown timelines for CLI <code>/trace</code>, IDE <code>/trace</code>, tests, and future bug-bundle export</li>
-<li><strong>Insights</strong> — usage analytics aggregator (CLI sessions → human report)</li>
-<li><strong>Extra tool builders</strong> — <code>todo_write</code>, <code>web_fetch</code>, <code>web_search</code>, <code>task</code> (<a href="./glossary.html#subagent" class="glossary-link" title="Glossary">subagent</a>), <code>remember</code>, <code>test_run</code>, <code>pdf_read</code></li>
+<li><code>GET /api/memory</code> — synchronize long-term memory between IndexedDB and your gateway or vector database.</li>
+<li><code>POST /api/tts</code> &amp; <code>POST /api/stt</code> — enable voice experiences.</li>
+<li><code>POST /api/vector/migrate</code> — optional endpoint to migrate stored knowledge to a managed vector index.</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> What you can do</h2>
-<p><strong>Load and merge project memory</strong> — <code>BANDIT.md</code> / <code>CLAUDE.md</code> / <code>AGENTS.md</code>, deduped:</p>
-<pre><code class="language-ts">import { loadMemory, consolidateMemory } from '@burtson-labs/host-kit';
+<h2>Example Implementation</h2>
+<pre><code class="language-bash"># Clone the repository and install dependencies
+npm install
 
-const { content } = await loadMemory(cwd);   // merged, overlapping content removed
-await consolidateMemory(cwd);                // unify duplicates into one canonical BANDIT.md
-</code></pre>
-<p><strong>Lazy topic memory</strong> — keep a tiny index in context, load topics on demand:</p>
-<pre><code class="language-ts">import { loadMemoryIndex, writeMemoryTopic } from '@burtson-labs/host-kit';
+# Start the example gateway
+cd packages/bandit-engine/examples/gateway-node
+npm install
+npm run dev
 
-const index = await loadMemoryIndex(cwd);              // .bandit/memory/MEMORY.md
-await writeMemoryTopic(cwd, 'auth-flow', '# Auth flow\n…');
+# Launch the Bandit site in development mode (private app)
+npm run dev:development
 </code></pre>
-<p><strong>Inline <code>@-mentions</code></strong> — file contents (secret-redacted) and images, expanded into the prompt:</p>
-<pre><code class="language-ts">import { expandMentions } from '@burtson-labs/host-kit';
+<p>Within your app, enable vector support when available:</p>
+<pre><code class="language-ts">import { useVectorStore } from &quot;@burtson-labs/bandit-engine&quot;;
 
-const { prompt, images } = await expandMentions('explain @src/auth.ts and @diagram.png', cwd);
-</code></pre>
-<p><strong>Block dangerous tool calls before they run</strong> — opt-in, in-process, no shell spawn:</p>
-<pre><code class="language-ts">import { evaluateSecurityGuard } from '@burtson-labs/host-kit';
+const { isVectorEnabled, performMigration } = useVectorStore();
 
-const verdict = evaluateSecurityGuard(call, settings.security?.guard, ctx);
-if (!verdict.allow) abort(verdict.reason);   // rm -rf /, curl | sh, disk wipes, credential exfil, …
+if (!isVectorEnabled) {
+  await performMigration();
+}
 </code></pre>
-<p><strong>Run lifecycle hooks</strong> — <code>PreToolUse</code> blocks; <code>PostToolUse</code> / <code>Stop</code> fire-and-forget:</p>
-<pre><code class="language-ts">import { loadHookSettings, runHooks } from '@burtson-labs/host-kit';
-
-const settings = await loadHookSettings(cwd);          // global ~/.bandit + workspace, merged
-await runHooks('PostToolUse', settings, { name, primary, duration });
-</code></pre>
-<p><strong>Register MCP servers</strong> from <code>mcp-servers.json</code> (global + workspace, <code>BANDIT_API_KEY</code> injected):</p>
-<pre><code class="language-ts">import { registerMcpServersFromDisk, addMcpServerToConfig } from '@burtson-labs/host-kit';
-
-await registerMcpServersFromDisk(cwd, mcpPool);
-</code></pre>
-<p><strong>Drop-in agent tools</strong> — register them straight into your tool registry:</p>
-<pre><code class="language-ts">import { buildWebSearchTool, buildTaskTool, buildTestRunTool } from '@burtson-labs/host-kit';
-
-registry.register(buildWebSearchTool({ apiKey }));     // web search
-registry.register(buildTaskTool({ /* … */ }));         // spawn subagents
-registry.register(buildTestRunTool());                 // detect framework + run tests
-</code></pre>
-<p><strong>Read turn traces</strong> — for a <code>/trace</code> view, audits, or bug bundles:</p>
-<pre><code class="language-ts">import { listTurnTraces, readTurnTrace, formatTurnTraceMarkdown } from '@burtson-labs/host-kit';
-
-const traces = await listTurnTraces(cwd);
-console.log(formatTurnTraceMarkdown(await readTurnTrace(cwd, traces[0].id)));
-</code></pre>
-<h2><img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status</h2>
-<p>Stable. Imported by both <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/" target="_blank" rel="noopener noreferrer"><code>apps/bandit-cli/</code></a> and <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-stealth/" target="_blank" rel="noopener noreferrer"><code>apps/bandit-stealth/</code></a> — breaking changes here require coordinated PRs to both hosts.</p>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
-<pre><code class="language-ts">import { loadMemory, expandMentions, registerMcpServersFromDisk } from '@burtson-labs/host-kit';
-
-const memory = await loadMemory(workspaceCwd);
-const { prompt, images } = await expandMentions(rawUserInput, workspaceCwd);
-const count = await registerMcpServersFromDisk(workspaceCwd, mcpPool);
-</code></pre>
-<h2><img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Tests</h2>
-<pre><code class="language-bash">pnpm --filter @burtson-labs/host-kit test
-</code></pre>
-<h2>License</h2>
-<p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache License 2.0</a> — Copyright 2026 Burtson Labs.</p>
+<h2>Integration Notes</h2>
+<ul>
+<li>Configure environment variables such as <code>VITE_GATEWAY_API_URL</code>, <code>VITE_FILE_STORAGE_API_URL</code>, and <code>VITE_DEFAULT_MODEL</code> in <code>.env.local</code>.</li>
+<li>Feature flags can be toggled per tier to expose advanced services only to entitled users.</li>
+<li>Vector migrations fall back to IndexedDB when the gateway is unavailable, ensuring your teams never lose data.</li>
+</ul>
+<h2>Related Files</h2>
+<ul>
+<li><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/docs/src/services/vectorDatabase" target="_blank" rel="noopener noreferrer"><code>src/services/vectorDatabase</code></a></li>
+<li><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/src/hooks/useVoices.ts" target="_blank" rel="noopener noreferrer"><code>src/hooks/useVoices.ts</code></a></li>
+<li><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/engine/03_provider_integration.md" target="_blank" rel="noopener noreferrer"><code>docs/03_provider_integration.md</code></a></li>
+</ul>
 
       <footer class="footer">
         <div class="cobrand">
@@ -888,7 +842,7 @@ const count = await registerMcpServersFromDisk(workspaceCwd, mcpPool);
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
-        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/host-kit" target="_blank" rel="noopener">View source on GitHub →</a></p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/engine/04_local_dev.md" target="_blank" rel="noopener">Edit this page on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>

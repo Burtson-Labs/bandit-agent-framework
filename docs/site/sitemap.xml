@@ -29,4 +29,13 @@
   <url><loc>https://docs.burtson.ai/agent-adapters-github.html</loc></url>
   <url><loc>https://docs.burtson.ai/agent-adapters-vscode.html</loc></url>
   <url><loc>https://docs.burtson.ai/agent-adapters-web.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-intro.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-quickstart.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-gateway-api.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-providers.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-local-dev.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-cli.html</loc></url>
+  <url><loc>https://docs.burtson.ai/engine-licensing.html</loc></url>
+  <url><loc>https://docs.burtson.ai/api-overview.html</loc></url>
+  <url><loc>https://docs.burtson.ai/api-models.html</loc></url>
 </urlset>
