@@ -8,14 +8,14 @@ your data private.
 
 ## Base URL
 
-All requests go to your Bandit gateway:
+All requests go to the Bandit API:
 
 ```
-$BANDIT_API_URL/api/chat/completions
+https://api.burtson.ai/api/chat/completions
 ```
 
-`BANDIT_API_URL` is the base URL of your Bandit deployment's gateway. If you're
-not sure what yours is, reach out and we'll point you at the right host.
+The API is OpenAI-compatible, so any OpenAI client library works — just point its
+base URL here and use your Bandit API key.
 
 ## Authentication
 
@@ -33,7 +33,7 @@ Two credential types are accepted:
 ## Making a request
 
 ```bash
-curl $BANDIT_API_URL/api/chat/completions \
+curl https://api.burtson.ai/api/chat/completions \
   -H "Authorization: Bearer $BANDIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
