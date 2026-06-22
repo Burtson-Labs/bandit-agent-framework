@@ -295,6 +295,25 @@ const SECTIONS = [
       { slug: "agent-adapters-vscode", name: "@burtson-labs/agent-adapters-vscode", readme: "packages/agent-adapters/vscode/README.md" },
       { slug: "agent-adapters-web", name: "@burtson-labs/agent-adapters-web", readme: "packages/agent-adapters/web/README.md" }
     ]
+  },
+  {
+    title: "Bandit Engine",
+    items: [
+      { slug: "engine-intro", name: "Introduction", readme: "docs/engine/00_intro.md", tagline: "The private, multi-provider AI chat engine for React." },
+      { slug: "engine-quickstart", name: "Quickstart", readme: "docs/engine/01_quickstart.md", tagline: "Drop the engine into a React app and talk to your gateway." },
+      { slug: "engine-gateway-api", name: "Gateway API", readme: "docs/engine/02_gateway_api.md", tagline: "The HTTP contract the engine speaks to your backend." },
+      { slug: "engine-providers", name: "Provider integration", readme: "docs/engine/03_provider_integration.md", tagline: "Bandit AI, OpenAI, Azure, Anthropic, and Ollama nuances." },
+      { slug: "engine-local-dev", name: "Local development", readme: "docs/engine/04_local_dev.md", tagline: "Run and iterate on the engine locally." },
+      { slug: "engine-cli", name: "CLI quickstart", readme: "docs/engine/05_cli_quickstart.md", tagline: "Scaffold a chat app from the command line." },
+      { slug: "engine-licensing", name: "Licensing (BUSL)", readme: "docs/engine/06_busl_licensing.md", tagline: "How the Business Source License applies to the engine." }
+    ]
+  },
+  {
+    title: "Bandit API",
+    items: [
+      { slug: "api-overview", name: "Overview", readme: "docs/api/overview.md", tagline: "The OpenAI-compatible API for Bandit's first-party models." },
+      { slug: "api-models", name: "Models", readme: "docs/api/models.md", tagline: "The bandit-core and bandit-logic model tiers, and how to choose." }
+    ]
   }
 ];
 const PAGES = SECTIONS.flatMap((s) => s.items);
