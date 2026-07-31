@@ -243,7 +243,16 @@ const SECTIONS = [
     title: "Bandit Stealth",
     items: [
       { slug: "bandit-cli", name: "Bandit CLI", readme: "apps/bandit-cli/README.md" },
-      { slug: "bandit-stealth", name: "VS Code / Cursor Extension", readme: "apps/bandit-stealth/README.md" }
+      { slug: "bandit-stealth", name: "VS Code / Cursor Extension", readme: "apps/bandit-stealth/README.md" },
+      // Sourced from docs/guides rather than an app README: the desktop shell
+      // lives in the bandit-stealth-web repo, which this build has no access
+      // to, so the page is authored here alongside the other guides.
+      {
+        slug: "stealth-desktop-ide",
+        name: "Desktop IDE",
+        readme: "docs/guides/stealth-desktop-ide.md",
+        tagline: "A native editor with the Bandit agent built in."
+      }
     ]
   },
   {

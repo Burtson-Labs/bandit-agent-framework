@@ -723,6 +723,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
       <ul>
         <li><a href="./bandit-cli.html">Bandit CLI</a></li>
         <li><a href="./bandit-stealth.html">VS Code / Cursor Extension</a></li>
+        <li><a href="./stealth-desktop-ide.html">Desktop IDE</a></li>
       </ul>
       <h3>Concepts</h3>
       <ul>
@@ -790,6 +791,12 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
     </aside>
     <main id="content" class="content-pane">
       <div class="content">
+<blockquote>
+<p><strong>Bandit Engine — separate product, separate license.</strong> This page documents
+<code>@burtson-labs/bandit-engine</code> (BUSL-1.1), not the Apache-2.0 framework in this
+repository. Relative links point at the Engine repo. See
+<a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/engine/README.md" target="_blank" rel="noopener noreferrer">docs/engine/README.md</a>.</p>
+</blockquote>
 <h1>Provider Integration Patterns</h1>
 <h2>Overview</h2>
 <p>Bandit Engine routes every model invocation through your gateway but preserves provider-specific capabilities such as <a href="./glossary.html#multimodal" class="glossary-link" title="Glossary">multimodal</a> prompts, Azure deployment parameters, and local Ollama <a href="./glossary.html#streaming" class="glossary-link" title="Glossary">streaming</a>. This guide summarizes the nuances for each supported provider and how to combine them with Bandit’s feature flag system.</p>
