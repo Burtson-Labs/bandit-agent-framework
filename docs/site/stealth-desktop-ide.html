@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>How a turn works — Bandit Agent Framework</title>
-  <meta name="description" content="Documentation for How a turn works, part of the Bandit Agent Framework.">
-  <link rel="canonical" href="https://docs.burtson.ai/how-a-turn-works.html">
+  <title>Desktop IDE — Bandit Agent Framework</title>
+  <meta name="description" content="Documentation for Desktop IDE, part of the Bandit Agent Framework.">
+  <link rel="canonical" href="https://docs.burtson.ai/stealth-desktop-ide.html">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#0a0c12">
   <meta property="og:type" content="article">
-  <meta property="og:title" content="How a turn works — Bandit Agent Framework">
-  <meta property="og:description" content="Documentation for How a turn works, part of the Bandit Agent Framework.">
-  <meta property="og:url" content="https://docs.burtson.ai/how-a-turn-works.html">
+  <meta property="og:title" content="Desktop IDE — Bandit Agent Framework">
+  <meta property="og:description" content="Documentation for Desktop IDE, part of the Bandit Agent Framework.">
+  <meta property="og:url" content="https://docs.burtson.ai/stealth-desktop-ide.html">
   <meta property="og:site_name" content="Bandit Agent Framework">
   <meta property="og:locale" content="en_US">
-  <meta property="og:image" content="https://docs.burtson.ai/og/how-a-turn-works.png">
-  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/how-a-turn-works.png">
+  <meta property="og:image" content="https://docs.burtson.ai/og/stealth-desktop-ide.png">
+  <meta property="og:image:secure_url" content="https://docs.burtson.ai/og/stealth-desktop-ide.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="How a turn works — Bandit Agent Framework">
-  <meta name="twitter:description" content="Documentation for How a turn works, part of the Bandit Agent Framework.">
-  <meta name="twitter:image" content="https://docs.burtson.ai/og/how-a-turn-works.png">
+  <meta name="twitter:title" content="Desktop IDE — Bandit Agent Framework">
+  <meta name="twitter:description" content="Documentation for Desktop IDE, part of the Bandit Agent Framework.">
+  <meta name="twitter:image" content="https://docs.burtson.ai/og/stealth-desktop-ide.png">
   <meta name="twitter:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:site" content="@BurtsonLabs">
   <meta name="twitter:creator" content="@BurtsonLabs">
@@ -723,11 +723,11 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
       <ul>
         <li><a href="./bandit-cli.html">Bandit CLI</a></li>
         <li><a href="./bandit-stealth.html">VS Code / Cursor Extension</a></li>
-        <li><a href="./stealth-desktop-ide.html">Desktop IDE</a></li>
+        <li><a href="./stealth-desktop-ide.html" class="active">Desktop IDE</a></li>
       </ul>
       <h3>Concepts</h3>
       <ul>
-        <li><a href="./how-a-turn-works.html" class="active">How a turn works</a></li>
+        <li><a href="./how-a-turn-works.html">How a turn works</a></li>
         <li><a href="./tools.html">Tools</a></li>
         <li><a href="./skills.html">Skills</a></li>
         <li><a href="./memory.html">Memory</a></li>
@@ -791,72 +791,156 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
     </aside>
     <main id="content" class="content-pane">
       <div class="content">
-<h1>How a turn works</h1>
-<p>A “turn” is one trip from a goal to a result. Understanding the loop in the middle is the mental model that makes everything else — tools, skills, memory, the guard — click into place.</p>
+<h1>Stealth Desktop IDE</h1>
+<p>A native editor with the Bandit agent built in. Same runtime as the
+<a href="./bandit-cli.html">CLI</a> and the <a href="./bandit-stealth.html">VS Code / Cursor extension</a> —
+this one is the whole editor rather than a panel inside someone else’s.</p>
+<p>Local-first by default: point it at a model on your own machine and nothing
+leaves the box. Sign in to Bandit Cloud only if you want hosted models or
+workspaces.</p>
 <hr>
-<h2>The loop</h2>
-<pre><code>goal
-  │
-  ▼
-build prompt  ──►  model generates  ──►  final answer?  ──► yes ──► done
-  ▲                      │                    │ no
-  │                      ▼                    ▼
-  │                 tool calls          feed results back
-  │                      │                    │
-  └──────────────────────┴────────────────────┘
-</code></pre>
-<ol>
-<li><strong>Assemble the prompt.</strong> A capability-aware system prompt + your project <a href="./host-kit.html">memory</a> (<code>BANDIT.md</code> and lazy-loaded topics) + the conversation so far + any <a href="./host-kit.html">skills</a> the prompt activated.</li>
-<li><strong>The model generates</strong> (streamed <a href="./glossary.html#token" class="glossary-link" title="Glossary">token</a> by token). It either writes a final answer or emits one or more <strong>tool calls</strong>.</li>
-<li><strong>Each tool call is gated before it runs</strong> — the opt-in <a href="./host-kit.html">security guard</a>, then your <code>PreToolUse</code> hooks, then the approval prompt (unless auto-approved). Any of them can block it.</li>
-<li><strong>Tools execute</strong> through the environment adapter — <code>read_file</code>, <code>run_command</code>, <code>web_search</code>, your own. Results (and errors) are captured.</li>
-<li><strong>Results feed back</strong> into the conversation, and the loop runs again — so the model can react to what it just learned.</li>
-<li><strong>The turn ends</strong> when the model returns a final answer with no tool calls, or it hits a step/token budget.</li>
-</ol>
-<hr>
-<h2>What keeps it from derailing</h2>
-<p>Real models are flaky, contexts fill up, and small models fumble tool syntax. The loop has guardrails for each:</p>
-<ul>
-<li><strong>Retries</strong> — an upstream hiccup (timeout, 5xx) retries with backoff instead of failing the turn.</li>
-<li><strong>Tool-protocol fallback</strong> — if native tool-calling fails, the runtime retries that step with Bandit’s text-based tool protocol, which small models handle more reliably.</li>
-<li><strong>Empty / reasoning-only recovery</strong> — if the model “thinks” but takes no action, it’s nudged to actually call a tool.</li>
-<li><strong>Thinking-off recovery</strong> — if a reasoning-mode model stalls in its reasoning channel, the runtime retries with thinking disabled.</li>
-<li><strong>Compaction</strong> — when the <a href="./glossary.html#context-window" class="glossary-link" title="Glossary">context window</a> fills, older turns are summarized so the conversation can continue without blowing the budget.</li>
-<li><strong>Goal re-anchoring</strong> — on long turns, the original goal is re-injected so the model doesn’t drift.</li>
-</ul>
-<p>These are why the same prompt behaves consistently across Gemma, Qwen, Llama, GPT, and Claude — the <a href="./stealth-core-runtime.html">model behavior profiles</a> pick the right strategy per model.</p>
-<hr>
-<h2>Where each piece lives</h2>
+<h2>Install</h2>
+<p>Downloads live at <strong><a href="https://burtson.ai/stealth">burtson.ai/stealth</a></strong>.</p>
 <table>
 <thead>
 <tr>
-<th>Concern</th>
-<th>Owned by</th>
+<th>Platform</th>
+<th>File</th>
+<th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>The loop itself, tool registry</td>
-<td><a href="./agent-core.html"><code>agent-core</code></a></td>
+<td>macOS</td>
+<td><code>.dmg</code></td>
+<td>Universal — Apple Silicon and Intel. Signed and notarized, so it opens without a warning.</td>
 </tr>
 <tr>
-<td>Provider impls, model catalog, prompts, compaction strategy</td>
-<td><a href="./stealth-core-runtime.html"><code>stealth-core-runtime</code></a></td>
+<td>Windows</td>
+<td><code>.msi</code> (or <code>.exe</code>)</td>
+<td>Not code-signed yet — SmartScreen shows a one-time prompt. Choose <strong>More info → Run anyway</strong>.</td>
 </tr>
 <tr>
-<td>Memory, hooks, the guard, <a href="./glossary.html#mcp" class="glossary-link" title="Glossary">MCP</a>, drop-in tools</td>
-<td><a href="./host-kit.html"><code>host-kit</code></a></td>
-</tr>
-<tr>
-<td>Filesystem / shell / editor / browser access</td>
-<td><a href="./agent-adapters.html"><code>agent-adapters</code></a></td>
+<td>Linux</td>
+<td><code>.AppImage</code>, <code>.deb</code>, <code>.rpm</code></td>
+<td>AppImage needs <code>chmod +x</code> before the first run.</td>
 </tr>
 </tbody>
 </table>
+<h3>First launch</h3>
+<p>On macOS you may see a keychain prompt: <em>“Stealth wants to use your
+confidential information stored in ai.bandit.ide.”</em> That is expected. The app
+stores API keys and your session in the OS keychain rather than in browser
+storage, and macOS binds keychain permission to an app’s code signature — so a
+newly-signed version asks once. Choose <strong>Always Allow</strong> and it stops asking.</p>
+<p>Nothing is sent anywhere as a result of that prompt; it only unlocks local
+credential storage.</p>
 <hr>
-<h2>What you observe</h2>
-<p>Every step emits an event — <code>llm_start</code>, <code>llm_chunk</code>, <code>llm_response</code>, <code>tool_execute</code>, <code>tool_result</code>, retries, compaction. The CLI and extension render these live (the <a href="./glossary.html#streaming" class="glossary-link" title="Glossary">streaming</a> text, the tool lines, the spinner), and the opt-in <a href="./configuration.html">telemetry</a> maps the same stream to a trace: one turn = one trace, with the <a href="./glossary.html#llm" class="glossary-link" title="Glossary">LLM</a> call and each tool as child spans.</p>
-<p><strong>Next:</strong> <a href="./build-your-own-host.html">Build your own host</a> · <a href="./configuration.html">Configuration</a></p>
+<h2>Updating</h2>
+<p>Stealth checks for updates on launch and every few hours while running. When
+one is available a notice appears — accept it and the app downloads, verifies,
+and restarts itself. <strong>Help → Check for Updates</strong> forces a check.</p>
+<p>Updates are signed. The app verifies a signature against a key baked into the
+binary before installing anything, so a tampered payload is rejected rather
+than run.</p>
+<hr>
+<h2>The editor</h2>
+<ul>
+<li><strong>Files and tabs</strong> — lazy-loaded tree, drag to reorder tabs, and a
+right-click menu for rename / duplicate / reveal / delete. Shift-click
+selects a range and Ctrl/Cmd-click toggles, so you can act on many files at
+once.</li>
+<li><strong>Language intelligence</strong> — hover docs, go to definition / type definition /
+implementation, find references, rename, and format, backed by real language
+servers. Diagnostics are versioned against the document, so squiggles stay on
+the <a href="./glossary.html#token" class="glossary-link" title="Glossary">token</a> they describe while you type.</li>
+<li><strong>Themes</strong> — several built in, including a syntax palette that colours
+classes, interfaces, methods, and attributes rather than leaving everything
+one shade.</li>
+</ul>
+<h2>Git</h2>
+<p>A Changes panel with per-file diffs, staging, commit, push/pull/fetch, and a
+branch switcher that can create a branch as it checks out. Right-click a file
+to view its diff, discard it, or add it (or its whole folder) to <code>.gitignore</code>.</p>
+<h2>Terminal and debugging</h2>
+<p>A real integrated terminal, plus a bottom panel that switches between terminal
+and debug output.</p>
+<p>.NET debugging works out of the box: set breakpoints in the gutter, press play,
+and step through with variables and a diagnostics widget fed by live counters.
+The play button reflects your workspace — it names the project it will launch,
+and disables itself with an explanation when the repo has nothing it can debug.
+Other languages can still be run from the terminal.</p>
+<hr>
+<h2>The agent</h2>
+<p>A chat sidebar drives the same agent the CLI and extension use: it reads and
+searches the repo, plans, edits files, and runs commands, showing each tool call
+as it happens. Every write is gated behind a diff you approve, and edits appear
+live in any open editor.</p>
+<h3>Skills</h3>
+<p>Workspace <a href="./skills.html">skills</a> are picked up from <code>.bandit/skills/*.md</code> in
+the repo you have open, and can be toggled per workspace. Because they live in
+the repo, they are shared with everyone who clones it.</p>
+<p>Everything else Bandit writes under <code>.bandit/</code> — turn journals, tool detail
+blobs — is run history rather than source, and belongs in <code>.gitignore</code>:</p>
+<pre><code class="language-gitignore">.bandit/*
+!.bandit/skills/
+</code></pre>
+<h3>Agents window</h3>
+<p>A second window that runs agents in the background, grouped by repository, so
+long jobs keep going while you work elsewhere. Each session shows its own
+transcript and a diff of what it changed — read from git rather than from the
+agent’s edit log, so several edits to one file collapse into one diff and
+anything the agent later reverted correctly shows as nothing.</p>
+<p>Open it from <strong>Agents</strong> in the top right, or from the welcome screen.</p>
+<h2>Multiple windows</h2>
+<p>Right-click the dock or taskbar icon to open another window — useful for
+working across several projects at once. One process owns every window, so
+settings and sessions stay consistent. Clicking <strong>IDE</strong> or <strong>Agents</strong> focuses
+an existing window of that kind before opening a new one.</p>
+<hr>
+<h2>Signing in</h2>
+<p>Sign-in opens your real browser rather than an embedded webview, so you can see
+the address bar and use your password manager. The app listens on a temporary
+local port for the redirect and closes it as soon as the flow finishes — the
+<a href="https://datatracker.ietf.org/doc/html/rfc8252">loopback flow</a> native apps are
+supposed to use.</p>
+<p>You do not need an account to use Stealth with a <a href="./glossary.html#local-model" class="glossary-link" title="Glossary">local model</a>.</p>
+<hr>
+<h2>Where things live</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Workspace skills</td>
+<td><code>.bandit/skills/</code> in the open repo</td>
+</tr>
+<tr>
+<td>Run history</td>
+<td><code>.bandit/turns/</code>, <code>.bandit/tool-details/</code></td>
+</tr>
+<tr>
+<td>Settings</td>
+<td><code>~/.bandit/config.json</code></td>
+</tr>
+<tr>
+<td>API keys and session</td>
+<td>OS keychain (<code>ai.bandit.ide</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2>Related</h2>
+<ul>
+<li><a href="./configuration.html">Configuration</a> — models, providers, and settings</li>
+<li><a href="./skills.html">Skills</a> — what a skill is and how to write one</li>
+<li><a href="./mcp.html">MCP connectors</a> — attaching external tools</li>
+<li><a href="./bandit-cli.html">Bandit CLI</a> and the
+<a href="./bandit-stealth.html">VS Code / Cursor extension</a></li>
+</ul>
 
       <footer class="footer">
         <div class="cobrand">
@@ -867,7 +951,7 @@ build prompt  ──►  model generates  ──►  final answer?  ──► ye
           </a>
         </div>
         <p>Part of the <strong>Bandit Agent Framework</strong> — the same building blocks that power <a href="https://burtson.ai">Bandit Stealth</a>.</p>
-        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/guides/how-a-turn-works.md" target="_blank" rel="noopener">Edit this page on GitHub →</a></p>
+        <p><a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/docs/guides/stealth-desktop-ide.md" target="_blank" rel="noopener">Edit this page on GitHub →</a></p>
         <p>Apache 2.0 — Copyright 2026 Burtson Labs.</p>
       </footer>
       </div>
