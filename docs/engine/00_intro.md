@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Bandit Engine Overview
 ## Overview
 Bandit Engine is the client framework that powers the Bandit conversational AI experience. It delivers a production-ready chat interface, management console, and integration utilities while keeping proprietary infrastructure behind your own gateway. The library ships as a TypeScript-first React package published as `@burtson-labs/bandit-engine` under the Business Source License (BUSL-1.1).

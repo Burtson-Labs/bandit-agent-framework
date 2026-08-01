@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Local Development & Advanced Services
 ## Overview
 This guide describes how to run Bandit Engine locally with optional services including vector memory, document ingestion, and voice features. Use it to simulate production behaviour while keeping sensitive credentials on your machine.
