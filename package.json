@@ -1,6 +1,6 @@
 {
   "name": "bandit-agent-framework",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "author": {
     "name": "Burtson Labs",
     "email": "team@burtson.ai",
@@ -32,6 +32,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "test": "turbo run test",
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint -- --fix",

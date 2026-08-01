@@ -41,6 +41,100 @@ export interface SecurityGuardDecision {
 
 const WRITE_TOOLS = new Set(['write_file', 'apply_edit', 'replace_range', 'apply_patch', 'delete_file']);
 
+/**
+ * Config files that decide what the agent is ALLOWED to do. Writing one of
+ * these is not an ordinary edit — it rewrites the permission boundary itself:
+ *
+ *  - `.bandit/settings.json` / `.bandit/settings.local.json` hold `hooks`
+ *    (shell commands the host runs via `spawn(cmd, {shell:true})` on every
+ *    tool call) and `permissions.allow`. An agent that can write this file can
+ *    grant itself `run_command:*` — or execute arbitrary shell on the next
+ *    tool call — without the permission gate ever firing.
+ *  - `.vscode/settings.json` carries `banditStealth.agent.autoApproveEdits`,
+ *    which suppresses the extension's permission card for every edit tool.
+ *  - `.vscode/tasks.json` can be configured to run on folder open.
+ *
+ * That makes them the natural target for a prompt-injection payload: one
+ * innocuous-looking "edit a JSON file" approval buys unbounded execution
+ * afterwards. So this check is deliberately NOT part of the opt-in guard —
+ * see the always-on block at the top of `evaluateSecurityGuard`. A protection
+ * that an attacker can disable by writing the very file it protects would be
+ * decorative.
+ *
+ * Note the asymmetry with `.bandit/skills/`, which stays writable: skills are
+ * prompt text the model can already emit into its own context, so blocking
+ * them buys nothing and breaks the documented "ask the agent to build a skill"
+ * flow. Hooks and permissions are different — they are host-side execution.
+ */
+const PRIVILEGED_CONFIG_SUFFIXES: Array<{ suffix: string; what: string }> = [
+  { suffix: '/.bandit/settings.json', what: 'the tool permission allow-list and the PreToolUse hooks the host executes as shell commands' },
+  { suffix: '/.bandit/settings.local.json', what: 'the tool permission allow-list and the PreToolUse hooks the host executes as shell commands' },
+  { suffix: '/.vscode/settings.json', what: 'the auto-approve setting that suppresses the edit permission card' },
+  { suffix: '/.vscode/tasks.json', what: 'tasks the editor can run automatically on folder open' }
+];
+
+/**
+ * Every path a write-family call could land on.
+ *
+ * `write_file` / `apply_edit` / `replace_range` / `delete_file` name their
+ * target in `path`. `apply_patch` does not have to: it accepts a whole patch
+ * whose targets live in `+++ b/<path>` headers (unified diff) or
+ * `*** Update|Add|Delete File: <path>` lines (Codex envelope), with `path` as
+ * an optional override. Reading only `params.path` would leave a patch-shaped
+ * bypass wide open, so the patch body is parsed for targets too.
+ */
+function privilegedWriteTargets(params: Record<string, string>): string[] {
+  const targets: string[] = [];
+  if (params.path) targets.push(params.path);
+  const patch = params.patch;
+  if (typeof patch === 'string' && patch) {
+    const headerRe = /^(?:\+\+\+\s+(?:b\/)?(.+?)\s*$|\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$)/gm;
+    let m: RegExpExecArray | null;
+    while ((m = headerRe.exec(patch)) !== null) {
+      const p = (m[1] ?? m[2] ?? '').trim();
+      // `/dev/null` is the unified-diff marker for "no such side", not a path.
+      if (p && p !== '/dev/null') targets.push(p);
+    }
+  }
+  return targets;
+}
+
+/**
+ * Always-on check: is this write aimed at a file that controls the agent's own
+ * permissions? Runs regardless of `security.guard.enabled`.
+ *
+ * Hosts legitimately write `.bandit/settings.json` when the user picks "always
+ * allow" — that path goes through `persistAllowEntry()` in the host process,
+ * not through a tool call, so it is unaffected by this rule.
+ */
+function checkPrivilegedConfigWrite(
+  rawPath: string,
+  ctx: SecurityGuardContext
+): SecurityGuardDecision {
+  const home = ctx.homeDir ?? os.homedir();
+  const expanded = rawPath.trim().replace(/^~(?=\/|$)/, home);
+  // Resolve against the workspace so `settings.json`, `./.bandit/settings.json`
+  // and `/abs/proj/.bandit/settings.json` all normalize to the same form and a
+  // relative path can't sneak past a suffix match.
+  const resolved = ctx.workspaceRoot
+    ? path.resolve(ctx.workspaceRoot, expanded)
+    : path.resolve(expanded);
+  const norm = resolved.replace(/\\/g, '/');
+  for (const { suffix, what } of PRIVILEGED_CONFIG_SUFFIXES) {
+    if (norm.endsWith(suffix)) {
+      return {
+        allow: false,
+        rule: 'privileged-config',
+        // The model sees this string on its next turn, so it says what to do
+        // instead of just "no" — otherwise the usual response is to retry the
+        // same write through a different tool.
+        reason: `writing to ${suffix.slice(1)} is not permitted: it controls ${what}. This file is edited by the user, not the agent. Ask the user to make the change if it is genuinely needed, and continue with the rest of the task.`
+      };
+    }
+  }
+  return { allow: true };
+}
+
 /** Recursive+force `rm` aimed at `/`, `~`, `$HOME`, or `/*`. */
 function isCatastrophicRm(cmd: string): boolean {
   if (!/\brm\b/.test(cmd)) return false;
@@ -123,6 +217,20 @@ export function evaluateSecurityGuard(
   settings: SecurityGuardSettings | undefined,
   ctx: SecurityGuardContext = {}
 ): SecurityGuardDecision {
+  // Always-on tier — runs even when the opt-in guard is disabled. Scoped to
+  // the agent's own permission config, where "the user turned the guard off"
+  // must not mean "injected content may rewrite the permission boundary."
+  try {
+    if (WRITE_TOOLS.has(call.name)) {
+      for (const target of privilegedWriteTargets(call.params ?? {})) {
+        const privileged = checkPrivilegedConfigWrite(target, ctx);
+        if (!privileged.allow) return privileged;
+      }
+    }
+  } catch {
+    // Never break a turn — fall through to the opt-in tier.
+  }
+
   if (!settings?.enabled) return { allow: true };
   try {
     const name = call.name;

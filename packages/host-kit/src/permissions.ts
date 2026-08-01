@@ -261,6 +261,19 @@ export class SessionPermissionStore {
     this.allow.add(primary ? `${toolName}:${primary}` : toolName);
   }
 
+  /**
+   * Store a pre-computed policy rule verbatim.
+   *
+   * Prefer this over `grant()` for anything driven by a user choice: the rule
+   * comes from `grantRuleFor()`, which is also what the permission card
+   * renders, so the stored scope is exactly the scope the user was shown.
+   * `grant()` builds the rule from a tool name and a raw primary, which is how
+   * "always allow `npx create-vite my-app`" ended up persisting `run_command:npx`.
+   */
+  grantRule(rule: string): void {
+    this.allow.add(rule);
+  }
+
   /** Returns a policy fragment reflecting session grants only. */
   toPolicy(): PermissionPolicy {
     return { allow: [...this.allow], deny: [], ask: [] };

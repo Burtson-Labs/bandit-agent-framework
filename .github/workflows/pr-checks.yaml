@@ -40,11 +40,15 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test stealth-core-runtime
-        run: pnpm --filter stealth-core-runtime exec vitest run
-
-      - name: Test bandit-stealth extension
-        run: pnpm --filter bandit-stealth exec vitest run
+      # Every package with a test script, in one task. The previous version
+      # named three packages explicitly and silently skipped the rest —
+      # agent-core, host-kit, agent-ui and the CLI's own suite never ran on a
+      # PR, so roughly two thirds of the suite (including the most heavily
+      # tested package in the repo) was unenforced. Using the turbo task means
+      # a new package is covered the moment it has a `test` script, instead of
+      # depending on someone remembering to edit this file.
+      - name: Test
+        run: pnpm test
 
       - name: Smoke-test bandit-cli
         run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke

@@ -72,6 +72,35 @@ export {
   type SecurityGuardContext,
   type SecurityGuardDecision
 } from './securityGuard';
+export {
+  classifyRisk,
+  type RiskTier,
+  type RiskAssessment,
+  type RiskContext
+} from './riskTiers';
+export {
+  grantRuleFor,
+  commandSignature,
+  policyIncludes,
+  type GrantScope,
+  type GrantRule,
+  type GrantScopeInput
+} from './grantScope';
+export {
+  resolvePermissionMode,
+  shouldAutoApprove,
+  decidePermission,
+  isPermissionMode,
+  AutoApprovalLedger,
+  PERMISSION_MODES,
+  type PermissionMode,
+  type ResolvedMode,
+  type ResolveModeInput,
+  type AutoDecision,
+  type AutoApprovalRecord,
+  type PermissionDecisionInput,
+  type PermissionOutcome
+} from './permissionMode';
 export { expandMentions, type ExpandedPrompt } from './mentions';
 export {
   TodoStore,
