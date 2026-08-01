@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Bandit CLI Quick Start
 
 The Bandit CLI ships with this package and scaffolds a ready-to-run playground complete with a Vite + React frontend, Bandit Engine wiring, and a lightweight Express gateway. Use it when you want to see the engine in action or hand teammates a reproducible starting point.

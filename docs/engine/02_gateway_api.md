@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Gateway API Contract
 ## Overview
 The gateway centralizes every provider integration behind a single authenticated endpoint. Bandit Engine forwards chat, generation, memory, and health requests without leaking provider credentials to the browser. This contract is language agnostic—implement it in Node.js, Python, Go, .NET, or any platform that can speak HTTP.

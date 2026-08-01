@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Provider Integration Patterns
 ## Overview
 Bandit Engine routes every model invocation through your gateway but preserves provider-specific capabilities such as multimodal prompts, Azure deployment parameters, and local Ollama streaming. This guide summarizes the nuances for each supported provider and how to combine them with Bandit's feature flag system.

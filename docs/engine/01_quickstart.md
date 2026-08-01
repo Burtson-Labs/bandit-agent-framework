@@ -1,3 +1,8 @@
+> **Bandit Engine — separate product, separate license.** This page documents
+> `@burtson-labs/bandit-engine` (BUSL-1.1), not the Apache-2.0 framework in this
+> repository. Relative links point at the Engine repo. See
+> [docs/engine/README.md](./README.md).
+
 # Quickstart
 ## Overview
 Get Bandit Engine running locally in less than five minutes. This guide walks through installation, configuration, and verification using the provided gateway example.
