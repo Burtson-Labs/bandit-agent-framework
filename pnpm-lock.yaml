@@ -379,14 +379,24 @@ importers:
       clsx:
         specifier: ^2.1.0
         version: 2.1.1
+      happy-dom:
+        specifier: ^19.0.2
+        version: 19.0.2
       react:
         specifier: 19.2.0
         version: 19.2.0
       react-dom:
         specifier: 19.2.0
         version: 19.2.0(react@19.2.0)
+      vitest:
+        specifier: ^4.0.10
+        version: 4.0.10(@types/debug@4.1.12)(@types/node@20.19.24)(happy-dom@19.0.2)(yaml@2.9.0)
 
-  packages/core-chat: {}
+  packages/core-chat:
+    devDependencies:
+      vitest:
+        specifier: ^4.0.10
+        version: 4.0.10(@types/debug@4.1.12)(@types/node@20.19.24)(happy-dom@19.0.2)(yaml@2.9.0)
 
   packages/host-kit:
     dependencies:
