@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
+import { REMOTE_CONTENT_TAGS, disableRemoteImages } from "@burtson-labs/agent-ui";
 
 /**
  * Workbench-local markdown renderer that understands the same custom
@@ -204,6 +205,10 @@ let cachedReadmeRenderer: MarkdownIt | null = null;
 const getRenderer = (): MarkdownIt => {
   if (cachedRenderer) {return cachedRenderer;}
   const md: MarkdownIt = new MarkdownIt({ html: true, linkify: true, breaks: true });
+  // Chat scrollback is model-authored — no remote image loads. (The README
+  // renderer below deliberately keeps images: it renders trusted first-party
+  // content whose badges are the point.)
+  disableRemoteImages(md);
   const defaultFence = md.renderer.rules.fence ?? ((tokens, idx, opts, _env, self) => self.renderToken(tokens, idx, opts));
   md.renderer.rules.fence = (tokens, idx, opts, env, self) => {
     const token = tokens[idx];
@@ -254,7 +259,12 @@ export const renderBanditMarkdown = (content: string): string => {
       "target",
       "rel"
     ],
-    ADD_TAGS: ["details", "summary"]
+    ADD_TAGS: ["details", "summary"],
+    // Chat scrollback renders model-authored markdown — same exfil rule as
+    // the shipped extension. `renderReadmeMarkdown` below deliberately does
+    // NOT set this: a README is trusted first-party content and its badges
+    // are the point.
+    FORBID_TAGS: REMOTE_CONTENT_TAGS
   });
 };
 

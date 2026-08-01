@@ -16,7 +16,8 @@ import type { ConversationEntry } from '../../src/services/conversationTypes';
 import { TurnState } from '../../src/agent/turnState';
 
 const vscodeMock = vi.hoisted(() => ({
-  autoApproveEdits: false as boolean
+  autoApproveEdits: false as boolean,
+  permissionMode: 'ask' as string
 }));
 
 vi.mock('vscode', () => ({
@@ -24,6 +25,7 @@ vi.mock('vscode', () => ({
     getConfiguration: () => ({
       get: <T>(key: string, defaultValue?: T) => {
         if (key === 'agent.autoApproveEdits') return vscodeMock.autoApproveEdits as unknown as T;
+        if (key === 'agent.permissionMode') return vscodeMock.permissionMode as unknown as T;
         return defaultValue;
       }
     })
@@ -52,12 +54,15 @@ vi.mock('@burtson-labs/host-kit', async (importOriginal) => {
     SessionPermissionStore: class FakeStore {
       private allow = new Set<string>();
       grant(name: string, primary?: string) { this.allow.add(primary ? `${name}:${primary}` : name); }
+      // Mirrors the real store: user-driven grants store a pre-computed rule
+      // verbatim so the stored scope matches what the card rendered.
+      grantRule(rule: string) { this.allow.add(rule); }
       toPolicy() { return { allow: [...this.allow], deny: [], ask: [] }; }
     }
   };
 });
 
-import { SessionPermissionStore, type HookSettings } from '@burtson-labs/host-kit';
+import { SessionPermissionStore, AutoApprovalLedger, type HookSettings } from '@burtson-labs/host-kit';
 import { buildBeforeToolExecute, type BeforeToolExecuteDeps } from '../../src/agent/beforeToolExecute';
 import type { PermissionGateService } from '../../src/provider/services/permissionGateService';
 
@@ -130,12 +135,14 @@ function makeDeps(overrides: Partial<BeforeToolExecuteDeps> = {}): BeforeToolExe
     userGoal: 'do the thing',
     turnLog: null,
     notifyUser: vi.fn(),
+    autoLedger: new AutoApprovalLedger(),
     ...overrides
   };
 }
 
 beforeEach(() => {
   vscodeMock.autoApproveEdits = false;
+  vscodeMock.permissionMode = 'ask';
   hostKitMock.runHooks.mockReset();
   hostKitMock.runHooks.mockResolvedValue([]);
   hostKitMock.evaluatePermission.mockReset();
@@ -186,26 +193,29 @@ describe('buildBeforeToolExecute', () => {
     expect(entries.some((e) => e.type === 'permission-decision' && e.choice === 'once')).toBe(true);
   });
 
-  it('on "ask" → "session": grants the tool name in the session store', async () => {
+  // Previously this stored the bare tool name, so approving `git status` for
+  // the session authorized every shell command — `rm -rf /` included. The
+  // stored rule is now the command shape the card rendered.
+  it('on "ask" → "session": stores the command-shaped rule, not the whole tool', async () => {
     const gate = makeFakeGate();
     hostKitMock.evaluatePermission.mockReturnValue('ask');
     const deps = makeDeps({ permissionGate: gate.service });
-    const grantSpy = vi.spyOn(deps.permissionStore, 'grant');
+    const grantRuleSpy = vi.spyOn(deps.permissionStore, 'grantRule');
     const before = buildBeforeToolExecute(deps);
 
     const pending = before({ name: 'run_command', params: { cmd: 'git', args: 'status' } });
     await gate.resolveNext('session');
     await pending;
 
-    expect(grantSpy).toHaveBeenCalledWith('run_command');
-    expect(grantSpy).toHaveBeenCalledTimes(1);
+    expect(grantRuleSpy).toHaveBeenCalledWith('run_command:git status*');
+    expect(grantRuleSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('on "ask" → "save": grants tool+primary AND persists the allow entry to disk', async () => {
+  it('on "ask" → "save": persists exactly the rule the card showed', async () => {
     const gate = makeFakeGate();
     hostKitMock.evaluatePermission.mockReturnValue('ask');
     const deps = makeDeps({ permissionGate: gate.service, workspaceRoot: '/tmp/ws' });
-    const grantSpy = vi.spyOn(deps.permissionStore, 'grant');
+    const grantRuleSpy = vi.spyOn(deps.permissionStore, 'grantRule');
     const before = buildBeforeToolExecute(deps);
 
     const pending = before({ name: 'write_file', params: { path: 'foo.ts', content: 'x' } });
@@ -214,8 +224,32 @@ describe('buildBeforeToolExecute', () => {
     // persistAllowEntry is fire-and-forget — flush the microtask queue.
     await new Promise((r) => setImmediate(r));
 
-    expect(grantSpy).toHaveBeenCalledWith('write_file', 'foo.ts');
+    // Path-narrow, not tool-broad: one click on one file's card must not
+    // persist blanket write access to the whole project.
+    expect(grantRuleSpy).toHaveBeenCalledWith('write_file:foo.ts');
     expect(hostKitMock.persistAllowEntry).toHaveBeenCalledWith('/tmp/ws', 'write_file:foo.ts');
+  });
+
+  it('never persists a rule wider than the tool the card was for', async () => {
+    const gate = makeFakeGate();
+    hostKitMock.evaluatePermission.mockReturnValue('ask');
+    const deps = makeDeps({ permissionGate: gate.service, workspaceRoot: '/tmp/ws' });
+    const before = buildBeforeToolExecute(deps);
+
+    const pending = before({
+      name: 'run_command',
+      params: { cmd: 'npx', args: 'create-vite my-app --template react' }
+    });
+    await gate.resolveNext('save');
+    await pending;
+    await new Promise((r) => setImmediate(r));
+
+    // The old code persisted `run_command:npx`, pre-approving every future
+    // `npx <anything>` across every session.
+    expect(hostKitMock.persistAllowEntry).toHaveBeenCalledWith(
+      '/tmp/ws',
+      'run_command:npx create-vite*'
+    );
   });
 
   it('on "ask" → "deny" with notes: builds a guidance-aware reason that tells the model NOT to retry', async () => {
@@ -313,5 +347,99 @@ describe('buildBeforeToolExecute', () => {
     deps.state.toolStartedAt.delete('apply_edit');
     await before({ name: 'apply_edit', params: { path: 'b.ts' } });
     expect(deps.state.toolStartedAt.get('apply_edit')).toBeTypeOf('number');
+  });
+});
+
+/**
+ * Auto mode and the destructive-action floor, exercised through the extension
+ * gate rather than host-kit directly — the two hosts previously open-coded
+ * their own precedence and drifted, so the wiring is what needs pinning here.
+ */
+describe('permission modes', () => {
+  it('auto mode runs routine calls with no card', async () => {
+    const gate = makeFakeGate();
+    vscodeMock.permissionMode = 'auto';
+    hostKitMock.evaluatePermission.mockReturnValue('ask');
+    const deps = makeDeps({ permissionGate: gate.service });
+    const before = buildBeforeToolExecute(deps);
+
+    const result = await before({ name: 'apply_edit', params: { path: 'src/a.ts' } });
+
+    expect(result).toEqual({ allow: true });
+    expect(gate.callCount()).toBe(0);
+    expect(deps.autoLedger.size()).toBe(1);
+  });
+
+  it('auto mode still shows a card for elevated calls', async () => {
+    const gate = makeFakeGate();
+    vscodeMock.permissionMode = 'auto';
+    hostKitMock.evaluatePermission.mockReturnValue('ask');
+    const deps = makeDeps({ permissionGate: gate.service });
+    const before = buildBeforeToolExecute(deps);
+
+    const pending = before({ name: 'run_command', params: { cmd: 'npm', args: 'install' } });
+    await gate.waitForPending();
+    expect(gate.callCount()).toBe(1);
+    await gate.resolveNext('once');
+    await pending;
+  });
+
+  // The floor. If this stops holding, auto mode has become a bypass.
+  it('auto mode NEVER skips the card for a destructive call', async () => {
+    for (const call of [
+      { name: 'delete_file', params: { path: 'src/a.ts' } },
+      { name: 'run_command', params: { cmd: 'rm', args: '-rf build' } },
+      { name: 'run_command', params: { cmd: 'git', args: 'push --force origin main' } },
+      { name: 'apply_edit', params: { path: '../../etc/hosts' } }
+    ]) {
+      const gate = makeFakeGate();
+      vscodeMock.permissionMode = 'auto';
+      hostKitMock.evaluatePermission.mockReturnValue('ask');
+      const before = buildBeforeToolExecute(makeDeps({ permissionGate: gate.service }));
+
+      const pending = before(call);
+      await gate.waitForPending();
+      expect(gate.callCount(), JSON.stringify(call)).toBe(1);
+      await gate.resolveNext('deny');
+      await pending;
+    }
+  });
+
+  // A saved allow rule must not be able to wave through a destructive call.
+  it('a policy that says allow cannot waive the floor', async () => {
+    const gate = makeFakeGate();
+    hostKitMock.evaluatePermission.mockReturnValue('allow');
+    const before = buildBeforeToolExecute(makeDeps({ permissionGate: gate.service }));
+
+    const pending = before({ name: 'run_command', params: { cmd: 'git', args: 'push --force' } });
+    await gate.waitForPending();
+    expect(gate.callCount()).toBe(1);
+    await gate.resolveNext('deny');
+    await pending;
+  });
+
+  it('the autoApproveEdits toggle cannot silently write outside the workspace', async () => {
+    const gate = makeFakeGate();
+    vscodeMock.autoApproveEdits = true;
+    hostKitMock.evaluatePermission.mockReturnValue('ask');
+    const before = buildBeforeToolExecute(makeDeps({ permissionGate: gate.service }));
+
+    const pending = before({ name: 'write_file', params: { path: '../../../etc/hosts', content: 'x' } });
+    await gate.waitForPending();
+    expect(gate.callCount()).toBe(1);
+    await gate.resolveNext('deny');
+    await pending;
+  });
+
+  it('dangerous mode skips every card, including destructive ones', async () => {
+    const gate = makeFakeGate();
+    vscodeMock.permissionMode = 'dangerous';
+    hostKitMock.evaluatePermission.mockReturnValue('ask');
+    const before = buildBeforeToolExecute(makeDeps({ permissionGate: gate.service }));
+
+    const result = await before({ name: 'run_command', params: { cmd: 'rm', args: '-rf /' } });
+
+    expect(result).toEqual({ allow: true });
+    expect(gate.callCount()).toBe(0);
   });
 });

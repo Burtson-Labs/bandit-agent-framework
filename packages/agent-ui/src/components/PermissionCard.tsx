@@ -47,6 +47,28 @@ export interface BanditPermissionPayload {
    * (apply_edit find/replace, git_checkout branch name, etc).
    */
   paramsPreview?: string;
+  /**
+   * Risk tier from the shared classifier: `routine` | `elevated` | `critical`.
+   * Drives the card's visual weight — users approve dozens of these a session,
+   * and if a delete renders identically to a file read the card stops being
+   * read at all.
+   */
+  tier?: string;
+  /**
+   * What each grant scope would actually authorize, keyed by choice. Rendered
+   * as the button's hint so the user reads the blast radius before clicking.
+   * Generated host-side by `grantRuleFor` — the same call that computes the
+   * rule that gets stored, so the card cannot promise one scope and save
+   * another. Falls back to the static hints below when absent.
+   */
+  scopeHints?: Record<string, string>;
+  /**
+   * True when a saved allow rule already covered this call but the
+   * critical-tier floor overrode it. Without saying so, the user sees a prompt
+   * for something they believe they already approved and concludes the grant
+   * is broken.
+   */
+  flooredByRisk?: boolean;
 }
 
 export type PermissionChoice = "once" | "session" | "save" | "deny";
@@ -70,10 +92,13 @@ export interface PermissionCardProps {
  * persists across restarts via .bandit/settings.json.
  */
 const CHOICE_ORDER: PermissionChoice[] = ["once", "session", "save", "deny"];
+// Fallback hints. When the host supplies `scopeHints` these are replaced with
+// the real blast radius of the rule that would be stored — "Always for target"
+// was actively misleading, since the stored rule was the binary, not the target.
 const CHOICE_LABELS: Record<PermissionChoice, { label: string; hint: string; key: string }> = {
   once: { label: "Allow once", hint: "Run this single tool call", key: "1" },
-  session: { label: "Allow session", hint: "Allow this tool until you close the window", key: "2" },
-  save: { label: "Always for target", hint: "Save this target to .bandit/settings.json", key: "3" },
+  session: { label: "Allow session", hint: "Allow calls like this until you close the window", key: "2" },
+  save: { label: "Always allow", hint: "Save the rule to .bandit/settings.json", key: "3" },
   deny: { label: "Deny", hint: "Abort the tool call", key: "4" }
 };
 
@@ -169,9 +194,23 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
       )}
 
       {payload.risk && (
-        <div className="permission-card__risk">
-          <span className="permission-card__risk-label">Risk</span>
+        <div className={clsx("permission-card__risk", payload.tier && `permission-card__risk--${payload.tier}`)}>
+          <span className="permission-card__risk-label">
+            {payload.tier === "critical" ? "Destructive" : "Risk"}
+          </span>
           <span>{payload.risk}</span>
+        </div>
+      )}
+
+      {/* A saved rule covered this call and the destructive-action floor
+          overrode it. Saying so is the difference between "the product is
+          protecting me" and "my allow rule is broken". */}
+      {payload.flooredByRisk && (
+        <div className="permission-card__warning" role="alert">
+          <span className="permission-card__warning-icon" aria-hidden="true">⚠</span>
+          <span>
+            An existing allow rule covers this call, but destructive actions always ask.
+          </span>
         </div>
       )}
 
@@ -198,7 +237,7 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
             )}
             disabled={resolved !== null}
             onClick={() => pick(choice, choice === "deny" ? notesDraft : undefined)}
-            title={CHOICE_LABELS[choice].hint}
+            title={payload.scopeHints?.[choice] ?? CHOICE_LABELS[choice].hint}
             role="radio"
             aria-checked={resolved === choice}
           >
@@ -211,6 +250,21 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
           </button>
         ))}
       </div>
+
+      {/* The blast radius of the highlighted grant, in the open rather than in
+          a tooltip. This line is the fix for "the card said one thing and saved
+          another" — it is generated from the same call that produces the rule
+          the host stores. */}
+      {!resolved && payload.scopeHints && (
+        <div className="permission-card__scopes">
+          {CHOICE_ORDER.filter((ch) => ch !== "deny" && payload.scopeHints?.[ch]).map((ch) => (
+            <div key={ch} className="permission-card__scope">
+              <span className="permission-card__scope-key">{CHOICE_LABELS[ch].key}</span>
+              <span className="permission-card__scope-text">{payload.scopeHints?.[ch]}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!resolved && (
         <div className="permission-card__notes">

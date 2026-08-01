@@ -34,6 +34,9 @@ export interface PermissionsBlock {
   allow?: string[];
   deny?: string[];
   ask?: string[];
+  /** `ask` (default) | `auto` | `dangerous` — see permissionMode.ts. Invalid
+   *  values fall back to `ask` with a warning rather than failing the load. */
+  mode?: string;
 }
 
 export interface HookSettings {
@@ -71,6 +74,9 @@ export async function loadHookSettings(cwd: string, opts?: { homeDir?: string })
         merged.permissions!.allow = [...(merged.permissions!.allow ?? []), ...(parsed.permissions.allow ?? [])];
         merged.permissions!.deny = [...(merged.permissions!.deny ?? []), ...(parsed.permissions.deny ?? [])];
         merged.permissions!.ask = [...(merged.permissions!.ask ?? []), ...(parsed.permissions.ask ?? [])];
+        // Scalar, so last file wins — workspace overrides global, .local
+        // overrides workspace. Matches how the guard's scalars merge.
+        if (parsed.permissions.mode) merged.permissions!.mode = parsed.permissions.mode;
       }
       if (parsed.security?.guard) {
         const g = parsed.security.guard;

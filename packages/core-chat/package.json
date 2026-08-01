@@ -1,6 +1,6 @@
 {
   "name": "@burtson-labs/core-chat",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "author": {
     "name": "Burtson Labs",
     "email": "team@burtson.ai",
@@ -26,9 +26,13 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "clean": "rm -rf dist",
-    "lint": "eslint \"src/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run"
   },
   "license": "Apache-2.0",
+  "devDependencies": {
+    "vitest": "^4.0.10"
+  },
   "keywords": [
     "ai",
     "agent",

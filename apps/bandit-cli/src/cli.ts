@@ -128,6 +128,13 @@ import {
   suggestOllamaMatch,
   CheckpointStore,
   evaluateSecurityGuard,
+  classifyRisk,
+  grantRuleFor,
+  decidePermission,
+  resolvePermissionMode,
+  AutoApprovalLedger,
+  type PermissionMode,
+  type RiskAssessment,
   type HookSettings
 } from '@burtson-labs/host-kit';
 import {
@@ -174,6 +181,11 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === '--openai-model') args.overrides.openaiModel = argv[++i] ?? undefined;
     else if (a === '--ink') process.env.BANDIT_INK_INPUT = '1';
     else if (a === '--no-ink') process.env.BANDIT_INK_INPUT = '0';
+    // Set through the env rather than a CliArgs field so one-shot mode, the
+    // REPL, and any subagent spawned in-process all resolve the same mode from
+    // the same place. `--auto` is deliberately the only mode flag: enabling
+    // dangerous mode should require typing the word "dangerously".
+    else if (a === '--auto') process.env.BANDIT_PERMISSION_MODE = 'auto';
     else positional.push(a);
   }
   if (positional.length > 0) args.prompt = positional.join(' ');
@@ -193,6 +205,7 @@ ${c.bold('Usage')}
   bandit --help               Show this message
   bandit --version            Show version
   bandit --no-ink             Fall back to the legacy readline input (or set BANDIT_INK_INPUT=0)
+  bandit --auto               Run routine work without prompting (destructive calls still ask)
 
 ${c.bold('Provider flags (override env + config files)')}
   --provider <ollama|bandit|openai-compatible>
@@ -220,7 +233,11 @@ ${c.bold('Environment')}
   OPENAI_API_KEY         bearer token (LM Studio / llama.cpp can usually skip)
   OPENAI_MODEL           upstream-specific model id
   BANDIT_MAX_ITERATIONS  tool-use loop cap (default: 20, or 40 for Kimi/bandit-logic-2)
-  BANDIT_AUTO_APPROVE    "1" to skip write-approval prompts
+  BANDIT_PERMISSION_MODE ask (default) | auto | dangerous
+                         auto      routine calls run unprompted; destructive ones always ask
+                         dangerous every prompt disabled — CI and sandboxes only
+  BANDIT_DANGEROUSLY_APPROVE_ALL  "1" — same as mode=dangerous
+  BANDIT_AUTO_APPROVE    deprecated alias for BANDIT_DANGEROUSLY_APPROVE_ALL
   NO_COLOR               disable ANSI color output
 
 ${c.bold('Inside the REPL')}
@@ -314,9 +331,24 @@ function permissionRisk(name: string, params: Record<string, string>): string {
   return 'Bandit is asking before using this capability.';
 }
 
-function renderPermissionContext(name: string, params: Record<string, string>, cwd: string, displayPrimary: string, primary: string): void {
+function renderPermissionContext(
+  name: string,
+  params: Record<string, string>,
+  cwd: string,
+  displayPrimary: string,
+  primary: string,
+  risk?: RiskAssessment
+): void {
   const title = permissionTitle(name);
-  process.stdout.write(c.accent('╭── ') + c.yellow(c.bold(`${glyph.warn} ACTION NEEDED`)) + c.accent(' · ') + c.bold(title) + '\n');
+  // Tier drives the header colour so an `rm -rf` prompt doesn't look identical
+  // to a `read_file` prompt. Users approve dozens of these per session; if they
+  // all render the same, the card stops being read at all.
+  const tierBadge = risk?.tier === 'critical'
+    ? c.red(c.bold(`${glyph.warn} DESTRUCTIVE`))
+    : risk?.tier === 'elevated'
+      ? c.yellow(c.bold(`${glyph.warn} ACTION NEEDED`))
+      : c.accent(c.bold('ACTION NEEDED'));
+  process.stdout.write(c.accent('╭── ') + tierBadge + c.accent(' · ') + c.bold(title) + '\n');
   const target = displayPrimary || primary;
   if (target) {
     const cols = process.stdout.columns || 80;
@@ -331,7 +363,11 @@ function renderPermissionContext(name: string, params: Record<string, string>, c
       : absCwd;
     process.stdout.write(c.accent('│ ') + c.dim('cwd:    ') + c.cyan(displayCwd) + '\n');
   }
-  process.stdout.write(c.accent('│ ') + c.dim('risk:   ') + permissionRisk(name, params) + '\n');
+  // Prefer the shared classifier's reason — it is the same assessment that
+  // decides auto-mode eligibility, so the card and the gate always agree about
+  // how risky the call is. `permissionRisk` remains the fallback for callers
+  // that haven't classified (one-shot paths).
+  process.stdout.write(c.accent('│ ') + c.dim('risk:   ') + (risk?.why ?? permissionRisk(name, params)) + '\n');
   process.stdout.write(c.accent('│ ') + c.dim('scope:  ') + c.dim('once = only this call · session = all ') + c.cyan(name) + c.dim(' calls until exit') + '\n');
   process.stdout.write(c.accent('│ ') + c.dim('        ') + c.dim('always = save this target · deny + note = tell Bandit what to try instead') + '\n');
 }
@@ -580,6 +616,17 @@ interface RunOptions {
   todoStore: TodoStore;
   hookSettings: HookSettings;
   permissionStore: SessionPermissionStore;
+  /** Session-scoped record of what the permission MODE let through without a
+   *  prompt. Shared with the REPL so `/permissions` can show it. Auto-approval
+   *  nobody can audit is indistinguishable from a bypass. */
+  autoLedger: AutoApprovalLedger;
+  /** Runtime permission-mode override, toggled by `/auto`. A mutable holder
+   *  rather than a value so a mid-run toggle applies to the next tool call
+   *  without rebuilding the gate. */
+  modeOverride: { current: PermissionMode | undefined };
+  /** Lets the REPL clear turn-scoped permission grants when a turn ends. The
+   *  gate owns the set; the REPL owns the turn boundary. */
+  registerTurnGrantReset?: (reset: () => void) => void;
   /** User-configured custom repo roots. Forwarded into the tool
    * context so find_directory can scan them in addition to the
    * built-in clone parents. */
@@ -690,7 +737,7 @@ let ollamaContextChecked = false;
 const spinner = new Spinner();
 
 async function runPrompt(opts: RunOptions): Promise<string> {
-  const { prompt, skillRegistry, cwd, settings, model, conversation, memoryBlock, todoStore, hookSettings, permissionStore } = opts;
+  const { prompt, skillRegistry, cwd, settings, model, conversation, memoryBlock, todoStore, hookSettings, permissionStore, autoLedger, modeOverride } = opts;
   const getLine = opts.getLine ?? defaultGetLine;
   const replRl = opts.rl;
 
@@ -966,8 +1013,24 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // queued ones auto-pass without needing a redundant prompt.
   let pickerChain: Promise<void> = Promise.resolve();
 
+  // Tool names the user granted for the current turn only. Cleared by
+  // `clearTurnGrants()` when the turn ends — a turn grant that survived into
+  // the next prompt would be a session grant wearing a smaller label.
+  const turnGrants = new Set<string>();
+  opts.registerTurnGrantReset?.(() => turnGrants.clear());
+
+  // Effective permission mode, read fresh on every call so `/auto` takes effect
+  // on the next tool use instead of the next session.
+  const permissionMode = (): PermissionMode =>
+    modeOverride.current
+      ?? resolvePermissionMode({
+        settingsMode: hookSettings.permissions?.mode,
+        env: process.env
+      }).mode;
+
   // Shared gate — applies to the main loop and Task-spawned subagents.
-  // Order: hooks (shell-script guardrails) → permission policy (user prompt).
+  // Order: security guard → hooks (shell-script guardrails) → turn grants →
+  // policy → mode/risk chain (decidePermission) → user prompt.
   const beforeToolExecute = async ({ name, params }: { name: string; params: Record<string, string> }) => {
     const primary = params.path ?? params.pattern ?? params.cmd ?? params.url ?? params.query ?? '';
     // Display variant — for run_command, show "cmd args" so the user
@@ -1024,10 +1087,20 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       return { allow: false, reason };
     }
 
-    // 2. Permission policy — BANDIT_AUTO_APPROVE short-circuits it.
-    if (/^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? '')) {
+    // 2. Turn-local grants — the user picked "allow turn" on an identical call
+    // earlier in this turn. Checked before the policy so a batch of parallel
+    // edits costs one card instead of N.
+    const primaryFull = name === 'run_command' && params.cmd
+      ? `${params.cmd}${params.args ? ' ' + params.args : ''}`.trim()
+      : undefined;
+    const scopeInput = { toolName: name, params, primary, primaryFull };
+    const risk = classifyRisk({ name, params }, { workspaceRoot: cwd });
+    const turnKey = `${name}::${primaryFull ?? primary}`;
+    // A turn grant never waives the critical floor — see decidePermission.
+    if (risk.tier !== 'critical' && turnGrants.has(name)) {
       return { allow: true };
     }
+
     const merged = mergePolicies(
       {
         allow: hookSettings.permissions?.allow ?? [],
@@ -1039,11 +1112,42 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     // For run_command the wider form (cmd + args) is what users want
     // their `run_command:git *` / `run_command:rm *` patterns to match
     // against. Other tools get the narrow primary as before.
-    const primaryFull = name === 'run_command' && params.cmd
-      ? `${params.cmd}${params.args ? ' ' + params.args : ''}`.trim()
-      : undefined;
-    const decision = evaluatePermission(name, primary, merged, primaryFull);
-    if (decision === 'deny') {
+    const policyDecision = evaluatePermission(name, primary, merged, primaryFull);
+
+    // 3. Mode + risk + policy, resolved by the shared chain so the CLI and the
+    // extension can't drift on precedence. This is where auto mode lives and
+    // where the critical floor overrides a too-broad stored allow rule.
+    const outcome = decidePermission({ mode: permissionMode(), risk, policyDecision });
+
+    if (outcome.action === 'allow') {
+      if (policyDecision !== 'allow') {
+        // Ran without a prompt because of the MODE, not because the user had
+        // authorized it. That distinction is the whole reason the ledger
+        // exists — auto-approval nobody can audit is just a bypass.
+        autoLedger.record({
+          tool: name,
+          target: displayPrimary || primary,
+          tier: risk.tier,
+          rule: risk.rule,
+          at: Date.now()
+        });
+        await turnLog?.append({
+          type: 'permission-decision',
+          name,
+          primary: previewText(primary),
+          displayPrimary: previewText(displayPrimary),
+          choice: 'auto-approved',
+          source: `mode:${permissionMode()}`,
+          reason: previewText(outcome.reason)
+        });
+        process.stdout.write(
+          c.dim(`  ${glyph.check} auto ${name}${displayPrimary ? ' ' + displayPrimary : ''}\n`)
+        );
+      }
+      return { allow: true };
+    }
+
+    if (outcome.action === 'deny') {
       await turnLog?.append({
         type: 'permission-denied',
         name,
@@ -1055,7 +1159,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       process.stdout.write(c.red(`  ${glyph.cross} denied: ${name}${primary ? ' ' + primary : ''}\n`));
       return { allow: false, reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})` };
     }
-    if (decision === 'ask') {
+    {
       // acquire the picker mutex before rendering anything.
       // Concurrent beforeToolExecute calls chain here, so only one
       // picker UI is on screen at a time. Each waiter holds onto its
@@ -1065,11 +1169,14 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       pickerChain = new Promise<void>((resolve) => { releaseLock = resolve; });
       await myTurn;
       try {
-        // After acquiring the lock, re-check the policy — a prior
-        // picker may have granted `session` or `always` for this tool
-        // (session grants are tool-broad earlier), in which
-        // case we'd be prompting the user redundantly. If the policy
-        // now says allow, skip the picker entirely.
+        // After acquiring the lock, re-check — a prior picker may have granted
+        // `turn`, `session`, or `always` covering this call, in which case we'd
+        // be prompting redundantly. Re-runs the full chain rather than just the
+        // policy so a critical call still can't be waived by a grant a sibling
+        // call just created.
+        if (risk.tier !== 'critical' && turnGrants.has(name)) {
+          return { allow: true };
+        }
         const refreshedPolicy = mergePolicies(
           {
             allow: hookSettings.permissions?.allow ?? [],
@@ -1078,7 +1185,12 @@ async function runPrompt(opts: RunOptions): Promise<string> {
           },
           permissionStore.toPolicy()
         );
-        const refreshed = evaluatePermission(name, primary, refreshedPolicy, primaryFull);
+        const refreshedOutcome = decidePermission({
+          mode: permissionMode(),
+          risk,
+          policyDecision: evaluatePermission(name, primary, refreshedPolicy, primaryFull)
+        });
+        const refreshed = refreshedOutcome.action;
         if (refreshed === 'allow') {
           await turnLog?.append({
             type: 'permission-decision',
@@ -1112,13 +1224,24 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       // spinner with the right state after permission resolves.
       spinner.stop();
       process.stdout.write('\n');
-      renderPermissionContext(name, params, cwd, displayPrimary, primary);
+      renderPermissionContext(name, params, cwd, displayPrimary, primary, risk);
+      // When a stored rule said "allow" and the tier overrode it, say so —
+      // otherwise the user sees a prompt for something they believe they
+      // already approved and reasonably concludes the grant is broken.
+      if (outcome.flooredByRisk) {
+        process.stdout.write(
+          c.accent('│ ') + c.yellow(`${glyph.warn} an existing allow rule covers this, but `)
+          + c.bold('destructive actions always ask') + '\n'
+        );
+      }
       await turnLog?.append({
         type: 'permission-request',
         name,
         primary: previewText(primary),
         displayPrimary: previewText(displayPrimary),
-        risk: permissionRisk(name, params)
+        risk: risk.why,
+        tier: risk.tier,
+        flooredByRisk: outcome.flooredByRisk === true
       });
       opts.notify?.({
         kind: 'approval',
@@ -1195,7 +1318,19 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       }
       let result;
       try {
-        result = await promptPermission({ rl: replRl, readLine: getLine });
+        // Every scope's blast radius comes from grantRuleFor — the same call
+        // that produces the rule stored below, so the card cannot promise one
+        // scope and save another.
+        result = await promptPermission({
+          rl: replRl,
+          readLine: getLine,
+          scopeHints: {
+            once: grantRuleFor(scopeInput, 'once').describes,
+            turn: grantRuleFor(scopeInput, 'turn').describes,
+            session: grantRuleFor(scopeInput, 'session').describes,
+            always: grantRuleFor(scopeInput, 'always').describes
+          }
+        });
       } catch {
         // Ctrl+C or aborted picker — treat as deny so we never silently
         // approve a tool call on user interruption.
@@ -1209,37 +1344,49 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         });
         return { allow: false, reason: 'user cancelled permission prompt' };
       }
-      if (result.choice === 'session') {
-        // session grants are now TOOL-broad, not path-narrow.
-        // Original from a real bandit-cli run where
-        // the agent was patching 17 implicit-any errors across 6 files
-        // and the picker re-prompted on each new path even after the
-        // user had hit "allow session" — the narrow `apply_edit:path-A`
-        // grant didn't cover the next `apply_edit:path-B` call. The
-        // intent of "allow session" was always "stop asking me about
-        // this kind of call this session", not "this exact target." If
-        // the user really wants the narrow lock-in, "always (save)"
-        // still persists `tool:path` to disk.
-        permissionStore.grant(name);
+      if (result.choice === 'turn') {
+        // Turn-scoped: covers the "model emitted six edits in one iteration"
+        // case without outliving the turn. Cleared in the REPL's turn teardown.
+        turnGrants.add(name);
         await turnLog?.append({
           type: 'permission-decision',
           name,
           primary: previewText(primary),
           displayPrimary: previewText(displayPrimary),
-          choice: 'session'
+          choice: 'turn'
         });
-        process.stdout.write(c.green(`  ${glyph.check} allowed ${name} for this session\n`));
+        process.stdout.write(c.green(`  ${glyph.check} allowed ${name} for the rest of this turn\n`));
+      } else if (result.choice === 'session') {
+        // The rule stored is the rule the card rendered — for run_command that
+        // is a command signature (`run_command:git status*`), NOT the bare tool
+        // name. Granting the whole tool here is what let an approval of `git
+        // status` authorize `rm -rf /` for the rest of the session.
+        const { rule } = grantRuleFor(scopeInput, 'session');
+        if (rule) permissionStore.grantRule(rule);
+        await turnLog?.append({
+          type: 'permission-decision',
+          name,
+          primary: previewText(primary),
+          displayPrimary: previewText(displayPrimary),
+          choice: 'session',
+          rule
+        });
+        process.stdout.write(c.green(`  ${glyph.check} allowed for this session: `) + c.cyan(rule ?? name) + '\n');
       } else if (result.choice === 'always') {
-        permissionStore.grant(name, primary);
-        await persistAllowEntry(cwd, primary ? `${name}:${primary}` : name).catch(() => undefined);
+        const { rule } = grantRuleFor(scopeInput, 'always');
+        if (rule) {
+          permissionStore.grantRule(rule);
+          await persistAllowEntry(cwd, rule).catch(() => undefined);
+        }
         await turnLog?.append({
           type: 'permission-decision',
           name,
           primary: previewText(primary),
           displayPrimary: previewText(displayPrimary),
-          choice: 'always'
+          choice: 'always',
+          rule
         });
-        process.stdout.write(c.green(`  ${glyph.check} saved allow rule for ${name}${primary ? `:${primary}` : ''}\n`));
+        process.stdout.write(c.green(`  ${glyph.check} saved allow rule: `) + c.cyan(rule ?? name) + '\n');
       } else if (result.choice === 'deny') {
         const reason = formatDenialReason(result, name, primary);
         await turnLog?.append({
@@ -2131,6 +2278,10 @@ async function oneShot(prompt: string, cwd: string, session: SessionStore, overr
   const memory = await loadCombinedMemory(cwd);
   const todoStore = new TodoStore();
   const permissionStore = new SessionPermissionStore();
+  const autoLedger = new AutoApprovalLedger();
+  // Holder, not a value: `/auto` flips this mid-session and the gate reads it
+  // fresh on every tool call.
+  const modeOverride: { current: PermissionMode | undefined } = { current: undefined };
   const sendNotification = (notification: CliNotification): void => {
     notifyCli(resolved.notifications, notification);
   };
@@ -2154,6 +2305,8 @@ async function oneShot(prompt: string, cwd: string, session: SessionStore, overr
       todoStore,
       hookSettings,
       permissionStore,
+      autoLedger,
+      modeOverride,
       customRepoRoots: resolved.repoRoots,
       tavilyApiKey: resolved.tavilyApiKey,
       notify: sendNotification
@@ -2850,6 +3003,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // status bar reads from this to decide whether to render the "Esc
   // to stop" hint.
   let activeTurnController: AbortController | null = null;
+  // Set by the gate via registerTurnGrantReset on each turn; called in the
+  // turn's finally so "allow turn" can't survive into the next prompt.
+  let clearTurnGrants: (() => void) | undefined;
   // Per-turn timing. `turnStartedAt` is stamped when each real LLM turn
   // begins; `lastTurnMs` holds the most-recent completed turn's wall-
   // clock. The status bar shows THIS (active turn elapsed, or last turn
@@ -2913,10 +3069,31 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   ]);
   const todoStore = new TodoStore();
   const permissionStore = new SessionPermissionStore();
+  const autoLedger = new AutoApprovalLedger();
+  // Holder, not a value: `/auto` flips this mid-session and the gate reads it
+  // fresh on every tool call.
+  const modeOverride: { current: PermissionMode | undefined } = { current: undefined };
 
   await session.init();
   if (!session.currentId) await session.startNew();
   const conversation = await session.readConversation();
+
+  // Surface a deprecated or invalid permission-mode setting once, at startup.
+  // Silently falling back would leave someone believing BANDIT_AUTO_APPROVE
+  // still means what they think it means.
+  const resolvedMode = resolvePermissionMode({
+    settingsMode: hookSettings.permissions?.mode,
+    env: process.env
+  });
+  if (resolvedMode.deprecation) {
+    process.stdout.write(c.yellow(`  ${glyph.warn} ${resolvedMode.deprecation}\n`));
+  }
+  if (resolvedMode.mode !== 'ask') {
+    const label = resolvedMode.mode === 'dangerous'
+      ? c.red('dangerous — every prompt disabled')
+      : c.yellow('auto — routine calls run unprompted, destructive ones still ask');
+    process.stdout.write(c.dim(`  ${glyph.spark} permission mode: `) + label + '\n');
+  }
 
   const skillCount = skillRegistry.getAll().length;
   const memorySummary = memory.sources.length ? `memory: ${memory.sources.join(', ')}` : 'no memory files';
@@ -3749,6 +3926,16 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       get: () => sessionThinkingOverride,
       set: (next) => { sessionThinkingOverride = next; }
     },
+    permissions: {
+      getMode: () => modeOverride.current
+        ?? resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).mode,
+      setMode: (next) => { modeOverride.current = next; },
+      modeSource: () => modeOverride.current
+        ? 'set with /auto this session'
+        : `from ${resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).source}`,
+      ledger: () => autoLedger,
+      sessionRules: () => permissionStore.toPolicy().allow
+    },
     planPreview: {
       get: () => sessionPlanPreview,
       set: (next) => { sessionPlanPreview = next; }
@@ -4320,6 +4507,11 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             todoStore,
             hookSettings,
             permissionStore,
+            autoLedger,
+            modeOverride,
+            // Turn grants must not outlive the turn that created them, or
+            // "allow turn" quietly becomes "allow session".
+            registerTurnGrantReset: (reset) => { clearTurnGrants = reset; },
             customRepoRoots: resolved.repoRoots,
             tavilyApiKey: resolved.tavilyApiKey,
             backgroundStore,
@@ -4458,6 +4650,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             }
           }
         } finally {
+          // Drop turn-scoped permission grants. In `finally` so a cancelled or
+          // errored turn doesn't leak its grants into the next prompt.
+          clearTurnGrants?.();
           if (useTurnView) {
             // Tear down the turn view. Order matters:
             //   1. detach the spinner sink (no more status writes),

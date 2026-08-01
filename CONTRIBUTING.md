@@ -9,10 +9,14 @@ git clone https://github.com/Burtson-Labs/bandit-agent-framework.git
 cd bandit-agent-framework
 pnpm install
 pnpm build
-pnpm --filter @burtson-labs/agent-core test
+pnpm test
 ```
 
 Node 22+, pnpm 9+. The build is incremental; rebuilding a single package is `pnpm --filter <name> build`.
+
+`pnpm test` runs every package's suite — the same command CI runs on your PR, so
+a green local run means a green PR. To iterate on one package, use
+`pnpm --filter <name> test` (e.g. `pnpm --filter @burtson-labs/agent-core test`).
 
 ## What we accept
 
@@ -36,7 +40,6 @@ Open an issue (or comment on an existing one) before writing code for:
 |---|---|---|
 | [`apps/bandit-stealth/`](apps/bandit-stealth/) | **Stable** | VS Code extension, published to Marketplace |
 | [`apps/bandit-cli/`](apps/bandit-cli/) | **Stable** | npm-published as `@burtson-labs/bandit-stealth-cli` |
-| [`apps/bandit-stealth-web/`](apps/bandit-stealth-web/) | Experimental | Standalone web UI, not yet open to external contributions |
 | [`apps/agent-ui-workbench/`](apps/agent-ui-workbench/) | Experimental | Internal component dev harness |
 | [`packages/agent-core/`](packages/agent-core/) | Stable | Tool registry + tool-use loop; most heavily tested |
 | [`packages/agent-adapters/`](packages/agent-adapters/) | Stable | Provider + embedding + integration adapters |
@@ -54,7 +57,8 @@ Open an issue (or comment on an existing one) before writing code for:
 ## PR checklist
 
 - [ ] `pnpm build` passes
-- [ ] Relevant tests added or updated (`pnpm --filter <pkg> test`)
+- [ ] `pnpm test` passes
+- [ ] Relevant tests added or updated
 - [ ] CHANGELOG.md updated for user-visible changes (in `apps/bandit-stealth/` if the change affects the extension or CLI)
 - [ ] Commit messages are short and explain the *why*, not the *what*
 

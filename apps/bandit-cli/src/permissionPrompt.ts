@@ -15,7 +15,7 @@
 import * as readline from 'readline';
 import { c } from './ansi';
 
-export type PermissionChoice = 'once' | 'session' | 'always' | 'deny';
+export type PermissionChoice = 'once' | 'turn' | 'session' | 'always' | 'deny';
 
 export interface PermissionPromptResult {
   choice: PermissionChoice;
@@ -41,15 +41,33 @@ interface MenuOption {
 // rendered when deny was already highlighted, and the running spinner
 // often overlapped it). With a 5th item the steer-the-agent path is
 // visible at first glance.
+// `turn` sits between `once` and `session`: it covers the "model emitted six
+// edits in one iteration" case, which is what most users actually wanted when
+// they reached for `session` and then found they'd authorized the tool for the
+// rest of the run.
+//
+// `always for target` was renamed because it was lying — it read as "this exact
+// command" and stored the binary. The scope each option grants is now rendered
+// underneath it, computed by grantRuleFor() so the card and the stored rule
+// cannot drift.
 const OPTIONS: readonly MenuOption[] = [
-  { key: 'once',    label: 'allow once',        digit: '1' },
-  { key: 'session', label: 'allow session',     digit: '2' },
-  { key: 'always',  label: 'always for target', digit: '3' },
-  { key: 'deny',    label: 'deny',              digit: '4' },
-  { key: 'deny',    label: 'deny + note',       digit: '5', promptForNotes: true }
+  { key: 'once',    label: 'allow once',    digit: '1' },
+  { key: 'turn',    label: 'allow turn',    digit: '2' },
+  { key: 'session', label: 'allow session', digit: '3' },
+  { key: 'always',  label: 'always allow',  digit: '4' },
+  { key: 'deny',    label: 'deny',          digit: '5' },
+  { key: 'deny',    label: 'deny + note',   digit: '6', promptForNotes: true }
 ] as const;
 
 export interface PermissionPromptDeps {
+  /**
+   * Per-scope blast-radius text, keyed by choice. Rendered under the highlighted
+   * option so the user reads what a grant covers BEFORE picking it rather than
+   * discovering it three tool calls later. Supplied by the caller from
+   * host-kit's `grantRuleFor`, which is the same function that computes the rule
+   * actually stored.
+   */
+  scopeHints?: Partial<Record<PermissionChoice, string>>;
   /**
    * Existing readline interface the REPL uses for normal prompts. We
    * pause it while the picker owns stdin (raw mode) and resume after.
@@ -88,30 +106,30 @@ export async function promptPermission(deps: PermissionPromptDeps = {}): Promise
 }
 
 async function promptLegacy(readLine?: () => Promise<string>): Promise<PermissionPromptResult> {
-  process.stdout.write(c.accent('│ ') + c.dim('1) allow once   2) allow session   3) always for target   4) deny   5) deny + note') + '\n');
-  process.stdout.write(c.accent('╰── choice [1/2/3/4/5]: '));
+  process.stdout.write(c.accent('│ ') + c.dim('1) once   2) turn   3) session   4) always   5) deny   6) deny + note') + '\n');
+  process.stdout.write(c.accent('╰── choice [1-6]: '));
   if (!readLine) {
     // No reader plumbed — default to deny rather than hanging forever.
     process.stdout.write('\n');
     return { choice: 'deny' };
   }
   const raw = (await readLine()).trim();
-  if (raw === '2') return { choice: 'session' };
-  if (raw === '3') return { choice: 'always' };
-  if (raw === '4') return { choice: 'deny' };
-  if (raw === '5') {
+  if (raw === '2') return { choice: 'turn' };
+  if (raw === '3') return { choice: 'session' };
+  if (raw === '4') return { choice: 'always' };
+  if (raw === '5') return { choice: 'deny' };
+  if (raw === '6') {
     // deny + note — prompt for the follow-up message.
     process.stdout.write(c.accent('╰── ') + c.red('deny + follow-up: '));
     const notes = (await readLine()).trim();
     return { choice: 'deny', notes: notes || undefined };
   }
-  // '1' or anything unknown → safe default is `once` (matches legacy
-  // behaviour which required explicit 2/3/4 to change meaning).
+  // '1' or anything unknown → safe default is `once`.
   return { choice: 'once' };
 }
 
 async function promptInteractive(deps: PermissionPromptDeps): Promise<PermissionPromptResult> {
-  const { rl, readLine } = deps;
+  const { rl, readLine, scopeHints } = deps;
 
   // Snapshot whether rl was already paused BEFORE we touched it. With
   // the ink input layer, permission picks during a turn run with rl
@@ -144,7 +162,10 @@ async function promptInteractive(deps: PermissionPromptDeps): Promise<Permission
   let selected = 0;
   let firstDraw = true;
 
-  const MENU_LINES = 2; // the menu row + the hint row
+  // menu row + scope row + hint row. The scope row always renders (blank when
+  // the option grants nothing persistent) so the frame height is constant and
+  // the redraw arithmetic below stays correct.
+  const MENU_LINES = 3;
 
   const render = () => {
     if (!firstDraw) {
@@ -157,10 +178,8 @@ async function promptInteractive(deps: PermissionPromptDeps): Promise<Permission
       process.stdout.write('\r\x1b[' + (MENU_LINES - 1) + 'A\x1b[0J');
     }
     firstDraw = false;
-    // Show the digit on EVERY option (1 allow once · 2 allow session ·
-    // 3 always · 4 deny · 5 deny + note) so the 1–5 mapping is unambiguous
-    // and nothing looks skipped — the old hint only called out 2/3/5,
-    // which made `4 deny` read like a gap.
+    // Show the digit on EVERY option so the 1–6 mapping is unambiguous and
+    // nothing looks skipped.
     const labels = OPTIONS.map((o, i) => {
       const text = `${o.digit} ${o.label}`;
       if (i === selected) {
@@ -168,9 +187,18 @@ async function promptInteractive(deps: PermissionPromptDeps): Promise<Permission
       }
       return '  ' + c.dim(text);
     });
-    process.stdout.write(c.accent('│ ') + labels.join('    ') + '\n');
-    const hint = '↑↓←→ or 1–5 to choose · enter confirms · esc cancels';
-    process.stdout.write(c.accent('╰── ') + c.dim(hint));
+    process.stdout.write(c.accent('│ ') + labels.join('   ') + '\n');
+
+    // The blast radius of whatever is currently highlighted. This is the line
+    // that fixes "the card said one thing and saved another" — it is generated
+    // from the same grantRuleFor() call that produces the stored rule.
+    const hint = scopeHints?.[OPTIONS[selected].key];
+    const cols = process.stdout.columns || 80;
+    const scopeLine = hint ? `grants: ${hint}` : '';
+    const clipped = scopeLine.length > cols - 6 ? scopeLine.slice(0, cols - 9) + '...' : scopeLine;
+    process.stdout.write(c.accent('│ ') + c.dim(clipped) + '\n');
+
+    process.stdout.write(c.accent('╰── ') + c.dim('↑↓←→ or 1–6 to choose · enter confirms · esc cancels'));
   };
 
   render();
@@ -213,8 +241,8 @@ async function promptInteractive(deps: PermissionPromptDeps): Promise<Permission
       // arrow-adjust before pressing Enter; we don't auto-confirm on
       // digit because that would be jarring for muscle memory of
       // `4<enter>` expecting a two-step confirmation.
-      // accept 1-5 now that the deny+note option lives at 5.
-      if (key.name && /^[1-5]$/.test(key.name)) {
+      // accept 1-6 now that `turn` was added and deny+note lives at 6.
+      if (key.name && /^[1-6]$/.test(key.name)) {
         selected = parseInt(key.name, 10) - 1;
         render();
         return;

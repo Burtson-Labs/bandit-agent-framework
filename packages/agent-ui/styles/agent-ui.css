@@ -2414,6 +2414,48 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* Tier weighting. Users approve dozens of cards a session; if a delete looks
+   identical to a file read, the card stops being read at all. Routine calls
+   recede, critical ones take the error color and a rule to break the scan. */
+.permission-card__risk--routine .permission-card__risk-label {
+  color: var(--agent-ui-text-dim, rgba(148, 163, 184, 0.85));
+}
+.permission-card__risk--critical {
+  padding: 0.35rem 0.55rem;
+  border-left: 3px solid var(--agent-ui-error, #f87171);
+  background: color-mix(in srgb, var(--agent-ui-error, #f87171) 10%, transparent);
+  border-radius: 4px;
+}
+.permission-card__risk--critical .permission-card__risk-label {
+  color: var(--agent-ui-error, #f87171);
+}
+
+/* Blast radius per grant scope, shown under the buttons rather than hidden in
+   a tooltip — the whole point is that the user reads it BEFORE clicking. */
+.permission-card__scopes {
+  margin: 0.5rem 0 0.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--agent-ui-text-dim, rgba(148, 163, 184, 0.85));
+}
+.permission-card__scope {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+.permission-card__scope-key {
+  flex: 0 0 auto;
+  min-width: 1em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.permission-card__scope-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .permission-card__preview {
   margin: 0.5rem 0 0.6rem;
   padding: 0.5rem 0.75rem;

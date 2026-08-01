@@ -28,6 +28,7 @@ import {
   type BackgroundTaskRecord,
   type BackgroundTaskStore,
   SessionPermissionStore,
+  AutoApprovalLedger,
   previewText,
   CheckpointStore
 } from '@burtson-labs/host-kit';
@@ -202,6 +203,9 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   private activeMode: ModeKind;
   /** Per-session "always allow for this session" permission grants. */
   public readonly permissions = new SessionPermissionStore();
+  /** What the permission mode let through without showing a card this session.
+   *  Auto-approval nobody can audit is indistinguishable from a bypass. */
+  public readonly autoLedger = new AutoApprovalLedger();
   /** Long-lived background-subagent task store. Lives for the lifetime
    * of the webview view; tasks survive across user prompts so the
    * agent can spawn detached work, keep talking, and pick up the
@@ -2011,7 +2015,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         workspaceRoot,
         userGoal,
         turnLog,
-        notifyUser: (kind, title, message) => this.notifyUser(kind, title, message)
+        notifyUser: (kind, title, message) => this.notifyUser(kind, title, message),
+        autoLedger: this.autoLedger
       });
 
       const modelCaps = getModelCapabilities(model);

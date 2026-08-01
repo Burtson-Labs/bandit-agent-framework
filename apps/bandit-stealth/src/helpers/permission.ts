@@ -16,6 +16,17 @@ export interface PermissionRequestInfo {
   primary: string;
   description: string;
   risk?: string;
+  /** `routine` | `elevated` | `critical` from the shared classifier. Drives the
+   *  card's visual weight so a delete doesn't render like a file read. */
+  tier?: string;
+  /** What each grant scope would authorize, keyed by choice. Rendered under the
+   *  buttons so the user reads the blast radius before clicking, not after.
+   *  Computed by host-kit's `grantRuleFor` — the same call that produces the
+   *  rule actually stored. */
+  scopeHints?: Record<string, string>;
+  /** Set when a stored allow rule covered this call but the critical-tier floor
+   *  overrode it. The card explains that rather than looking broken. */
+  flooredByRisk?: boolean;
   bodyPreview?: string;
   warning?: string;
   diffStats?: { added: number; removed: number };
@@ -53,6 +64,9 @@ export function buildPermissionCardPayload(id: string, req: PermissionRequestInf
   };
   if (req.warning) {payload.warning = req.warning;}
   if (req.risk) {payload.risk = req.risk;}
+  if (req.tier) {payload.tier = req.tier;}
+  if (req.scopeHints) {payload.scopeHints = req.scopeHints;}
+  if (req.flooredByRisk) {payload.flooredByRisk = true;}
   if (req.diffStats) {payload.diffStats = req.diffStats;}
   if (req.command) {payload.command = req.command;}
   if (req.paramsPreview) {payload.paramsPreview = req.paramsPreview;}

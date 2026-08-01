@@ -8,11 +8,15 @@ import {
   persistAllowEntry,
   previewText,
   runHooks,
+  classifyRisk,
+  grantRuleFor,
+  decidePermission,
+  resolvePermissionMode,
+  type AutoApprovalLedger,
   type HookSettings,
   type TurnLogger
 } from '@burtson-labs/host-kit';
 
-import { describePermissionRisk } from '../helpers/permission';
 import type { PermissionGateService } from '../provider/services/permissionGateService';
 import type { ConversationEntry } from '../services/conversationTypes';
 import { buildPermissionAskPreview } from './permissionAskPreview';
@@ -65,6 +69,8 @@ export interface BeforeToolExecuteDeps {
   userGoal: string;
   turnLog: TurnLogger | null;
   notifyUser: (kind: 'approval', title: string, message: string) => void;
+  /** Session record of what the permission mode let through unprompted. */
+  autoLedger: AutoApprovalLedger;
 }
 
 /**
@@ -156,7 +162,8 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
     workspaceRoot,
     userGoal,
     turnLog,
-    notifyUser
+    notifyUser,
+    autoLedger
   } = deps;
 
   // Turn-local auto-grant so parallel edits to the SAME file only
@@ -183,7 +190,6 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
     const displayPrimary = name === 'run_command' && params.cmd
       ? `${params.cmd}${params.args ? ' ' + params.args : ''}`.trim()
       : primary;
-    const risk = describePermissionRisk(name, params);
 
     // 0. Built-in security guard (opt-in, off by default) — first line of
     // defense against the model footgunning a catastrophic call, before the
@@ -233,8 +239,48 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
     const primaryFull = name === 'run_command' && params.cmd
       ? `${params.cmd}${params.args ? ' ' + params.args : ''}`.trim()
       : undefined;
-    const decision = evaluatePermission(name, primary, merged, primaryFull);
-    if (decision === 'deny') {
+    const policyDecision = evaluatePermission(name, primary, merged, primaryFull);
+
+    // Mode + risk + policy, resolved by the same shared chain the CLI uses so
+    // the two hosts can't drift on precedence — which is exactly what happened
+    // before this was centralized. Mode is read fresh each call so flipping the
+    // setting mid-run applies to the next tool use.
+    const risk = classifyRisk({ name, params }, { workspaceRoot });
+    const mode = resolvePermissionMode({
+      settingsMode: vscode.workspace
+        .getConfiguration('banditStealth')
+        .get<string>('agent.permissionMode', 'ask')
+        ?? hookSettings.permissions?.mode,
+      env: process.env
+    }).mode;
+    const outcome = decidePermission({ mode, risk, policyDecision });
+    const scopeInput = { toolName: name, params, primary, primaryFull };
+
+    if (outcome.action === 'allow') {
+      if (policyDecision !== 'allow') {
+        // Unprompted because of the MODE, not because the user authorized it.
+        autoLedger.record({
+          tool: name,
+          target: displayPrimary || primary,
+          tier: risk.tier,
+          rule: risk.rule,
+          at: Date.now()
+        });
+        await turnLog?.append({
+          type: 'permission-decision',
+          name,
+          primary: previewText(primary),
+          displayPrimary: previewText(displayPrimary),
+          choice: 'auto-approved',
+          source: `mode:${mode}`,
+          reason: previewText(outcome.reason)
+        });
+      }
+      state.toolStartedAt.set(name, Date.now());
+      return { allow: true };
+    }
+
+    if (outcome.action === 'deny') {
       await turnLog?.append({
         type: 'permission-denied',
         name,
@@ -245,13 +291,16 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
       });
       return { allow: false, reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})` };
     }
-    if (decision === 'ask') {
+    {
       // Turn-local auto-grant: if the user already approved this exact
       // (tool, primary) within the current turn, skip the card so
       // parallel multi-region edits to one file don't stack duplicate
       // prompts.
       const turnKey = buildTurnKey(name, primary);
-      if (turnApprovedKeys.has(turnKey)) {
+      // A turn-local approval never waives the critical floor: the user
+      // approving one `apply_edit` must not silently cover a later edit that
+      // resolved to a path outside the workspace.
+      if (turnApprovedKeys.has(turnKey) && risk.tier !== 'critical') {
         state.toolStartedAt.set(name, Date.now());
         return { allow: true };
       }
@@ -260,10 +309,15 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
       // commands always require an explicit choice. Fetched fresh
       // every call so flipping the toggle mid-run takes effect on the
       // next tool use without restarting the loop.
+      //
+      // The `risk.tier` guard is what stops this toggle from being a way to
+      // silently write outside the project: `autoApproveEdits` was always
+      // scoped to "edits", but an edit whose path escapes the workspace is a
+      // different thing than the toggle advertises.
       const autoApproveEdits = vscode.workspace
         .getConfiguration('banditStealth')
         .get<boolean>('agent.autoApproveEdits', false) ?? false;
-      if (autoApproveEdits && (name === 'write_file' || name === 'apply_edit' || name === 'replace_range' || name === 'apply_patch')) {
+      if (autoApproveEdits && risk.tier !== 'critical' && (name === 'write_file' || name === 'apply_edit' || name === 'replace_range' || name === 'apply_patch')) {
         await turnLog?.append({
           type: 'permission-decision',
           name,
@@ -294,8 +348,20 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
         permissionPromise = permissionGate.request({
           tool: name,
           primary,
+          // The classifier's reason, so the card and the gate agree on how
+          // risky the call is instead of computing it from separate string
+          // matching that had already drifted between the two hosts.
+          risk: risk.why,
+          tier: risk.tier,
+          flooredByRisk: outcome.flooredByRisk,
+          // Generated from the same call that computes the stored rule, so the
+          // card cannot promise one scope and save another.
+          scopeHints: {
+            once: grantRuleFor(scopeInput, 'once').describes,
+            session: grantRuleFor(scopeInput, 'session').describes,
+            save: grantRuleFor(scopeInput, 'always').describes
+          },
           description,
-          risk,
           bodyPreview,
           warning,
           diffStats,
@@ -320,26 +386,37 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
           choice: 'once'
         });
       } else if (picked.choice === 'session') {
-        permissionStore.grant(name);
+        // Store the rule the CARD rendered, not the bare tool name. Granting
+        // the whole tool here is what let an approval of `git status`
+        // authorize `rm -rf /` for the rest of the session.
+        const { rule } = grantRuleFor(scopeInput, 'session');
+        if (rule) {permissionStore.grantRule(rule);}
         turnApprovedKeys.add(turnKey);
         await turnLog?.append({
           type: 'permission-decision',
           name,
           primary: previewText(primary),
           displayPrimary: previewText(displayPrimary),
-          choice: 'session'
+          choice: 'session',
+          rule
         });
       } else if (picked.choice === 'save') {
-        permissionStore.grant(name, primary);
+        // Same fix for the persisted case, which was worse: the card showed
+        // the full command line and `.bandit/settings.json` received the bare
+        // binary — permanently, across every future session.
+        const { rule } = grantRuleFor(scopeInput, 'always');
+        if (rule) {
+          permissionStore.grantRule(rule);
+          void persistAllowEntry(workspaceRoot, rule).catch(() => undefined);
+        }
         turnApprovedKeys.add(turnKey);
-        const entry = primary ? `${name}:${primary}` : name;
-        void persistAllowEntry(workspaceRoot, entry).catch(() => undefined);
         await turnLog?.append({
           type: 'permission-decision',
           name,
           primary: previewText(primary),
           displayPrimary: previewText(displayPrimary),
-          choice: 'save'
+          choice: 'save',
+          rule
         });
       } else {
         // 'deny' — abort. When the user supplied follow-up notes,

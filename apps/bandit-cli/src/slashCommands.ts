@@ -14,7 +14,11 @@ import {
   looksLikeGmailCredentialsPath,
   listTurnTraces,
   readTurnTraceById,
-  formatTurnTraceMarkdown
+  formatTurnTraceMarkdown,
+  PERMISSION_MODES,
+  isPermissionMode,
+  type PermissionMode,
+  type AutoApprovalLedger
 } from '@burtson-labs/host-kit';
 import { getModelBehaviorProfile } from '@burtson-labs/stealth-core-runtime';
 import type { SessionStore } from './session';
@@ -110,6 +114,18 @@ export interface SlashContext {
    * for every subsequent chat request in this session. Toggled via
    * the `/think` slash command. */
   thinkingMode: { get(): boolean | undefined; set(next: boolean | undefined): void };
+  /** Permission mode + the record of what it let through. `/auto` flips the
+   *  mode; `/permissions` reads both. The setter writes the runtime override,
+   *  so it beats env and settings for the rest of the session. */
+  permissions?: {
+    getMode(): PermissionMode;
+    setMode(next: PermissionMode | undefined): void;
+    /** Where the current mode came from, when no override is active. */
+    modeSource(): string;
+    ledger(): AutoApprovalLedger;
+    /** Session grants made through the picker, for display. */
+    sessionRules(): string[];
+  };
   /** When on, each user prompt runs the heuristic planner first and
    * shows a "proceed? y/N" prompt before the model actually executes.
    * Useful for long refactors / multi-file edits where the user wants
@@ -233,18 +249,32 @@ function renderHelpPermissions(): string {
   return [
     c.bold('Permission choices'),
     '',
-    `  ${c.accent('allow once')}       ${c.dim('Run only this exact request. Best default for edits and commands.')}`,
-    `  ${c.accent('allow session')}    ${c.dim('Allow this tool type until you exit Bandit. Useful during active refactors.')}`,
-    `  ${c.accent('always for target')} ${c.dim('Save an allow rule for this workspace target in .bandit/settings.json.')}`,
-    `  ${c.accent('deny')}             ${c.dim('Block the tool call. Bandit should not retry the same call.')}`,
-    `  ${c.accent('deny + note')}      ${c.dim('Block it and tell Bandit what safer approach to try instead.')}`,
+    `  ${c.accent('allow once')}      ${c.dim('Run only this call.')}`,
+    `  ${c.accent('allow turn')}      ${c.dim('Allow calls like this until the agent finishes the current turn.')}`,
+    `  ${c.dim('                 ')}${c.dim('Best pick when the model is making a batch of similar edits.')}`,
+    `  ${c.accent('allow session')}   ${c.dim('Allow them until you exit Bandit.')}`,
+    `  ${c.accent('always allow')}    ${c.dim('Save the rule to .bandit/settings.json so it survives restarts.')}`,
+    `  ${c.accent('deny')}            ${c.dim('Block the call. Bandit should not retry it.')}`,
+    `  ${c.accent('deny + note')}     ${c.dim('Block it and tell Bandit what to do instead.')}`,
     '',
-    c.bold('Good defaults'),
-    `  ${c.dim('•')} ${c.cyan('read_file/search_code')} ${c.dim('can usually be allowed for the session.')}`,
-    `  ${c.dim('•')} ${c.cyan('apply_edit/replace_range/write_file')} ${c.dim('review the diff, then allow once or session.')}`,
-    `  ${c.dim('•')} ${c.cyan('run_command')} ${c.dim('check the full command line and cwd before approving.')}`,
+    c.dim('  The card shows the exact rule each choice stores, under the highlighted'),
+    c.dim('  option. For shell commands the rule covers a command shape — approving'),
+    c.dim('  `git status` grants `git status …`, not every command.'),
     '',
-    c.dim('Run /doctor any time you want Bandit to explain your current setup and next best actions.')
+    c.bold('Permission modes') + c.dim('  — /auto to change'),
+    `  ${c.accent('ask')}        ${c.dim('Every non-allowlisted call prompts. Default.')}`,
+    `  ${c.accent('auto')}       ${c.dim('Routine work runs unprompted: reading, editing files in this')}`,
+    `  ${c.dim('           ')}${c.dim('project, running builds and tests. Everything else still asks.')}`,
+    `  ${c.accent('dangerous')}  ${c.dim('Nothing prompts. CI and sandboxes only; not settable from /auto.')}`,
+    '',
+    c.bold('What auto mode never does without asking'),
+    c.dim('  Deleting files · writing outside the project · force-push and history'),
+    c.dim('  rewrites · global installs and publishes · touching credential files ·'),
+    c.dim('  sending data off the machine · mutating a connected service.'),
+    c.dim('  That floor holds even if a saved allow rule would cover the call.'),
+    '',
+    c.dim('  /permissions  review what ran unattended and which grants are active'),
+    c.dim('  /doctor       explain the current setup and next best actions')
   ].join('\n');
 }
 
@@ -1314,14 +1344,31 @@ export const slashCommands: SlashCommand[] = [
         detail: memoryFiles.length > 0 ? memoryFiles.join(', ') : 'No BANDIT.md or CLAUDE.md found.',
         fix: memoryFiles.length === 0 ? 'Run /init so future turns know build/test/project conventions.' : undefined
       });
-      checks.push({
-        label: 'Permissions',
-        ok: fs.existsSync(settingsPath) || !/^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? ''),
-        detail: /^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? '')
-          ? 'BANDIT_AUTO_APPROVE is enabled.'
-          : fs.existsSync(settingsPath) ? '.bandit/settings.json present.' : 'Interactive approval gate is active.',
-        fix: /^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? '') ? 'Unset BANDIT_AUTO_APPROVE for normal interactive use.' : 'Run /help permissions to see approval choices.'
-      });
+      {
+        // Flag `dangerous` loudly — it disables the destructive-call floor.
+        // `auto` is a supported everyday mode and keeps the floor, so it
+        // reports healthy rather than as a problem to fix.
+        const permMode = ctx.permissions?.getMode()
+          ?? (/^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? '')
+            || /^(1|true)$/i.test(process.env.BANDIT_DANGEROUSLY_APPROVE_ALL ?? '')
+            ? 'dangerous'
+            : 'ask');
+        const legacyVar = /^(1|true)$/i.test(process.env.BANDIT_AUTO_APPROVE ?? '');
+        checks.push({
+          label: 'Permissions',
+          ok: permMode !== 'dangerous',
+          detail: permMode === 'dangerous'
+            ? 'Dangerous mode — every approval prompt is disabled, including for destructive calls.'
+            : permMode === 'auto'
+              ? 'Auto mode — routine calls run unprompted; destructive calls still require approval.'
+              : fs.existsSync(settingsPath) ? '.bandit/settings.json present.' : 'Interactive approval gate is active.',
+          fix: permMode === 'dangerous'
+            ? (legacyVar
+              ? 'Unset BANDIT_AUTO_APPROVE. For unattended-but-guarded runs use BANDIT_PERMISSION_MODE=auto instead.'
+              : 'Unset BANDIT_DANGEROUSLY_APPROVE_ALL, or switch to BANDIT_PERMISSION_MODE=auto.')
+            : undefined
+        });
+      }
       checks.push({
         label: 'Skills',
         ok: skillCount > 0,
@@ -2127,6 +2174,109 @@ export const slashCommands: SlashCommand[] = [
       }
 
       return c.red(`Unknown /mcp subcommand: ${sub}. Run /mcp for usage.`);
+    }
+  },
+  {
+    name: 'auto',
+    description: 'Let routine work run without prompting (/auto on, /auto off, /auto). Destructive calls always ask.',
+    run(args, ctx) {
+      if (!ctx.permissions) {return c.red('Permission mode is not available in this context.');}
+      const arg = args.trim().toLowerCase();
+      const current = ctx.permissions.getMode();
+
+      if (!arg) {
+        const label = current === 'auto'
+          ? c.green('auto')
+          : current === 'dangerous' ? c.red('dangerous') : c.dim('ask');
+        const approved = ctx.permissions.ledger().size();
+        return [
+          c.bold('Permission mode: ') + label + c.dim(` (${ctx.permissions.modeSource()})`),
+          '',
+          c.dim('  ask        every non-allowlisted call prompts (default)'),
+          c.dim('  auto       routine work runs unprompted; anything destructive still asks'),
+          c.dim('  dangerous  nothing prompts — for CI and sandboxes only'),
+          '',
+          c.dim('  /auto on   ') + c.dim('switch to auto for this session'),
+          c.dim('  /auto off  ') + c.dim('back to ask'),
+          approved > 0 ? c.dim(`  ${approved} call(s) auto-approved so far — /permissions to review`) : ''
+        ].filter(Boolean).join('\n');
+      }
+
+      if (arg === 'on' || arg === 'auto') {
+        ctx.permissions.setMode('auto');
+        return [
+          c.green(`${glyph.check} auto mode ON`),
+          c.dim('  Reading, editing files in this project, and running builds/tests no longer prompt.'),
+          c.dim('  Deletes, writes outside the project, force-push, global installs, credential'),
+          c.dim('  files, and anything that sends data out still ask every time.'),
+          c.dim('  Review what ran unattended with /permissions.')
+        ].join('\n');
+      }
+      if (arg === 'off' || arg === 'ask') {
+        ctx.permissions.setMode('ask');
+        return c.green(`${glyph.check} auto mode OFF — every non-allowlisted call will prompt again`);
+      }
+      if (arg === 'reset' || arg === 'default') {
+        ctx.permissions.setMode(undefined);
+        return c.green(`${glyph.check} permission mode reset to the configured default (${ctx.permissions.getMode()})`);
+      }
+      // Deliberately not settable from here. Typing `/auto dangerous` in a
+      // live session is exactly the accident this mode should not enable;
+      // it needs an env var or a settings edit, which are both deliberate acts.
+      if (arg === 'dangerous') {
+        return c.yellow(
+          'Dangerous mode disables every prompt and cannot be enabled from a slash command.\n'
+          + 'Set BANDIT_DANGEROUSLY_APPROVE_ALL=1, or "permissions": { "mode": "dangerous" } in .bandit/settings.json.'
+        );
+      }
+      return c.red(`Unknown argument "${arg}". Use: /auto on, /auto off, /auto reset.`);
+    }
+  },
+  {
+    name: 'permissions',
+    description: 'Show the permission mode, session grants, and everything auto mode approved without asking',
+    run(_args, ctx) {
+      if (!ctx.permissions) {return c.red('Permission info is not available in this context.');}
+      const mode = ctx.permissions.getMode();
+      const ledger = ctx.permissions.ledger();
+      const rules = ctx.permissions.sessionRules();
+      const out: string[] = [];
+
+      const label = mode === 'auto' ? c.green('auto') : mode === 'dangerous' ? c.red('dangerous') : c.dim('ask');
+      out.push(c.bold('Permission mode: ') + label + c.dim(` (${ctx.permissions.modeSource()})`));
+      if (mode === 'auto') {
+        out.push(c.dim('  Routine calls run unprompted. Destructive calls always ask — that floor'));
+        out.push(c.dim('  cannot be configured away.'));
+      } else if (mode === 'dangerous') {
+        out.push(c.red('  Every prompt is disabled, including for destructive calls.'));
+      }
+
+      out.push('');
+      out.push(c.bold('Session grants') + c.dim(' — from picking "allow session" or "always allow"'));
+      if (rules.length === 0) {
+        out.push(c.dim('  (none yet)'));
+      } else {
+        for (const r of rules) out.push('  ' + c.cyan(r));
+      }
+
+      out.push('');
+      out.push(c.bold('Auto-approved this session'));
+      if (ledger.size() === 0) {
+        out.push(c.dim('  (nothing has run without a prompt)'));
+      } else {
+        for (const { tool, count } of ledger.summary()) {
+          out.push('  ' + c.cyan(tool.padEnd(16)) + c.dim(`${count} call${count === 1 ? '' : 's'}`));
+        }
+        out.push('');
+        out.push(c.dim('  Most recent:'));
+        for (const e of ledger.all().slice(-8)) {
+          out.push(c.dim(`    ${e.tool} ${e.target}`.slice(0, (process.stdout.columns || 80) - 6)));
+        }
+      }
+
+      out.push('');
+      out.push(c.dim('  /auto on|off      change the mode        /help permissions   approval choices'));
+      return out.join('\n');
     }
   },
   {

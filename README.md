@@ -156,8 +156,8 @@ file (capped at 32 KB).
 - `memory/<slug>.md` — only relevant to some tasks (deep history, area-specific
   playbooks, things that would bloat the system prompt for every other task).
 
-This repo's own [`MEMORY.md`](MEMORY.md) + [`memory/`](memory/) directory
-is the reference implementation.
+This repo's own [`BANDIT.md`](BANDIT.md) is the reference implementation of
+the always-loaded half.
 
 ### <img src="https://api.iconify.design/lucide/search.svg?color=%23a60ee5&width=22" align="absmiddle"> File mentions
 
@@ -226,7 +226,40 @@ Every file edit (`write_file`, `apply_edit`, `replace_range`, `apply_patch`) goe
 ╰── apply? [y/N]
 ```
 
-Set `BANDIT_AUTO_APPROVE=1` to skip prompts in CI.
+Each choice shows the exact rule it stores, so a grant never covers more than the prompt said:
+
+```
+│ 1 allow once   2 allow turn   3 allow session   4 always allow   5 deny
+│ grants: any `git status …` command — until this session ends
+╰── ↑↓←→ or 1–6 to choose · enter confirms · esc cancels
+```
+
+Approving `git status` grants `git status …`, not every shell command. `allow turn` covers a
+batch of similar calls until the agent finishes the current turn, then expires.
+
+#### Auto mode
+
+`/auto on` in the CLI, `bandit --auto`, or `"permissions": { "mode": "auto" }` in
+`.bandit/settings.json` lets routine work run without prompting — reading, editing files
+inside the project, running builds and tests.
+
+**Auto mode always asks before anything destructive**, and that floor cannot be configured
+away — not by a settings file, and not by a saved allow rule that would otherwise cover the
+call:
+
+| Always asks | Examples |
+|---|---|
+| Deleting files | `delete_file`, `rm` |
+| Writing outside the project | `../../etc/hosts`, `~/.zshrc` |
+| Rewriting git history | `git push --force`, `git reset --hard`, `git clean -fd` |
+| Machine-wide installs | `npm i -g`, `brew install`, `pipx install`, `npm publish` |
+| Credential files | `.env`, `~/.ssh/*`, `~/.aws/credentials` |
+| Sending data out | `curl -d`, `scp`, `rsync host:`, `nc` |
+| Irreversible service calls | MCP `sendEmail`, `trashMessage`, `revokeAccess` |
+
+`/permissions` shows the mode, your active grants, and everything auto mode ran without
+asking. For unattended CI where nothing should prompt, set
+`BANDIT_DANGEROUSLY_APPROVE_ALL=1` — it has no floor, which is why it is named that.
 
 For large files, `read_file` paginates with line numbers and a `shown_hash`. The agent can call `replace_range` with `start_line`, `end_line`, replacement `content`, and optional `expected_hash` copied from `read_file` to land a method/component-sized refactor without resending the whole file or a giant exact-match string.
 
@@ -461,7 +494,9 @@ BANDIT_PROVIDER=ollama BANDIT_MODEL=kimi-k2.7-code:cloud BANDIT_MAX_ITERATIONS=3
 | `BANDIT_AUTH_URL` | `https://auth.burtson.ai` | OIDC issuer / device-key auth API — point this at your own auth service when self-hosting |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `BANDIT_MAX_ITERATIONS` | `20` | Tool-use loop cap |
-| `BANDIT_AUTO_APPROVE` | `0` | `1`/`true` to skip write-approval prompts |
+| `BANDIT_PERMISSION_MODE` | `ask` | `auto` runs routine calls unprompted (destructive ones still ask); `dangerous` disables every prompt |
+| `BANDIT_DANGEROUSLY_APPROVE_ALL` | `0` | `1` to approve everything, with no destructive-action floor — CI and sandboxes |
+| `BANDIT_AUTO_APPROVE` | `0` | Deprecated alias for `BANDIT_DANGEROUSLY_APPROVE_ALL` |
 | `TAVILY_API_KEY` | — | Enables the `web_search` tool (free tier at tavily.com) |
 | `BANDIT_ALLOW_PRIVATE_WEB_FETCH` | `0` | `1` to allow `web_fetch` against RFC1918/loopback/link-local hosts |
 | `BANDIT_NO_SECRET_REDACTION` | `0` | `1` to disable automatic secret redaction in tool output (debug only) |
@@ -512,7 +547,7 @@ To keep expectations honest — areas still on the roadmap:
 - Status-line / full TUI polish
 - Lossless trace replay for every native-tool run
 
-See [`docs/integration-playlist/agent-roadmap-unified.md`](docs/integration-playlist/agent-roadmap-unified.md) for what's planned.
+See [`ROADMAP.md`](ROADMAP.md) for what's planned.
 
 ---
 
@@ -532,7 +567,7 @@ For teams that want hosted infrastructure — workspace indexing, Qdrant semanti
 
 The agent runtime (`@burtson-labs/agent-core`) is the most heavily tested package. New behaviors should land with a contract test, and recurring failure modes worth defending against should land with a real-trace replay fixture.
 
-- **Run the suite:** `pnpm --filter @burtson-labs/agent-core test`
+- **Run everything:** `pnpm test` (what CI runs on your PR). One package: `pnpm --filter @burtson-labs/agent-core test`
 - **What's pinned:** see [packages/agent-core/README.md](packages/agent-core/README.md) for the full coverage map (constructor options, every detector cluster, cancellation, compaction, replay).
 - **Adding a regression fixture from a real failure trace:** [packages/agent-core/test/fixtures/turns/README.md](packages/agent-core/test/fixtures/turns/README.md) walks through the steps — picking a `.bandit/turns/*.jsonl`, replay-completeness limits, naming, and what to assert.
 
