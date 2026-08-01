@@ -2,6 +2,14 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.380
+
+- **Auto mode.** Turn it on with `/auto on` in the CLI, `bandit --auto`, or the `Bandit Stealth › Agent: Permission Mode` setting, and routine work stops interrupting you — reading files, editing files inside your project, running builds and tests. Anything destructive still asks, every time: deleting files, writing outside the project, force-push and history rewrites, global installs and publishes, touching credential files, and anything that sends data off your machine. That floor holds even when a saved allow rule would cover the call. `/permissions` shows the current mode, your active grants, and everything that ran without asking.
+- **Approval prompts now show what you're actually granting.** Each choice displays the exact rule it will store, so "allow session" and "always allow" can't quietly cover more than you expected. Approving `git status` grants `git status …`, not every shell command; approving `npx create-vite my-app` grants `npx create-vite …`, not every `npx` package. Saved rules stay tied to the file or command shape you approved.
+- **New "allow turn" choice in the CLI.** Covers a batch of similar calls until the agent finishes the current turn, then expires — the middle ground between approving one edit at a time and opening up the whole session.
+- **Prompts are weighted by risk.** Destructive calls are visually distinct from routine ones, so a delete no longer looks identical to a file read.
+- **Fixed: approvals could grant more than the prompt said.** Picking "allow session" stored the whole tool, so approving one harmless command authorized every shell command for the rest of the session. "Always for target" showed the full command but saved only the program name, permanently. Both now store exactly what the prompt displays.
+
 ## 1.7.379
 
 - **`bandit doctor` and `bandit upgrade`.** `bandit doctor` finds every `bandit` on your PATH, shows which one actually runs, and offers to remove the extras so a single install is in charge — your memory and settings in `~/.bandit` are never touched. `bandit upgrade` updates a standalone (curl-installed) binary to the latest release in place; npm installs are pointed at the right npm command. The installer also now offers to remove a conflicting older install so the new one runs.
