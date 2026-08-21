@@ -439,6 +439,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/agent-core
 
+  services/agent-runner:
+    dependencies:
+      '@burtson-labs/agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
+
   services/gateway-api:
     dependencies:
       '@burtson-labs/agent-adapters-provider':
