@@ -19,13 +19,10 @@ import { spawn } from 'node:child_process';
 import {
   createCoreToolRegistry,
   createToolUseLoop,
-  type ChatFn,
-  type ProviderChatOptions,
-  type ProviderClient,
   type ToolExecutionContext,
 } from '@burtson-labs/agent-core';
-import { DeterministicProviderClient } from '@burtson-labs/agent-core';
-import type { RunnerEvent, TurnProvider, TurnRequest } from './contract.js';
+import { chatFnFor } from './providers.js';
+import type { RunnerEvent, TurnRequest } from './contract.js';
 
 const RUNNER_VERSION = '1.0.0';
 
@@ -138,37 +135,6 @@ function run(
   });
 }
 
-/**
- * Scripted provider for seam proofs and load tests: each chat() call pops
- * the next scripted response. Lets CI drive a full multi-iteration tool
- * turn — tool call, result fed back, final answer — with no model.
- */
-class ScriptedProvider implements ProviderClient {
-  name = 'scripted';
-  private i = 0;
-  constructor(private script: string[]) {}
-  // eslint-disable-next-line require-yield
-  async *chat(_prompt: string, _options?: ProviderChatOptions): AsyncIterable<string> {
-    const next = this.script[this.i] ?? 'Done.';
-    this.i += 1;
-    yield next;
-  }
-}
-
-function providerFor(spec: TurnProvider): { client: ProviderClient; chatViaMessages: boolean } {
-  switch (spec.kind) {
-    case 'deterministic':
-      return spec.script?.length
-        ? { client: new ScriptedProvider(spec.script), chatViaMessages: false }
-        : { client: new DeterministicProviderClient(), chatViaMessages: false };
-    case 'ollama':
-    case 'openai-compat':
-      // Wired in the next increment — the contract accepts them now so the
-      // gateway integration does not need a protocol bump to use them.
-      throw new Error(`provider kind '${spec.kind}' not wired yet (contract-ready)`);
-  }
-}
-
 export async function runTurn(
   req: TurnRequest,
   emit: (e: RunnerEvent) => void,
@@ -217,15 +183,7 @@ export async function runTurn(
     },
   });
 
-  const { client } = providerFor(req.provider);
-  const chat: ChatFn = (messages) => {
-    // The loop hands us the whole conversation; providers in this service
-    // speak prompt-shaped chat, so flatten. The native-tools channel lands
-    // with the real model providers.
-    const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
-    return client.chat(prompt);
-  };
-
+  const chat = await chatFnFor(req.provider);
   const result = await loop.run(req.prompt, chat);
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
   emit({

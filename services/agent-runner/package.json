@@ -7,7 +7,7 @@
     "url": "https://burtson.ai"
   },
   "private": true,
-  "description": "HTTP host for the Bandit agent runtime — the service the commercial gateway delegates cloud turns to. Task in, NDJSON events out.",
+  "description": "HTTP host for the Bandit agent runtime \u2014 the service the commercial gateway delegates cloud turns to. Task in, NDJSON events out.",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint \"src/**/*.ts\"",
@@ -17,6 +17,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@burtson-labs/agent-core": "workspace:*"
+    "@burtson-labs/agent-core": "workspace:*",
+    "@burtson-labs/stealth-core-runtime": "workspace:*"
   }
 }
