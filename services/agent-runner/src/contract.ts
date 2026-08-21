@@ -43,7 +43,14 @@ export interface TurnRequest {
 export type TurnProvider =
   | { kind: 'deterministic'; script?: string[] }
   | { kind: 'ollama'; baseUrl: string; model: string }
-  | { kind: 'openai-compat'; baseUrl: string; apiKey: string; model: string };
+  | {
+      kind: 'openai-compat';
+      /** Base URL to which /chat/completions is appended — include /v1
+       *  where the upstream uses it (api.openai.com/v1, api.groq.com/openai/v1). */
+      baseUrl: string;
+      apiKey: string;
+      model: string;
+    };
 
 /**
  * NDJSON stream, one event per line. `turn.completed` or `turn.error` is

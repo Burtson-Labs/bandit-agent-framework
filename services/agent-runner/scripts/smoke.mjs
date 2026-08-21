@@ -86,6 +86,23 @@ const wrong = await fetch(`http://127.0.0.1:${port}/v1/turns`, {
 });
 if (wrong.status !== 426) fail(`protocol mismatch returned ${wrong.status}, want 426`);
 
+// Real-provider wiring: a dead Ollama endpoint must produce a graceful
+// turn.error as the final line — never a hung stream or a dead process.
+const dead = await fetch(`http://127.0.0.1:${port}/v1/turns`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    ...req,
+    taskId: 'smoke-3',
+    provider: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', model: 'llama3.2' },
+  }),
+});
+const deadEvents = (await dead.text()).trim().split('\n').map((l) => JSON.parse(l));
+const last = deadEvents[deadEvents.length - 1];
+if (last.type !== 'turn.error' && last.type !== 'turn.completed') fail(`dead provider ended with ${last.type}`);
+if (last.type === 'turn.completed') fail('dead provider must not complete');
+console.log('dead provider →', last.type, '|', String(last.message).slice(0, 90));
+
 console.log('SMOKE PASS');
 srv.kill();
 process.exit(0);

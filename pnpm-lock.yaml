@@ -444,6 +444,9 @@ importers:
       '@burtson-labs/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@burtson-labs/stealth-core-runtime':
+        specifier: workspace:*
+        version: link:../../packages/stealth-core-runtime
 
   services/gateway-api:
     dependencies:
