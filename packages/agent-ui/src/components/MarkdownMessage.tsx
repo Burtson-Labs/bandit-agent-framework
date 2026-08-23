@@ -113,6 +113,12 @@ const createMarkdownRenderer = (options?: MarkdownRenderOptions): MarkdownIt => 
     linkify: true,
     breaks: true
   });
+  // No fuzzy links: linkify's bare-domain matching turns FILENAMES into
+  // external URLs, because file extensions collide with ccTLDs — README.md
+  // is Moldova, main.rs is Serbia, anything .app/.dev/.io "links". A chat
+  // full of file references cannot afford that; explicit http(s):// links
+  // still linkify, and the file-reference plugin below owns filenames.
+  md.linkify.set({ fuzzyLink: false });
 
   md.options.highlight = (code: string, language: string): string => {
     if (language && hljs.getLanguage(language)) {
