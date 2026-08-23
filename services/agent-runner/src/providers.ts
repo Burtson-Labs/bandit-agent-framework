@@ -41,7 +41,15 @@ class ScriptedChat {
 function settingsFor(spec: TurnProvider): ProviderSettings {
   switch (spec.kind) {
     case 'ollama':
-      return { kind: 'ollama', ollamaUrl: spec.baseUrl, ollamaModel: spec.model };
+      // apiKey pass-through is what makes Ollama CLOUD work: the runtime
+      // turns it into a Bearer header (and even carries a cloud-specific
+      // error hint). Local daemons simply omit it.
+      return {
+        kind: 'ollama',
+        ollamaUrl: spec.baseUrl,
+        ollamaModel: spec.model,
+        ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
+      };
     case 'openai-compat':
       return {
         kind: 'openai-compatible',

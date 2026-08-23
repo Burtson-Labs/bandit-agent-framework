@@ -42,7 +42,15 @@ export interface TurnRequest {
 
 export type TurnProvider =
   | { kind: 'deterministic'; script?: string[] }
-  | { kind: 'ollama'; baseUrl: string; model: string }
+  | {
+      kind: 'ollama';
+      baseUrl: string;
+      model: string;
+      /** Bearer key for Ollama Cloud (ollama.com) — the runtime's provider
+       *  layer already sends it as an Authorization header. Omit for a
+       *  local/cluster daemon. */
+      apiKey?: string;
+    }
   | {
       kind: 'openai-compat';
       /** Base URL to which /chat/completions is appended — include /v1
