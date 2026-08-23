@@ -30,7 +30,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@burtson-labs/agent-core": "workspace:*"
+    "@burtson-labs/agent-core": "workspace:*",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@burtson-labs/host-kit": "workspace:*",

@@ -1,14 +1,9 @@
+# Keep the build context lean. Sources and every package.json stay in —
+# pnpm needs the full workspace manifest set to resolve the lockfile —
+# but installed modules and build outputs are rebuilt inside the image.
+**/node_modules
+**/dist
 .git
-node_modules
-.turbo
-.next
-dist
-build
-.DS_Store
-*.log
-.pnpm-store
-.pnpm-store/**
-coverage
-tmp
-.vscode
-.idea
+.github
+**/*.vsix
+**/.DS_Store

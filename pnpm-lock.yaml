@@ -419,6 +419,9 @@ importers:
       '@burtson-labs/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
     devDependencies:
       '@burtson-labs/host-kit':
         specifier: workspace:*
