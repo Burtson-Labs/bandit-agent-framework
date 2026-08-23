@@ -41,14 +41,18 @@ class ScriptedChat {
 function settingsFor(spec: TurnProvider): ProviderSettings {
   switch (spec.kind) {
     case 'ollama':
-      // apiKey pass-through is what makes Ollama CLOUD work: the runtime
-      // turns it into a Bearer header (and even carries a cloud-specific
-      // error hint). Local daemons simply omit it.
+      // Ollama Cloud auth: the runtime's ollama path reads ollamaHeaders —
+      // NOT the generic apiKey field, which it ignores (verified with a
+      // live 401: apiKey mapped, header absent, ollama.com refused). The
+      // error hint says as much: "set an Ollama Cloud API key as the
+      // Authorization header (CLI: ollama.headers)". Local daemons omit it.
       return {
         kind: 'ollama',
         ollamaUrl: spec.baseUrl,
         ollamaModel: spec.model,
-        ...(spec.apiKey ? { apiKey: spec.apiKey } : {}),
+        ...(spec.apiKey
+          ? { ollamaHeaders: { Authorization: `Bearer ${spec.apiKey}` } }
+          : {}),
       };
     case 'openai-compat':
       return {
