@@ -27,6 +27,25 @@ import type { RunnerEvent, TurnRequest } from './contract.js';
 const RUNNER_VERSION = '1.0.0';
 
 /**
+ * Base system prompt for cloud turns.
+ *
+ * The loop previously ran with NO system prompt — bare tool definitions —
+ * so models fell back to chat-assistant timidity: asked to "bump the chart
+ * version", one found Chart.yaml, read the version, and then ASKED which
+ * version to use instead of doing the obvious patch bump. Twice. A cloud
+ * turn has nobody at the keyboard and its review surface is the pull
+ * request, so decisiveness is the correct default and this prompt says so.
+ */
+const RUNNER_SYSTEM_PROMPT = `You are Bandit, an autonomous coding agent working inside a cloned repository. Nobody is at the keyboard during your turn, and everything you change is reviewed later as a pull request — so act, don't ask.
+
+Be decisive:
+- When a detail is unambiguous or has a strong convention, choose it, do it, and state the choice you made. "Bump the version" means increment the patch number (0.9.40 → 0.9.41) unless told otherwise.
+- Prefer completing the requested change over describing what you could do or asking which variant is wanted.
+- If something genuinely blocks you (missing file, contradictory instructions), finish everything you can, then say exactly what was blocked and why.
+
+Ground every statement in files you actually read with your tools. Keep edits minimal, correct, and consistent with the surrounding code.`;
+
+/**
  * Absolute path inside the workspace, or a thrown error — never a path
  * outside, and never a silent re-root.
  *
@@ -184,7 +203,7 @@ export async function runTurn(
   });
 
   const chat = await chatFnFor(req.provider);
-  const result = await loop.run(req.prompt, chat);
+  const result = await loop.run(req.prompt, chat, RUNNER_SYSTEM_PROMPT);
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
   emit({
     type: 'turn.completed',
