@@ -2,6 +2,13 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.381
+
+- **Fixed: Bandit Core 2 couldn't use tools.** Selecting it left the agent unable to read files, run commands, or reach connected services — it would answer in prose and say the tools weren't available to it, even while listing them by name. The model was fine; Bandit was sending it the wrong kind of request. Tool calling works again, and Bandit Logic 2 picked up the same fix.
+- **Model details now come from the service.** Context window, tool support, and vision are read live from your Bandit account instead of a list baked into the release, so models stay correct when they're upgraded on our side — no update required. If your machine is offline or signed out, the built-in list is still used.
+- **An expired connection now tells you how to reconnect.** When a connected service's sign-in lapses mid-task (Gmail, GitHub, Slack…), Bandit says so and gives you the command to fix it. Previously it could quietly reroute through a slower path and finish without mentioning the connection had stopped working, which read as success.
+- **Turn logs record the model and how tools were sent**, so a "why did it stop using tools?" question is answerable from the log instead of guesswork.
+
 ## 1.7.380
 
 - **Auto mode.** Turn it on with `/auto on` in the CLI, `bandit --auto`, or the `Bandit Stealth › Agent: Permission Mode` setting, and routine work stops interrupting you — reading files, editing files inside your project, running builds and tests. Anything destructive still asks, every time: deleting files, writing outside the project, force-push and history rewrites, global installs and publishes, touching credential files, and anything that sends data off your machine. That floor holds even when a saved allow rule would cover the call. `/permissions` shows the current mode, your active grants, and everything that ran without asking.
