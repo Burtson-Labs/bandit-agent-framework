@@ -344,7 +344,7 @@ export async function buildCliChatFn(deps: CliChatFnDeps): Promise<ChatFn> {
           // coordinate with the spinner — direct stdout writes here
           // previously collided with the spinner's \r\x1b[2K redraws and
           // produced garbled fragments ( on
-          // bandit-logic / Qwen 3.6).
+          // bandit-logic and other reasoning models).
           const thinking = chunk.message?.thinking;
           if (thinking) {
             thinkingChunks += 1;

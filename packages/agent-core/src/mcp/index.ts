@@ -20,6 +20,7 @@ export {
   type RemoteToolDef as McpRemoteToolDef
 } from './clientPool';
 export { mcpToolToAgentTool, getAllMcpAgentTools } from './toolAdapter';
+export { looksLikeAuthFailure, describeMcpAuthFailure, formatMcpToolError, type McpAuthFailure } from './authFailure';
 export { serveBanditMcp } from './server';
 export {
   shouldActivateServer,

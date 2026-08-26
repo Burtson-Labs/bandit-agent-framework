@@ -149,11 +149,14 @@ export async function switchModel(
     }
 
     // Built-in fallback, kept in sync with the gateway catalog for offline /
-    // unauthenticated use. Backend-neutral copy; bandit-logic-2 reads as a Kimi variant.
+    // unauthenticated use. Descriptions state what each model is FOR, not what
+    // backs it — the gateway repoints these aliases without a client release,
+    // so any backing-model detail here is both a leak and a future lie.
     const fallbackModels: BanditPick[] = [
       { label: 'bandit-core-1', description: 'Balanced speed and quality — the default.', model: 'bandit-core-1' },
-      { label: 'bandit-logic', description: 'Agentic coding specialist (Qwen 3.6 27B, native tools, multimodal).', model: 'bandit-logic' },
-      { label: 'bandit-logic-2', description: 'Frontier coding model — a Kimi K2 variant (native tools, multimodal).', model: 'bandit-logic-2' }
+      { label: 'bandit-core-2', description: 'Frontier general-purpose model — vision, tools, thinking, long context.', model: 'bandit-core-2' },
+      { label: 'bandit-logic', description: 'Agentic coding specialist — native tools, multimodal.', model: 'bandit-logic' },
+      { label: 'bandit-logic-2', description: 'Frontier coding model — native tools, multimodal, long context.', model: 'bandit-logic-2' }
     ];
 
     let banditModels: BanditPick[] = fallbackModels;

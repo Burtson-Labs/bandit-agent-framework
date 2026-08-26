@@ -10,7 +10,7 @@
 // Only the phrases that unambiguously invite a yes/no ACTION — i.e. the
 // model is explicitly offering to perform a next step for the user. Old
 // list included `\bcan i\b` and `\bmay i\b`, which fire on rhetorical
-// language that verbose reasoning models (bandit-logic / Qwen 3.6
+// language that verbose reasoning models (bandit-logic
 // thinking mode) emit routinely — "Can I summarize the changes?",
 // "May I walk through the flow?" are STATEMENTS of intent, not
 // actionable prompts. Those got users the [y]/[n] hint after plain

@@ -25,7 +25,9 @@ describe('getModelCapabilities — built-in profile precedence', () => {
 
     expect(caps.supportsToolCalling).toBe(true);
     expect(caps.tier).toBe('large');
-    expect(caps.label).toBe('Bandit Logic (Qwen 3.6 27B)');
+    // Labels name the Bandit model, never the backend it currently
+    // resolves to — these aliases get repointed.
+    expect(caps.label).toBe('Bandit Logic');
   });
 
   it.each([

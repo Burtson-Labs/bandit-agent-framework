@@ -57,7 +57,7 @@ export interface StreamStrippingState {
  * FIRST-encountered open tag per pass — if both `<tool_call` and
  * `<think` appear in the same buffer, we enter whichever is earlier.
  *
- * Qwen 3.6 / bandit-logic emits `<think>…</think>` blocks inline with
+ * Reasoning models emit `<think>…</think>` blocks inline with
  * the response stream (not wrapped in any markup we already strip),
  * so before this list grew those blocks bled straight into the user's
  * terminal — noise like "pondering… are available." in the CLI, observed

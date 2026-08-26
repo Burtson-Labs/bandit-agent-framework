@@ -15,6 +15,7 @@
 import type { AgentTool, AgentToolParameter, AgentToolParameterSchema, ToolExecutionContext, ToolResult } from '../tools/tool-types';
 import type { McpClientPool } from './clientPool';
 import { shouldActivateServer, isServerMentioned } from './activation';
+import { looksLikeAuthFailure, describeMcpAuthFailure, formatMcpToolError } from './authFailure';
 
 // MCP inputSchema is JSON Schema — recursive shape with type, properties,
 // items, required, enum. We model just the fields that matter for our
@@ -179,11 +180,20 @@ export function mcpToolToAgentTool(
           }
         }
         const result = await pool.callTool(serverName, remote.name, args);
-        return renderMcpResult(result);
+        const rendered = renderMcpResult(result);
+        // A server can also report auth failure as a normal isError result
+        // rather than throwing — same recovery either way.
+        if (rendered.isError && looksLikeAuthFailure(rendered.output)) {
+          return {
+            output: describeMcpAuthFailure({ server: serverName, original: rendered.output }),
+            isError: true
+          };
+        }
+        return rendered;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
-          output: `Error invoking ${namespacedName}: ${msg}`,
+          output: formatMcpToolError(namespacedName, serverName, msg),
           isError: true
         };
       }

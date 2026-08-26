@@ -78,7 +78,7 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
   {
     id: 'bandit-logic',
     match: ['bandit-logic'],
-    label: 'Bandit Logic / Qwen 3.6 agent profile',
+    label: 'Bandit Logic agent profile',
     protocol: {
       preferred: 'native-tools',
       fallback: 'text-tools',

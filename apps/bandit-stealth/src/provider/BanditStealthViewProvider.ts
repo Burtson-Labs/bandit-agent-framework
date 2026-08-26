@@ -2463,7 +2463,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     const provider = this.getProviderKind(configuration);
     if (provider === 'bandit') {
       // Defer to the capability profile instead of a hardcoded
-      // `bandit-core` prefix check. bandit-logic (Qwen 3.6 27B wrapper)
+      // `bandit-core` prefix check. bandit-logic (hosted coding model)
       // is multimodal — declaring supportsVision: true in its profile
       // means we should let images through. The previous prefix check
       // returned false for bandit-logic and the webview disabled the
