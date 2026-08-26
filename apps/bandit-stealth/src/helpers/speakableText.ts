@@ -23,7 +23,7 @@ export function extractSpeakableText(content: string): string {
   if (!content) {return '';}
   let text = content;
   // Strip reasoning-mode blocks (body AND tags) BEFORE anything else.
-  // Qwen 3.6 / bandit-logic emit <think>…</think> blocks that the user
+  // Reasoning models emit <think>…</think> blocks that the user
   // never sees on screen but contain 500+ words of internal reasoning.
   // If we leave that content in the speakable string, the word-count
   // cap ("> 120 words" default) almost always rejects the turn and

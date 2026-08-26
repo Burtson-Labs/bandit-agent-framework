@@ -73,19 +73,46 @@ const BUILT_IN_PROFILES: Array<{ prefix: string; caps: ModelCapabilities }> = [
     prefix: 'bandit-core-1',
     caps: { contextWindow: 131072, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Bandit Core (hosted, 31B)' }
   },
+  // bandit-core-2 — frontier general-purpose model on Bandit's hosted cloud
+  // backend. This entry used to describe an earlier self-hosted 70B deployment;
+  // the gateway has since repointed the alias, and the capabilities here never
+  // followed.
+  //
+  // The stale `supportsToolCalling: false` was not a cosmetic label problem —
+  // it silently disabled the entire tool channel. `resolvePreferredToolProtocol`
+  // returned 'text-tools', the loop appended the whole registry to the system
+  // prompt instead of sending native schemas, and on a workspace with MCP
+  // servers connected that inflated the prompt from ~18K to ~142K chars. The
+  // model could read tool NAMES in the wall of text but had no channel to call
+  // them, so it answered in prose — "I searched for available file-system
+  // tools … none are exposed" — and the turn made zero tool calls.
+  //
+  // The gateway advertises Tools=true, Vision=true, ContextWindow=262144 for
+  // this id. Keep this entry in sync with the gateway catalog, or better, let
+  // the catalog win — see `registerModelCapabilities({ authoritative: true })`.
   {
     prefix: 'bandit-core-2',
-    caps: { contextWindow: 131072, supportsJsonMode: false, supportsToolCalling: false, supportsVision: false, tier: 'large', label: 'Bandit Core 2 (RunPod 70B)' }
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Bandit Core 2' }
+  },
+  // bandit-logic-2 — frontier coding model on the same hosted backend. It
+  // previously had no entry of its own and prefix-matched `bandit-logic`,
+  // inheriting that model's profile and label. Tool calling happened to be
+  // correct that way, so nothing broke — but the label was wrong in the picker,
+  // and any future divergence between the two would have been silently wrong.
+  // Declared explicitly, ahead of the shorter `bandit-logic` prefix (the
+  // matcher returns the FIRST array match, not the longest).
+  {
+    prefix: 'bandit-logic-2',
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Bandit Logic 2' }
   },
   {
-    // Gateway alias for Qwen 3.6 27B (repoint from Qwen 2.5 Coder 32B
-    // 2026-04-23 — 2.5 Coder is a code-completion tune, 3.6 is
-    // explicitly agent-trained with 256K context and native multimodal).
-    // Native tool calling is the whole reason we expose it — the
-    // capability profile here must match the underlying model, not
-    // bandit-core-1's text-path profile.
+    // Hosted agent-tuned coding model. Repointed 2026-04-23 from an earlier
+    // code-completion tune to an agent-trained base with 256K context and
+    // native multimodal. Native tool calling is the whole reason we expose it —
+    // the capability profile here must match what the gateway actually serves,
+    // not bandit-core-1's text-path profile.
     prefix: 'bandit-logic',
-    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Bandit Logic (Qwen 3.6 27B)' }
+    caps: { contextWindow: 262144, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'large', label: 'Bandit Logic' }
   },
 
   // ── gemma3 — vision capable (all sizes) ──────────────────────────────────
@@ -287,11 +314,63 @@ const DEFAULT_CAPABILITIES: ModelCapabilities = {
 const runtimeCapabilitiesCache = new Map<string, ModelCapabilities>();
 
 /**
- * Register runtime-discovered capabilities for a model ID. Only takes effect
- * when getModelCapabilities() finds no built-in match — explicit profiles win.
+ * Capabilities published by a first-party source that KNOWS what it serves —
+ * currently the Bandit gateway's model catalog. Unlike the inferred cache
+ * above, these win over the built-in table.
+ *
+ * The distinction is about who is guessing. An `/api/show` probe infers
+ * capabilities from a local model's metadata and gets them wrong often enough
+ * that built-ins must beat it. The gateway is not inferring: it is reporting
+ * the model it is about to route the request to, and it is the only party that
+ * knows, because it can repoint an alias at a different backend at any time
+ * without a client release.
+ *
+ * That repoint is exactly how this went wrong: `bandit-core-2` moved from a
+ * self-hosted deployment to a cloud backend, the gateway correctly advertised
+ * `Tools=true`, and a stale hardcoded `supportsToolCalling: false` overrode it
+ * — pushing every turn onto the text-tools path, inflating the system prompt
+ * from ~18K to ~142K chars on an MCP-connected workspace, and leaving the model
+ * with no channel to call the tools it could see listed. Shipping a corrected
+ * table fixes today's aliases; this map stops the next repoint from doing it
+ * again.
  */
-export function registerModelCapabilities(modelId: string, caps: ModelCapabilities): void {
-  if (modelId) {runtimeCapabilitiesCache.set(modelId.toLowerCase(), caps);}
+const authoritativeCapabilities = new Map<string, ModelCapabilities>();
+
+export interface RegisterCapabilitiesOptions {
+  /**
+   * Set when the source is first-party and definitive about what it serves
+   * (the gateway catalog). Overrides the built-in table. Leave unset for
+   * probe-based discovery, which must not.
+   */
+  authoritative?: boolean;
+}
+
+/**
+ * Register discovered capabilities for a model ID.
+ *
+ * By default these only take effect when `getModelCapabilities()` finds no
+ * built-in match — explicit profiles win over inference. Pass
+ * `{ authoritative: true }` for first-party catalog data, which wins over the
+ * built-in table instead.
+ */
+export function registerModelCapabilities(
+  modelId: string,
+  caps: ModelCapabilities,
+  options: RegisterCapabilitiesOptions = {}
+): void {
+  if (!modelId) {return;}
+  const key = modelId.toLowerCase();
+  if (options.authoritative) {
+    authoritativeCapabilities.set(key, caps);
+    return;
+  }
+  runtimeCapabilitiesCache.set(key, caps);
+}
+
+/** Test/reset hook — clears both discovery layers. */
+export function clearDiscoveredCapabilities(): void {
+  runtimeCapabilitiesCache.clear();
+  authoritativeCapabilities.clear();
 }
 
 /**
@@ -320,6 +399,13 @@ export function resolvePreferredToolProtocol(modelId: string): 'native-tools' | 
 
 export function getModelCapabilities(modelId: string): ModelCapabilities {
   if (!modelId) {return DEFAULT_CAPABILITIES;}
+  // First-party catalog data outranks the built-in table — see
+  // `authoritativeCapabilities`. Checked before the prefix scan so a gateway
+  // repoint takes effect without shipping a client release.
+  for (const candidate of candidateModelIds(modelId)) {
+    const authoritative = authoritativeCapabilities.get(candidate);
+    if (authoritative) {return authoritative;}
+  }
   for (const candidate of candidateModelIds(modelId)) {
     for (const { prefix, caps } of BUILT_IN_PROFILES) {
       if (candidate.startsWith(prefix.toLowerCase())) {
@@ -611,7 +697,7 @@ export function resolveOllamaRuntimeOptions(modelId: string): OllamaRuntimeOptio
 }
 
 // Model-id patterns → default tool-use loop cap. Thorough models (Kimi /
-// bandit-logic-2, Qwen 3.6 / bandit-logic) explore more before answering and
+// bandit-logic-2, bandit-logic) explore more before answering and
 // stall short of a deep task at the generic default, so they get a higher cap.
 // First match wins, so bandit-logic-2 is listed ahead of bandit-logic.
 const MAX_ITERATION_PATTERNS: ReadonlyArray<readonly [RegExp, number]> = [

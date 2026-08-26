@@ -46,6 +46,7 @@ import {
   resolveDefaultMaxIterations,
   getModelBehaviorProfile,
   registerModelCapabilities,
+  syncGatewayModelCapabilities,
   clearModelBehaviorOverrides,
   registerModelBehaviorConfig,
   queryModelsDevCapabilities,
@@ -232,7 +233,7 @@ ${c.bold('Environment')}
   OPENAI_BASE_URL        e.g. http://localhost:1234/v1, https://api.together.xyz/v1
   OPENAI_API_KEY         bearer token (LM Studio / llama.cpp can usually skip)
   OPENAI_MODEL           upstream-specific model id
-  BANDIT_MAX_ITERATIONS  tool-use loop cap (default: 20, or 40 for Kimi/bandit-logic-2)
+  BANDIT_MAX_ITERATIONS  tool-use loop cap (default: 20, or 40 for frontier Bandit models)
   BANDIT_PERMISSION_MODE ask (default) | auto | dangerous
                          auto      routine calls run unprompted; destructive ones always ask
                          dangerous every prompt disabled — CI and sandboxes only
@@ -932,7 +933,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // (the `tool_loop:llm_chunk` handler below) AND thinking chunks (the
   // onThinking callback we hand to buildChat). Without thinking
   // contribution the spinner's token count would freeze at 0 for the
-  // entire reasoning phase on bandit-logic / Qwen 3.6 / DeepSeek-R1,
+  // entire reasoning phase on bandit-logic and other reasoning models,
   // then jump only once content started flowing — which is what made
   // the spinner look like "rate is changing but count is stuck."
   // Declared here (before buildChat) so the closure captures the same
@@ -1583,7 +1584,16 @@ async function runPrompt(opts: RunOptions): Promise<string> {
           messageCount: sp?.messageCount,
           promptCharsTotal: sp?.promptCharsTotal,
           systemPromptChars: sp?.systemPromptChars,
-          thinkOverride: sp?.thinkOverride
+          thinkOverride: sp?.thinkOverride,
+          // Which model, and which tool channel it got. Turn logs previously
+          // recorded neither, so diagnosing "the agent stopped calling tools
+          // after I switched models" meant inferring the model from prompt-size
+          // changes across files. `toolChannel` is the single field that would
+          // have made the bandit-core-2 regression obvious at a glance: a
+          // `text-tools` value on a model the user expects to call tools is the
+          // whole bug.
+          model,
+          toolChannel: nativeTools ? 'native-tools' : 'text-tools'
         });
       }
       if (type === 'tool_loop:llm_retry') {
@@ -2276,6 +2286,11 @@ async function oneShot(prompt: string, cwd: string, session: SessionStore, overr
   const skillRegistry = await loadSkills(cwd);
   const hookSettings = await loadHookSettings(cwd);
   const memory = await loadCombinedMemory(cwd);
+  // Same gateway capability sync as the REPL path — see the comment there.
+  // One-shot mode runs its only turn immediately, so this must be awaited.
+  if (kind === 'bandit' && resolved.apiUrl) {
+    await syncGatewayModelCapabilities({ gatewayUrl: resolved.apiUrl, apiKey: resolved.apiKey });
+  }
   const todoStore = new TodoStore();
   const permissionStore = new SessionPermissionStore();
   const autoLedger = new AutoApprovalLedger();
@@ -3065,7 +3080,17 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   const [skillRegistry, hookSettings, memory] = await Promise.all([
     loadSkills(cwd),
     loadHookSettings(cwd),
-    loadCombinedMemory(cwd)
+    loadCombinedMemory(cwd),
+    // Hosted Bandit model ids are aliases the gateway can repoint at a
+    // different backend without a client release, so the built-in capability
+    // table drifts silently — a stale `supportsToolCalling: false` on a
+    // repointed alias disables the tool channel for the whole session and
+    // leaves the model narrating instead of acting. Awaited rather than
+    // fire-and-forget precisely because the FIRST turn is the one that breaks.
+    // Bounded by an 8s timeout and fails open to the built-in table.
+    kind === 'bandit' && resolved.apiUrl
+      ? syncGatewayModelCapabilities({ gatewayUrl: resolved.apiUrl, apiKey: resolved.apiKey })
+      : Promise.resolve([])
   ]);
   const todoStore = new TodoStore();
   const permissionStore = new SessionPermissionStore();

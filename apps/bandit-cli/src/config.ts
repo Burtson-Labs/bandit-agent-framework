@@ -198,7 +198,7 @@ export function resolveConfig(
   //   ollama            → gemma4:e4b (9.6 GB, 128K context, multimodal, MoE).
   //                       Users without it pulled auto-switch to their closest
   //                       installed model.
-  //   bandit            → bandit-logic (agent-tuned Qwen 3.6 27B wrapper).
+  //   bandit            → bandit-logic (hosted agent-tuned coding model).
   //   openai-compatible → no default — user MUST supply `--openai-model` /
   //                       OPENAI_MODEL / config.openai.model. Naming is
   //                       provider-specific (Together vs OpenRouter vs
