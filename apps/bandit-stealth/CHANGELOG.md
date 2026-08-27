@@ -2,6 +2,15 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.382
+
+- **Fixed: `/update --apply` did nothing.** It re-printed the "update available" notice instead of installing, including the line telling you to run `/update --apply`. Every documented spelling now works (`--apply`, `-y`, `--yes`, `apply`, `now`).
+- **`/update` now updates the install you're actually running.** If you installed the standalone binary via the curl script, it runs `bandit upgrade` instead of `npm i -g` — which would have added a second install while leaving `bandit` on the old version.
+- **Commands using `--force` or `-f` are correctly flagged as high-impact** on the approval prompt. `git push --force` had been getting the generic risk line.
+- **Expired-connection advice now names the command that actually fixes it.** For servers that authenticate with your Bandit sign-in, that's `/login` — the previous advice (`/mcp connect`) reconnected with the same expired credential and failed again.
+- **No more doubled reply when a connection expires.** The agent's "you need to re-authorize" answer was being treated as a mistake and re-prompted, so it appeared twice in the transcript. It now appears once.
+- **Connected-service tools resolve on the first try.** Calling a tool by its short name now gets a correction naming the full server-prefixed name, instead of a retry loop of "not registered" errors.
+
 ## 1.7.381
 
 - **Fixed: Bandit Core 2 couldn't use tools.** Selecting it left the agent unable to read files, run commands, or reach connected services — it would answer in prose and say the tools weren't available to it, even while listing them by name. The model was fine; Bandit was sending it the wrong kind of request. Tool calling works again, and Bandit Logic 2 picked up the same fix.
