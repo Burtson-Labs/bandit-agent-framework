@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.385
+
+- **Expired-Google guidance now names the right command.** When a connected service fails on its Google sign-in (Gmail/Drive/Calendar), Bandit tells you to run `/mcp google connect` — re-authorizing Google — instead of `/login`, which only refreshes your Bandit sign-in and wouldn't have fixed it.
+- **Pick the right Google account when connecting.** `/mcp blabs google connect --account=you@workspace.com` pre-selects an account, and the browser now always shows the account chooser — so if you have a personal and a work account signed in, you can connect the one you actually want. (Requires the matching auth-service update.)
+
 ## 1.7.384
 
 - **The agent stops wasting turns on connected-service tool names.** When it calls a tool by its short name (`listMessages` instead of `burtson-labs.listMessages`), Bandit now just runs the right one — previously it retried and re-reasoned for several rounds before getting the prefix right, filling the chat with noise.
