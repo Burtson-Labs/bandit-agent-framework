@@ -14,6 +14,7 @@ import {
   describeMcpAuthFailure,
   formatMcpToolError,
   isAuthRecoveryGuidance,
+  looksLikeGoogleAuthFailure,
   AUTH_RECOVERY_MARKER
 } from '../src/mcp/authFailure';
 
@@ -156,5 +157,46 @@ describe('display guidance', () => {
     const out = describeMcpAuthFailure({ server: 's', original: 'e' });
     expect(out).toMatch(/inline code/);
     expect(out).toMatch(/do not wrap it in a/);
+  });
+});
+
+/**
+ * Field report: a burtson-labs (Bandit-auth) MCP server failed on its GOOGLE
+ * token, not its Bandit key. The per-server hint said /login, but /login
+ * re-auths Bandit and does nothing for Google. The error text ("Google refused
+ * the refresh token", googleEmail, workspace) is what distinguishes them.
+ */
+describe('Google-token failures route to the Google reconnect command', () => {
+  const googleErr = 'Google refused the refresh token for googleEmail mburtson@gmail.com workspace gmail — token expired';
+
+  it('detects a Google-specific auth failure', () => {
+    expect(looksLikeGoogleAuthFailure(googleErr)).toBe(true);
+    // A Bandit-key failure with no Google signal is NOT google-routed.
+    expect(looksLikeGoogleAuthFailure('The AuthApi rejected the session JWT')).toBe(false);
+    // Non-auth mention of google isn't enough — it must also look like auth.
+    expect(looksLikeGoogleAuthFailure('fetched the google homepage')).toBe(false);
+  });
+
+  it('points at /mcp google connect even when the server is Bandit-auth', () => {
+    // Server hint says /login (Bandit-auth), but the Google error overrides it.
+    const out = describeMcpAuthFailure({
+      server: 'burtson-labs',
+      original: googleErr,
+      reconnectCommand: '/login   (this server authenticates with your Bandit sign-in)',
+    });
+    expect(out).toContain('/mcp google connect');
+    expect(out).not.toContain('/login');
+    // And it nudges toward picking the right account.
+    expect(out).toMatch(/correct account/i);
+  });
+
+  it('still uses /login for a genuine Bandit-key failure (no Google signal)', () => {
+    const out = describeMcpAuthFailure({
+      server: 'burtson-labs',
+      original: 'The AuthApi rejected the session JWT and API-key re-validation failed',
+      reconnectCommand: '/login   (Bandit sign-in expired)',
+    });
+    expect(out).toContain('/login');
+    expect(out).not.toContain('/mcp google connect');
   });
 });

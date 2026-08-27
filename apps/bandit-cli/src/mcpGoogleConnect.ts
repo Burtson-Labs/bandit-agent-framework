@@ -304,7 +304,7 @@ async function ensureBurtsonLabsMcpServerRegistered(): Promise<
  */
 export async function connectGoogleViaCli(
   cfg: ResolvedConfig,
-  args: { workspace?: string; scopes?: string }
+  args: { workspace?: string; scopes?: string; account?: string }
 ): Promise<string> {
   const creds = resolveCreds(cfg);
   if (!creds) {
@@ -343,6 +343,10 @@ export async function connectGoogleViaCli(
         workspace: args.workspace ?? '',
         scopes: args.scopes ?? 'gmail,docs,drive,sheets,calendar',
         redirect: `http://127.0.0.1:${listener.port}/done`,
+        // Pre-selects the account in Google's picker. AuthApi forces
+        // prompt=select_account so the user can always switch — this just
+        // saves them a click when they know which account they want.
+        loginHint: args.account ?? '',
       }),
     });
     if (!ticketResp.ok) {
@@ -364,6 +368,8 @@ export async function connectGoogleViaCli(
     opened
       ? c.dim('  ↳ A browser tab should have opened. Complete the Google consent flow there.')
       : c.dim('  ↳ Could not auto-open a browser. Open this URL manually:'),
+    c.dim('  ↳ Pick the ') + c.bold('correct account') + c.dim(' in the chooser — if you have a personal and a'),
+    c.dim('     Workspace account signed in, Google shows both.'),
   ];
   if (!opened) {
     intro.push(c.cyan('     ' + connectUrl));
