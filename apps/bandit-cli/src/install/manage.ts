@@ -23,6 +23,21 @@ const CONFIG_DIR = '~/.bandit';
 const isWindows = process.platform === 'win32';
 /** True when running as a bun-compiled standalone binary (vs the npm node script). */
 const isBinaryRuntime = !!(process.versions as Record<string, string | undefined>).bun;
+
+/**
+ * Which install is running, so callers outside this module can pick the right
+ * upgrade mechanism.
+ *
+ * `/update` used to hardcode `npm i -g`. On a curl-installed binary that
+ * installs a SECOND copy into npm's global prefix while the `bandit` on PATH
+ * stays the old binary — the user runs the update, sees it succeed, and is
+ * still on the previous version with two installs to untangle. That is the
+ * exact mess `bandit doctor` exists to clean up, so the updater should not be
+ * creating it.
+ */
+export function isStandaloneBinary(): boolean {
+  return isBinaryRuntime;
+}
 const useColor = !process.env.NO_COLOR && process.stdout.isTTY;
 const c = (code: string, s: string): string => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s);
 const dim = (s: string): string => c('2', s);

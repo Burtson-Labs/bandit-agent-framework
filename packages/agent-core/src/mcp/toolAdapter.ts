@@ -127,8 +127,14 @@ function renderMcpResult(result: { content?: Array<{ type: string; text?: string
 export function mcpToolToAgentTool(
   serverName: string,
   remote: RemoteToolDef,
-  pool: McpClientPool
+  pool: McpClientPool,
+  options?: {
+    /** Command that refreshes this server's credential on auth failure.
+     *  Derived from the server's auth config — see reconnectCommandFor. */
+    reconnectCommand?: string;
+  }
 ): AgentTool {
+  const reconnectCommand = options?.reconnectCommand;
   const namespacedName = `${serverName}.${remote.name}`;
   const description = remote.description
     ? `${remote.description} (via MCP server "${serverName}")`
@@ -185,7 +191,7 @@ export function mcpToolToAgentTool(
         // rather than throwing — same recovery either way.
         if (rendered.isError && looksLikeAuthFailure(rendered.output)) {
           return {
-            output: describeMcpAuthFailure({ server: serverName, original: rendered.output }),
+            output: describeMcpAuthFailure({ server: serverName, original: rendered.output, reconnectCommand }),
             isError: true
           };
         }
@@ -193,7 +199,7 @@ export function mcpToolToAgentTool(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
-          output: formatMcpToolError(namespacedName, serverName, msg),
+          output: formatMcpToolError(namespacedName, serverName, msg, reconnectCommand),
           isError: true
         };
       }
@@ -238,9 +244,35 @@ export async function getAllMcpAgentTools(
     const cached = pool.hasCachedTools(snap.name);
     if (!cached && !isServerMentioned(snap.name, snap.config, prompt)) {continue;}
     const tools = await pool.discoverTools(snap.name);
+    const reconnectCommand = reconnectCommandFor(snap.name, snap.config);
     for (const remote of tools) {
-      out.push(mcpToolToAgentTool(snap.name, remote, pool));
+      out.push(mcpToolToAgentTool(snap.name, remote, pool, { reconnectCommand }));
     }
   }
   return out;
+}
+
+/**
+ * The command that refreshes a server's credential, derived from HOW it
+ * authenticates.
+ *
+ * `auth: 'bandit'` / `bandit-api-key` servers authenticate with the user's
+ * Bandit sign-in itself. When that credential is rejected, `/mcp connect`
+ * would reopen the transport carrying the same stale key and fail the same
+ * way — observed live on mcp.burtson.ai: the guidance said "/mcp connect
+ * burtson-labs", the user's actual fix was signing in again. Every other auth
+ * shape owns its own credential, so the server connect flow is the right
+ * refresh path.
+ */
+function reconnectCommandFor(
+  serverName: string,
+  config: { auth?: unknown } | undefined
+): string {
+  const auth = config?.auth;
+  const isBanditAuth = auth === 'bandit'
+    || (typeof auth === 'object' && auth !== null && (auth as { type?: string }).type === 'bandit-api-key');
+  if (isBanditAuth) {
+    return `/login   (this server authenticates with your Bandit sign-in, which is what expired)`;
+  }
+  return `/mcp connect ${serverName}`;
 }
