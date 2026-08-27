@@ -69,6 +69,10 @@ export interface InkInterfaceOptions {
   /** History navigation (Up/Down). Returns the recalled line or undefined. */
   historyPrev?: () => string | undefined;
   historyNext?: () => string | undefined;
+  /** Reverse history search (Ctrl+R). Given the current query, returns matching
+   *  past submissions, most-recent-first. Wired to the in-session history ring
+   *  in cli.ts. Omit to disable Ctrl+R. */
+  searchHistory?: (query: string) => string[];
   /** Called while a turn is in flight (ink paused, raw-stdin capture)
    *  with the current type-ahead buffer on every change, so the host can
    *  echo it live — e.g. as the composer row of the spinner's dock.
@@ -524,6 +528,7 @@ export function createInkLineInterface(opts: InkInterfaceOptions): InkLineInterf
                 onActivity={() => opts.onActivity?.()}
                 onHistoryPrev={handleHistoryPrev}
                 onHistoryNext={handleHistoryNext}
+                onReverseSearch={opts.searchHistory}
               />
             )}
           </>

@@ -292,3 +292,60 @@ describe('runWithMessages — non-retryable errors bubble', () => {
     }
   });
 });
+
+describe('onMessagesSnapshot — mid-turn persistence hook', () => {
+  it('fires after each tool-executing iteration with the growing conversation', async () => {
+    const captured = { paths: [] as string[] };
+    const registry = new ToolRegistry();
+    registry.register(buildReadFileTool(captured, (p) => `contents-of-${p}`));
+    let turn = 0;
+    const { chat } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) return '<tool_call>{"name":"read_file","params":{"path":"a.ts"}}</tool_call>';
+      if (turn === 2) return '<tool_call>{"name":"read_file","params":{"path":"b.ts"}}</tool_call>';
+      return 'Done.';
+    });
+
+    const snapshots: number[] = [];
+    let sawUserPrompt = false;
+    let sawSystem = false;
+    const loop = new ToolUseLoop(registry, testCtx, {
+      onMessagesSnapshot: (messages: ToolLoopMessage[]) => {
+        snapshots.push(messages.length);
+        if (messages.some((m) => m.role === 'user' && String(m.content).includes('read a.ts'))) sawUserPrompt = true;
+        if (messages.some((m) => m.role === 'system')) sawSystem = true;
+      },
+    });
+
+    await loop.run('read a.ts then b.ts', chat);
+
+    // Two tool-executing iterations → two snapshots, each larger than the last
+    // as the conversation grows.
+    expect(snapshots.length).toBe(2);
+    expect(snapshots[1]).toBeGreaterThan(snapshots[0]);
+    // The user's original prompt is captured from the first snapshot on, so a
+    // crash never loses it.
+    expect(sawUserPrompt).toBe(true);
+    // System messages are filtered out — the snapshot matches what the session
+    // file stores.
+    expect(sawSystem).toBe(false);
+  });
+
+  it('a throwing snapshot callback never aborts the turn', async () => {
+    const registry = new ToolRegistry();
+    registry.register(buildReadFileTool({ paths: [] }, () => 'x'));
+    let turn = 0;
+    const { chat } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) return '<tool_call>{"name":"read_file","params":{"path":"a.ts"}}</tool_call>';
+      return 'Done.';
+    });
+    const loop = new ToolUseLoop(registry, testCtx, {
+      onMessagesSnapshot: () => { throw new Error('disk full'); },
+    });
+
+    const result = await loop.run('read a.ts', chat);
+    expect(result.finalResponse).toContain('Done');
+    expect(result.hitLimit).toBe(false);
+  });
+});

@@ -13,6 +13,16 @@ import type { ToolLoopMessage } from '@burtson-labs/agent-core';
 
 const SESSIONS_DIR = path.join(os.homedir(), '.bandit', 'sessions');
 
+export interface SessionSummary {
+  id: string;
+  /** Last-modified epoch ms. 0 when the file couldn't be stat'd. */
+  mtime: number;
+  /** First user prompt in the session, whitespace-collapsed. Empty if none. */
+  preview: string;
+  /** Number of stored lines (rough proxy for conversation length). */
+  messageCount: number;
+}
+
 export class SessionStore {
   public currentId: string | null = null;
 
@@ -47,6 +57,48 @@ export class SessionStore {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Recent sessions with enough metadata to choose between them: the first
+   * user prompt (so the session is recognizable), a rough turn count, and the
+   * last-modified time. Powers the `--resume` picker.
+   *
+   * Reads at most `limit` files, newest first — bounded work even with
+   * thousands of sessions.
+   */
+  async listWithPreviews(limit = 20): Promise<SessionSummary[]> {
+    const ids = await this.list();
+    const out: SessionSummary[] = [];
+    for (const id of ids.slice(0, limit)) {
+      try {
+        const p = this.pathFor(id);
+        const [stat, text] = await Promise.all([
+          fs.promises.stat(p),
+          fs.promises.readFile(p, 'utf-8'),
+        ]);
+        const messages = text.split('\n').filter(Boolean);
+        let preview = '';
+        for (const line of messages) {
+          try {
+            const m = JSON.parse(line) as ToolLoopMessage;
+            if (m.role === 'user' && typeof m.content === 'string' && m.content.trim()) {
+              preview = m.content.trim().replace(/\s+/g, ' ');
+              break;
+            }
+          } catch { /* skip unparseable line */ }
+        }
+        out.push({
+          id,
+          mtime: stat.mtimeMs,
+          preview,
+          messageCount: messages.length,
+        });
+      } catch {
+        out.push({ id, mtime: 0, preview: '', messageCount: 0 });
+      }
+    }
+    return out;
   }
 
   async startNew(): Promise<string> {
@@ -95,6 +147,38 @@ export class SessionStore {
     if (!this.currentId) return;
     const body = messages.map(m => JSON.stringify(m)).join('\n') + (messages.length ? '\n' : '');
     await fs.promises.writeFile(this.pathFor(this.currentId), body);
+  }
+
+  /** Absolute path of the active session file, or null if none is active.
+   *  Used by the crash guard to tell the user where their work lives. */
+  pathForCurrent(): string | null {
+    return this.currentId ? this.pathFor(this.currentId) : null;
+  }
+
+  /**
+   * Snapshot the in-progress conversation to disk MID-turn.
+   *
+   * The normal persistence path only rewrites the session file after a turn
+   * completes, so killing the process during a long agent run (a 40-iteration
+   * task) loses the whole turn. This writes the current message set atomically —
+   * temp file + rename — so a crash mid-write can't corrupt the session either.
+   *
+   * Best-effort and never throws: a failed snapshot must not take down a turn
+   * that is otherwise fine. The next successful snapshot (or the turn-end
+   * replace) supersedes it.
+   */
+  async snapshot(messages: ToolLoopMessage[]): Promise<void> {
+    if (!this.currentId) {return;}
+    try {
+      const finalPath = this.pathFor(this.currentId);
+      const tmpPath = `${finalPath}.tmp`;
+      const body = messages.map((m) => JSON.stringify(m)).join('\n') + (messages.length ? '\n' : '');
+      await fs.promises.writeFile(tmpPath, body);
+      await fs.promises.rename(tmpPath, finalPath);
+    } catch {
+      // Disk full, permissions, race with another writer — the turn continues;
+      // the completed turn will be persisted normally at the boundary.
+    }
   }
 
   private pathFor(id: string): string {
