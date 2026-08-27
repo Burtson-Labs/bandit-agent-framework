@@ -43,7 +43,16 @@ const AUTH_FAILURE_PATTERNS: RegExp[] = [
   // An error that names a refresh token is an auth failure — Google's is
   // "refused the refresh token", which none of the verb-specific patterns
   // above catch on their own.
-  /\brefresh[_ ]?token\b/i
+  /\brefresh[_ ]?token\b/i,
+  // "No connection" preconditions: the credential isn't expired, it was never
+  // set up (or was disconnected). Recovery is identical — connect it — so this
+  // routes through the same auth-recovery guidance. Google's is "No Google
+  // connection matches the request … Visit …/account/google-connections to
+  // connect one." Verb-agnostic patterns above miss it because nothing is
+  // "expired" or "rejected."
+  /\bno\b[\s\S]{0,40}\bconnection\b[\s\S]{0,30}\b(?:matches|found|configured|exists|available)\b/i,
+  /\b(?:account|workspace)\b[\s\S]{0,30}\b(?:not connected|isn'?t connected|needs? to be connected)\b/i,
+  /\/account\/google-connections\b/i
 ];
 
 export interface McpAuthFailure {
@@ -127,33 +136,47 @@ export function looksLikeAuthFailure(message: string): boolean {
  */
 export function describeMcpAuthFailure(failure: McpAuthFailure): string {
   const { server, original } = failure;
-  // Error content wins over the server's static auth config: a Google-token
-  // failure needs `/mcp google connect` regardless of how the server's
-  // transport authenticates. Otherwise fall back to the config-derived hint
-  // (e.g. `/login` for Bandit-auth servers), then the generic default.
-  const command = looksLikeGoogleAuthFailure(original)
-    ? '/mcp google connect   (re-authorize your Google Workspace — pick the correct account in the browser)'
+  // Error content wins over the server's static auth config: a Google failure
+  // needs `/mcp google connect` regardless of how the server's transport
+  // authenticates. Otherwise fall back to the config-derived hint (e.g.
+  // `/login` for Bandit-auth servers), then the generic default.
+  const isGoogle = looksLikeGoogleAuthFailure(original);
+  const command = isGoogle
+    ? '/mcp google connect   (re-authorize Google in the browser — pick the correct account)'
     : (failure.reconnectCommand ?? `/mcp connect ${server}`);
-  return [
-    `${AUTH_RECOVERY_MARKER} Authentication for the "${server}" MCP server has expired or been rejected.`,
+  const lines = [
+    `${AUTH_RECOVERY_MARKER} The "${server}" MCP server can't reach its data — its connection needs (re)authorizing.`,
     '',
     `Underlying error: ${original}`,
     '',
-    'This is RECOVERABLE and usually takes under a minute — the connection is',
-    'configured correctly, its credential just needs refreshing. Do not treat',
+    'This is RECOVERABLE and usually takes under a minute. Do not treat',
     `"${server}" as permanently unavailable.`,
     '',
     'Do this now, in order:',
-    `1. Tell the user plainly that the "${server}" connection needs re-authorizing,`,
+    `1. Tell the user plainly that the "${server}" connection needs (re)authorizing,`,
     `   and that they can fix it by running: ${command}`,
     `   Present that command as inline code in one sentence — do not wrap it in a`,
-    `   code fence or put it on its own line.`,
+    `   code fence or put it on its own line. Prefer that CLI command over any web`,
+    `   URL in the error above; the user is in the terminal.`,
+  ];
+  if (isGoogle) {
+    // The error carries a workspace/account filter (e.g. workspace=primary). If
+    // the user just connected but under a different label, the connection
+    // exists but doesn't match — `/mcp google list` surfaces that instead of
+    // sending them in a reconnect loop.
+    lines.push(
+      `   If they say they JUST connected, have them run \`/mcp google list\` first —`,
+      `   the account may be connected under a different workspace than the tool asked for.`,
+    );
+  }
+  lines.push(
     '2. Do NOT silently switch to another route to get the same data. If you can',
     '   reach it another way, say what you are about to do and why FIRST — a user',
-    '   who is not told their connection expired will assume it worked.',
+    '   who is not told the connection is down will assume it worked.',
     '3. If the rest of the task does not depend on this server, continue with it',
-    '   and report the expired connection alongside your result.'
-  ].join('\n');
+    '   and report the broken connection alongside your result.',
+  );
+  return lines.join('\n');
 }
 
 /**
