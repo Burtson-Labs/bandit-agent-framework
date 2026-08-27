@@ -2,6 +2,15 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.383
+
+- **The CLI recovers from crashes instead of eating your work.** If Bandit hits an unexpected error, it now restores your terminal (no more invisible cursor or wedged shell), tells you your conversation is saved, and shows the exact `bandit --resume` command to pick up where you left off — plus writes a crash log for bug reports.
+- **Long agent runs are crash-safe mid-turn.** The conversation is now saved as the agent works, not just when a turn finishes, so killing Bandit during a 40-step task recovers to the last completed step instead of losing the whole thing.
+- **`bandit --resume` with no id opens a picker.** Choose from your recent sessions — each shown with a preview of its first message and how long ago it ran — instead of having to look up an id.
+- **Ctrl+R searches your command history** in the CLI, the same reverse-search you use in a shell.
+- **`/retry` re-runs your last message** — `/retry` to try again, or `/retry <new text>` to tweak it first. It replaces the previous attempt rather than stacking on top of it.
+- **The status bar shows context usage as a percentage** (e.g. `ctx 18K/128K 14%`), turning yellow then red as the window fills — the signal that tells you when to wrap up or `/compact`.
+
 ## 1.7.382
 
 - **Fixed: `/update --apply` did nothing.** It re-printed the "update available" notice instead of installing, including the line telling you to run `/update --apply`. Every documented spelling now works (`--apply`, `-y`, `--yes`, `apply`, `now`).
