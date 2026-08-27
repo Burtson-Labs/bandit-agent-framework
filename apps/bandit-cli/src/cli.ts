@@ -71,6 +71,10 @@ import { resolveLang, highlightCode } from './syntaxHighlight';
 import { SessionStore } from './session';
 import { buildSystemPrompt } from './systemPrompt';
 import { promptPermission, formatDenialReason } from './permissionPrompt';
+import { installCrashGuard } from './crashGuard';
+import { pickSession } from './sessionPicker';
+import { searchHistory } from './input/historySearch';
+import { formatContextMeter, estimateConversationTokens } from './contextMeter';
 import { promptAskUser } from './askUserPrompt';
 import { looksLikeYesNoQuestion } from './heuristics/yesNoDetect';
 import {
@@ -149,6 +153,8 @@ interface CliArgs {
   help: boolean;
   version: boolean;
   resume: string | null;
+  /** True when `--resume` was passed with no id — open the session picker. */
+  resumePicker: boolean;
   session: string | null;
   overrides: ConfigOverrides;
 }
@@ -159,6 +165,7 @@ function parseArgs(argv: string[]): CliArgs {
     help: false,
     version: false,
     resume: null,
+    resumePicker: false,
     session: null,
     overrides: {}
   };
@@ -167,7 +174,14 @@ function parseArgs(argv: string[]): CliArgs {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
     else if (a === '--version' || a === '-v') args.version = true;
-    else if (a === '--resume') args.resume = argv[++i] ?? null;
+    else if (a === '--resume') {
+      // `--resume <id>` resumes that session; a bare `--resume` (nothing after
+      // it, or another flag next) opens the picker instead of forcing the user
+      // to go find an id. Only consume the next token when it's an actual value.
+      const next = argv[i + 1];
+      if (next && !next.startsWith('-')) { args.resume = next; i++; }
+      else { args.resumePicker = true; }
+    }
     else if (a === '--session') args.session = argv[++i] ?? null;
     else if (a === '--provider') {
       const next = argv[++i];
@@ -199,7 +213,7 @@ function printUsage(): void {
 ${c.bold('Usage')}
   bandit "<prompt>"           Run a single prompt to completion
   bandit                      Start an interactive REPL
-  bandit --resume <id>        Resume a prior session (see /session list)
+  bandit --resume [id]        Resume a prior session — omit the id to pick from a list
   bandit --session <id>       Start / continue a named session
   bandit doctor               Find and consolidate multiple bandit installs
   bandit upgrade              Update the standalone binary to the latest release
@@ -697,6 +711,10 @@ interface RunOptions {
    * value is approximate (chars/4) — same convention the spinner +
    * footer use. Optional; one-shot mode can ignore it. */
   onTokenDelta?: (deltaTokens: number) => void;
+  /** Persist the in-progress conversation mid-turn so a crash during a long
+   *  agent run doesn't lose the whole turn. Wired to session.snapshot in the
+   *  REPL. See tool-use-loop's onMessagesSnapshot. */
+  onMessagesSnapshot?: (messages: ToolLoopMessage[]) => void;
   /** Host notification hook. The REPL wires this to desktop/bell
    * preferences; one-shot runs can omit it. */
   notify?: (notification: CliNotification) => void;
@@ -2046,7 +2064,8 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       // AS THEY COMPLETE instead of forcing the parent to poll
       // check_task in a loop. See cli.ts's `pendingBackgroundInjections`
       // wiring at REPL scope where the actual queue lives.
-      drainExternalMessages: opts.drainExternalMessages
+      drainExternalMessages: opts.drainExternalMessages,
+      onMessagesSnapshot: opts.onMessagesSnapshot
     });
     await turnLog?.append({
       type: 'final-response',
@@ -3244,6 +3263,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         // the same fuzzyMatchWorkspaceFiles helper the readline Tab
         // completer relies on — single source of truth for file scoring.
         searchFiles: (q) => fuzzyMatchWorkspaceFiles(cwd, q, 30),
+        // Ctrl+R reverse-search over this session's submitted lines — the same
+        // ring the Up/Down arrows walk. searchHistory is pure and tested.
+        searchHistory: (q) => searchHistory(inkHistory, q),
         onCtrlV: handleClipboardImagePaste,
         onActivity: () => {
           if (activeTurnController) spinner.pauseFor(1500);
@@ -3540,6 +3562,36 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   };
   if (!useInk) process.stdin.on('keypress', spinnerPauseHandler);
 
+  // Last-resort crash guard. Installed here, in REPL scope, because the errors
+  // it catches — a throw from an event handler, a detached promise rejection —
+  // escape the `main().catch` at the bottom and would otherwise leave the
+  // terminal in raw mode with the cursor hidden AND print a raw stack over the
+  // UI. See crashGuard.ts. The uninstall handle fires on clean exit below.
+  const crashGuard = installCrashGuard({
+    restoreTerminal: () => {
+      spinner.stop();
+      if (process.stdout.isTTY) process.stdout.write('\x1b[?25h'); // show cursor
+      try { (rl as InkLineInterface).exitTurnMode?.(); } catch { /* not in turn mode */ }
+      try { process.stdin.setRawMode?.(false); } catch { /* not a TTY */ }
+      try { rl.close(); } catch { /* already closing */ }
+    },
+    sessionInfo: () => session.currentId
+      ? { id: session.currentId, path: session.pathForCurrent() ?? session.currentId }
+      : null,
+    writeCrashLog: (report) => {
+      try {
+        const dir = path.join(os.homedir(), '.bandit', 'crashes');
+        fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, `crash-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+        fs.writeFileSync(file, report, 'utf-8');
+        return file;
+      } catch {
+        return null;
+      }
+    },
+    emphasize: (t) => c.red(t),
+  });
+
   // @-mention file picker. When the user types `@` at the tail of the
   // current line, pause readline, open the interactive picker (arrow
   // keys + live filter), and on commit splice the selected path back
@@ -3700,11 +3752,26 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       }
     }
 
-    const tokenLabel = sessionTokenTotal >= 1000
-      ? `~${(sessionTokenTotal / 1000).toFixed(1)}K tok`
-      : sessionTokenTotal >= 100
-        ? `~${sessionTokenTotal} tok`
-        : '';
+    // Context-window pressure — how full the CURRENT conversation is against
+    // the model's window, which is the signal that predicts compaction and
+    // quality drop. The window comes from the (now gateway-authoritative)
+    // capability table, falling back to the Ollama runtime num_ctx for local
+    // tags. Kept as PLAIN text (color is applied per-segment at render, below)
+    // so the width math stays correct; `tokenPressure` carries the coloring.
+    let tokenLabel = '';
+    let tokenPressure: 'ok' | 'warn' | 'high' = 'ok';
+    {
+      const window = getModelCapabilities(model).contextWindow
+        || (resolved.provider === 'ollama' ? resolveOllamaRuntimeOptions(model).num_ctx : 0);
+      const meter = formatContextMeter(estimateConversationTokens(conversation), window);
+      if (meter) {
+        tokenLabel = meter.label;
+        tokenPressure = meter.pressure;
+      } else if (sessionTokenTotal >= 100) {
+        // No known window (unusual) — fall back to the old throughput number.
+        tokenLabel = sessionTokenTotal >= 1000 ? `~${(sessionTokenTotal / 1000).toFixed(1)}K tok` : `~${sessionTokenTotal} tok`;
+      }
+    }
 
     // Flush any background-task notices buffered since the last
     // render. We do this here (between turns) rather than from the
@@ -3745,7 +3812,21 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     }
     const label = parts.join(' · ');
     const padding = Math.max(0, cols - label.length - 1);
-    process.stdout.write(' '.repeat(padding) + c.dim(label) + '\n');
+    // Per-segment styling: dim each part, EXCEPT ones already carrying their
+    // own color (accent queued/update markers) and the context meter under
+    // pressure, which gets yellow/red so a near-full window pops. Width was
+    // computed from the plain `label` above, so the ANSI added here doesn't
+    // throw off the right-alignment. Styling per-part rather than wrapping the
+    // whole string in one c.dim() also avoids a reset mid-string killing dim
+    // for everything after a colored segment.
+    const styled = parts.map((p) => {
+      if (p === tokenLabel && tokenPressure !== 'ok') {
+        return (tokenPressure === 'high' ? c.red : c.yellow)(p);
+      }
+      if (p.includes('\x1b[')) {return p;} // already styled — leave it
+      return c.dim(p);
+    }).join(c.dim(' · '));
+    process.stdout.write(' '.repeat(padding) + styled + '\n');
     // Visual frame above the input — separates the prompt from the
     // turn output / spinner so the loading indicator (which renders
     // in the output stream above this line) sits in a consistent
@@ -4542,6 +4623,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             // Turn grants must not outlive the turn that created them, or
             // "allow turn" quietly becomes "allow session".
             registerTurnGrantReset: (reset) => { clearTurnGrants = reset; },
+            // Journal the conversation as the turn progresses so a crash during
+            // a long agent run recovers to the last completed iteration instead
+            // of losing the whole turn. session.snapshot is atomic + best-effort.
+            onMessagesSnapshot: (messages) => { void session.snapshot(messages); },
             customRepoRoots: resolved.repoRoots,
             tavilyApiKey: resolved.tavilyApiKey,
             backgroundStore,
@@ -5014,6 +5099,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       // don't leak orphaned subprocesses across REPL exits. Failures
       // here are inert — pool.dispose() catches its own errors.
       try { await mcpPool.dispose(); } catch { /* ignore */ }
+      // Clean exit — the crash guard is no longer needed, and leaving it armed
+      // would turn a normal shutdown-time rejection into a scary crash report.
+      crashGuard.uninstall();
       process.stdout.write(c.dim(`\n${glyph.info} session saved: ${session.currentId}\n`));
       process.exit(0);
     };
@@ -5202,7 +5290,20 @@ async function main(): Promise<void> {
   const session = new SessionStore();
   await session.init();
 
-  if (args.resume) {
+  if (args.resumePicker) {
+    // Bare `--resume` — let the user choose from recent sessions instead of
+    // requiring them to remember an id.
+    const summaries = await session.listWithPreviews(20).catch(() => []);
+    const chosen = await pickSession({ sessions: summaries, now: Date.now() });
+    if (chosen) {
+      await session.resume(chosen);
+    } else if (!process.stdin.isTTY) {
+      // Non-TTY prints the list and resolves null — nothing to resume, exit
+      // cleanly rather than dropping into an interactive REPL with no input.
+      return;
+    }
+    // Cancelled in a TTY → fall through and start a fresh session.
+  } else if (args.resume) {
     const ok = await session.resume(args.resume);
     if (!ok) { process.stderr.write(c.red(`session not found: ${args.resume}\n`)); process.exit(1); }
   } else if (args.session) {

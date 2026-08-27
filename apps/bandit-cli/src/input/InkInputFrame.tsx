@@ -62,6 +62,10 @@ export interface InkInputFrameProps {
   /** Called when the user presses Up/Down for history navigation. */
   onHistoryPrev?: () => void;
   onHistoryNext?: () => void;
+  /** Reverse history search (Ctrl+R). Given the current query, returns matching
+   *  past submissions, most-recent-first. When provided, Ctrl+R opens an
+   *  incremental-search prompt over these results. */
+  onReverseSearch?: (query: string) => string[];
   /** Fuzzy-search workspace files for the @ suggestion overlay.
    *  When omitted, typing `@` just inserts the literal character. */
   searchFiles?: (query: string) => string[];
@@ -176,6 +180,26 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
   const [atResults, setAtResults] = React.useState<string[]>([]);
   const [atSelectedIdx, setAtSelectedIdx] = React.useState(0);
 
+  // Reverse history search (Ctrl+R). While active the TextInput is unmounted
+  // and a search prompt takes its place, so keystrokes drive the query instead
+  // of the buffer. `preSearchValue` is what was in the input before search
+  // opened, restored on cancel.
+  const [searchActive, setSearchActive] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchIdx, setSearchIdx] = React.useState(0);
+  const preSearchValue = React.useRef('');
+  const searchMatches = React.useMemo(
+    () => (searchActive && props.onReverseSearch ? props.onReverseSearch(searchQuery) : []),
+    [searchActive, searchQuery, props],
+  );
+  const currentMatch = searchMatches[searchIdx] ?? '';
+  const commitSearch = React.useCallback((value: string): void => {
+    setSearchActive(false);
+    setSearchQuery('');
+    setSearchIdx(0);
+    (props.onAccept ?? props.onChange)(value);
+  }, [props]);
+
   // Cap the frame ONE column short of the terminal width. A rounded-border
   // Box that spans the full width lands its right border on the terminal's
   // last column; with auto-wrap (DECAWM) on, that printable char at the last
@@ -273,6 +297,50 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
   // never have two handlers fighting for the same Enter event.
   useInput((input, key) => {
     props.onActivity?.();
+
+    // Reverse history search (Ctrl+R). Handled first so it owns all input while
+    // active — the TextInput is unmounted during search (see the render below),
+    // so there's no competing capture.
+    if (props.onReverseSearch) {
+      if (key.ctrl && input === 'r') {
+        if (!searchActive) {
+          preSearchValue.current = props.value;
+          setSearchActive(true);
+          setSearchQuery('');
+          setSearchIdx(0);
+        } else {
+          // Repeat Ctrl+R cycles to the next-older match.
+          setSearchIdx((i) => (searchMatches.length ? (i + 1) % searchMatches.length : 0));
+        }
+        return;
+      }
+      if (searchActive) {
+        if (key.escape) {
+          // Cancel — restore whatever was in the input before search opened.
+          commitSearch(preSearchValue.current);
+          return;
+        }
+        if (key.return) {
+          // Accept the current match into the buffer (a second Enter submits it,
+          // giving the user a chance to edit first). Empty query → restore.
+          commitSearch(currentMatch || preSearchValue.current);
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setSearchQuery((q) => q.slice(0, -1));
+          setSearchIdx(0);
+          return;
+        }
+        // Printable input extends the query. Ctrl/meta chords are swallowed so
+        // they can't leak into the buffer while search owns the frame.
+        if (input && !key.ctrl && !key.meta) {
+          setSearchQuery((q) => q + input);
+          setSearchIdx(0);
+        }
+        return;
+      }
+    }
+
     if (atActive) {
       if (key.escape) {
         // Dismiss the overlay without losing the typed `@query`.
@@ -400,24 +468,41 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
   // `!` then backspace produced two composers), we recolor the existing
   // input border + footer yellow. The frame is the same height whether or
   // not `!` is typed, so there's nothing for ink to mis-erase.
-  const hint = showBang
-    ? '▸ SHELL MODE — next Enter runs in /bin/sh; the agent will not see it'
-    : (props.footerTip && props.footerTip.length > 0 ? props.footerTip : '? for shortcuts');
+  const hint = searchActive
+    ? 'reverse-search · type to filter · Ctrl+R next match · Enter to edit · Esc cancel'
+    : showBang
+      ? '▸ SHELL MODE — next Enter runs in /bin/sh; the agent will not see it'
+      : (props.footerTip && props.footerTip.length > 0 ? props.footerTip : '? for shortcuts');
 
   return (
     <Box flexDirection="column" width={frameWidth}>
       {showShortcuts && <ShortcutsOverlay />}
       {atActive && <AtMentionOverlay results={atResults} selectedIdx={atSelectedIdx} />}
-      <Box borderStyle="round" borderColor={showBang ? 'yellow' : 'gray'} paddingX={1}>
-        <Text color={showBang ? 'yellow' : 'cyan'}>{props.promptText}</Text>
-        <TextInput
-          key={`tx-${props.cursorBumpKey ?? 0}`}
-          value={props.value}
-          onChange={handleChange}
-          onSubmit={handleTextInputSubmit}
-          showCursor
-          focus
-        />
+      <Box borderStyle="round" borderColor={searchActive ? 'magenta' : (showBang ? 'yellow' : 'gray')} paddingX={1}>
+        {searchActive ? (
+          // Reverse-search prompt in place of the input. TextInput is unmounted
+          // here so it can't also consume keystrokes — the frame's useInput
+          // owns them while search is active.
+          <Text>
+            <Text color="magenta">(reverse-search)</Text>
+            <Text dimColor>`</Text>
+            <Text>{searchQuery}</Text>
+            <Text dimColor>`: </Text>
+            <Text color="cyan">{currentMatch || (searchQuery ? '(no match)' : '')}</Text>
+          </Text>
+        ) : (
+          <>
+            <Text color={showBang ? 'yellow' : 'cyan'}>{props.promptText}</Text>
+            <TextInput
+              key={`tx-${props.cursorBumpKey ?? 0}`}
+              value={props.value}
+              onChange={handleChange}
+              onSubmit={handleTextInputSubmit}
+              showCursor
+              focus
+            />
+          </>
+        )}
       </Box>
       <Box paddingLeft={2}>
         {/* truncate-end keeps the footer to exactly ONE line at any width.

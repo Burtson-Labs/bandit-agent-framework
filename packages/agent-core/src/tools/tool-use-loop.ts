@@ -110,6 +110,17 @@ export interface ToolUseLoopOptions {
     | Promise<{ allow: boolean; reason?: string }>
     | { allow: boolean; reason?: string };
   /**
+   * Fired once per iteration with the conversation as it stands, AFTER that
+   * iteration's tool results have been folded in. Hosts use it to persist
+   * in-progress work so a crash during a long multi-iteration run doesn't lose
+   * the turn (the normal persistence path only writes at turn boundaries).
+   *
+   * Best-effort from the host's side: the loop does not await it and swallows a
+   * throw, so a slow or failing snapshot can never stall or abort a turn. The
+   * array is a defensive copy — safe to hold or serialize.
+   */
+  onMessagesSnapshot?: (messages: ToolLoopMessage[]) => void;
+  /**
    * Token budget for the chat messages passed to the provider on each
    * iteration. When the accumulated tool-result history would exceed
    * this, older tool results get collapsed to one-line placeholders.
@@ -2246,6 +2257,17 @@ export class ToolUseLoop {
           `subagents with run_in_background="true" so the parent can keep responding.]`;
       }
       messages.push({ role: 'user', content: resultsMessage });
+
+      // Mid-turn persistence hook. This iteration's assistant turn and tool
+      // results are now committed to `messages`, so hand a copy to the host to
+      // journal. Filtering system messages keeps the snapshot aligned with what
+      // the session file stores. Wrapped because a host callback must never be
+      // able to abort a turn.
+      if (effectiveOptions.onMessagesSnapshot) {
+        try {
+          effectiveOptions.onMessagesSnapshot(messages.filter((m) => m.role !== 'system'));
+        } catch { /* snapshot is best-effort — a turn in progress is more important */ }
+      }
 
       // Fired-and-forgotten guard. The model just spawned ≥2 background
       // subagents in this iteration. Without a nudge, the next iteration

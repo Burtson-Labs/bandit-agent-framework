@@ -95,6 +95,42 @@ export function wantsApply(args: string): boolean {
     .some((token) => APPLY_TOKENS.has(token.toLowerCase()));
 }
 
+export interface RetryPlan {
+  /** The prompt to re-run. */
+  prompt: string;
+  /** Conversation with the last exchange removed, ready to re-run `prompt`
+   *  against. */
+  trimmedConversation: ToolLoopMessage[];
+}
+
+/**
+ * Work out what `/retry` should do, as a pure function over the conversation.
+ *
+ * Semantics: a retry replaces the last attempt rather than stacking on top of
+ * it. So we drop the trailing assistant reply (the one being retried) and the
+ * user prompt that produced it, then re-run either that same prompt or an
+ * edited one. Leaving the old exchange in place would make the model answer
+ * "again" with the failed attempt still in its context, biasing it toward the
+ * same result — the opposite of what a retry is for.
+ *
+ * Returns null when there's nothing to retry (no prior user prompt).
+ *
+ * @param conversation  Current conversation (user/assistant only).
+ * @param edited        Optional replacement text; when empty, reuse the last
+ *                      user prompt verbatim.
+ */
+export function planRetry(conversation: ToolLoopMessage[], edited?: string): RetryPlan | null {
+  const lastUserIdx = [...conversation].map((m) => m.role).lastIndexOf('user');
+  if (lastUserIdx === -1) {return null;}
+  const lastUser = conversation[lastUserIdx];
+  const original = typeof lastUser.content === 'string' ? lastUser.content : '';
+  const prompt = edited && edited.trim() ? edited.trim() : original;
+  if (!prompt) {return null;}
+  // Everything before the last user prompt survives; the last user prompt and
+  // any assistant messages after it are dropped so the retry replaces them.
+  return { prompt, trimmedConversation: conversation.slice(0, lastUserIdx) };
+}
+
 function semverCompare(a: string, b: string): number {
   const parse = (v: string) => v.replace(/[^0-9.]/g, '').split('.').map((s) => parseInt(s, 10) || 0);
   const [aMajor, aMinor, aPatch] = parse(a);
@@ -249,7 +285,7 @@ export interface SlashCommand {
 
 const HELP_GROUPS: Array<{ title: string; names: string[] }> = [
   { title: 'Start Here', names: ['doctor', 'connect', 'config', 'model', 'provider', 'help'] },
-  { title: 'Daily Work', names: ['init', 'plan', 'review', 'test', 'refactor', 'explain', 'commit'] },
+  { title: 'Daily Work', names: ['init', 'plan', 'review', 'test', 'refactor', 'explain', 'commit', 'retry'] },
   { title: 'Context', names: ['paste', 'remember', 'memory', 'compact', 'rewind', 'session'] },
   { title: 'Automation', names: ['tasks', 'skills', 'skill', 'mcp', 'repos'] },
   { title: 'Account & Runtime', names: ['login', 'logout', 'usage', 'ollama', 'tavily', 'think', 'profile', 'watchdog', 'notify', 'theme', 'update'] },
@@ -545,6 +581,25 @@ export const slashCommands: SlashCommand[] = [
         c.dim(`  ${glyph.check} saved clipboard image (${kb} KB) → ${c.cyan(relPath)}`),
         c.dim(`     reference it in your next message with ${c.cyan('@' + relPath)}`)
       ].join('\n');
+    }
+  },
+  {
+    name: 'retry',
+    description: 'Re-run your last message — /retry to try it again, /retry <new text> to tweak it first',
+    run(args, ctx) {
+      if (!ctx.queuePrompt) {
+        return c.dim('(retry is only available in the interactive REPL)');
+      }
+      const plan = planRetry(ctx.getConversation(), args);
+      if (!plan) {
+        return c.dim('(nothing to retry yet — send a message first)');
+      }
+      // Drop the replaced exchange from history, then queue the prompt so it
+      // runs through the normal turn path — same as if the user retyped it.
+      ctx.setConversation(plan.trimmedConversation);
+      ctx.queuePrompt(plan.prompt);
+      const edited = args.trim().length > 0;
+      return c.dim(`  ${glyph.arrow} ${edited ? 'retrying with your edit' : 'retrying'}: `) + c.cyan(plan.prompt.length > 80 ? plan.prompt.slice(0, 79) + '…' : plan.prompt);
     }
   },
   {
