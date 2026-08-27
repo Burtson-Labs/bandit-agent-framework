@@ -12,7 +12,9 @@ import { describe, it, expect } from 'vitest';
 import {
   looksLikeAuthFailure,
   describeMcpAuthFailure,
-  formatMcpToolError
+  formatMcpToolError,
+  isAuthRecoveryGuidance,
+  AUTH_RECOVERY_MARKER
 } from '../src/mcp/authFailure';
 
 describe('looksLikeAuthFailure', () => {
@@ -95,5 +97,64 @@ describe('formatMcpToolError', () => {
   it('passes everything else through unchanged', () => {
     const out = formatMcpToolError('gmail.listMessages', 'gmail', 'ECONNREFUSED');
     expect(out).toBe('Error invoking gmail.listMessages: ECONNREFUSED');
+  });
+});
+
+/**
+ * Field report, second round: the guidance fired correctly but three things
+ * around it degraded the turn — the default reconnect command was wrong for
+ * bandit-auth servers, the false-tool-absence detector double-prompted the
+ * (correct) reauth answer, and the model rendered the command in a clunky
+ * fenced block. These pin the second-round fixes.
+ */
+describe('per-server reconnect command', () => {
+  it('uses the supplied command instead of the /mcp connect default', () => {
+    const out = describeMcpAuthFailure({
+      server: 'burtson-labs',
+      original: 'HTTP 401',
+      reconnectCommand: '/login   (this server authenticates with your Bandit sign-in, which is what expired)'
+    });
+    expect(out).toContain('/login');
+    // The default would have reopened the transport with the same stale key.
+    expect(out).not.toContain('/mcp connect burtson-labs');
+  });
+
+  it('falls back to /mcp connect for servers that own their credential', () => {
+    expect(describeMcpAuthFailure({ server: 'gmail', original: 'HTTP 401' }))
+      .toContain('/mcp connect gmail');
+  });
+
+  it('threads through formatMcpToolError', () => {
+    const out = formatMcpToolError('burtson-labs.listMessages', 'burtson-labs', 'HTTP 401', '/login');
+    expect(out).toContain('/login');
+  });
+});
+
+describe('auth-recovery marker', () => {
+  it('every guidance message carries the marker', () => {
+    expect(isAuthRecoveryGuidance(describeMcpAuthFailure({ server: 's', original: 'e' }))).toBe(true);
+  });
+
+  it('ordinary errors and prose do not carry it', () => {
+    for (const text of [
+      'Error invoking gmail.listMessages: ECONNREFUSED',
+      'The connection has expired, please re-authorize',
+      ''
+    ]) {
+      expect(isAuthRecoveryGuidance(text), JSON.stringify(text.slice(0, 40))).toBe(false);
+    }
+  });
+
+  it('the marker is stable — rewording the prose must not break the loop exemption', () => {
+    expect(describeMcpAuthFailure({ server: 's', original: 'e' }).startsWith(AUTH_RECOVERY_MARKER)).toBe(true);
+  });
+});
+
+describe('display guidance', () => {
+  it('tells the model to keep the command inline, not fenced', () => {
+    // The fenced rendering read as broken horizontal rules in the terminal.
+    const out = describeMcpAuthFailure({ server: 's', original: 'e' });
+    expect(out).toMatch(/inline code/);
+    expect(out).toMatch(/do not wrap it in a/);
   });
 });

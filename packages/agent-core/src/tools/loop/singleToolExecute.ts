@@ -118,7 +118,24 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
     const tool = registry.get(tc.name);
     if (!tool) {
       emit('tool_loop:tool_not_found', { name: tc.name });
-      return { name: tc.name, output: `Error: tool "${tc.name}" is not registered.`, isError: true };
+      // MCP tools are namespaced `<server>.<tool>`, but models reach for the
+      // bare name the server advertises — `listMessages`, not
+      // `burtson-labs.listMessages`. The bare error sent the model into a
+      // check-the-list / retry spiral that burned 3+ iterations per turn
+      // (observed live: three reasoning rounds rediscovering the namespace).
+      // Name the correction and the retry converges in one step.
+      const wanted = tc.name.toLowerCase();
+      const suggestions = registry.getAll()
+        .map((t) => t.name)
+        .filter((n) => {
+          const lower = n.toLowerCase();
+          return lower.endsWith(`.${wanted}`) || lower.endsWith(`__${wanted}`);
+        })
+        .slice(0, 3);
+      const hint = suggestions.length > 0
+        ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}? MCP tools must be called with their server prefix.`
+        : '';
+      return { name: tc.name, output: `Error: tool "${tc.name}" is not registered.${hint}`, isError: true };
     }
     // Also surface the RAW tool_call block (first 400 chars) so
     // observers can diagnose parser-edge cases. When a param

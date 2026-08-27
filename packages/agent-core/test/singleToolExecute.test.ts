@@ -216,3 +216,42 @@ describe('createToolDispatcher — exception path', () => {
     expect((err?.payload as { error: string }).error).toContain('boom');
   });
 });
+
+/**
+ * MCP tools register namespaced (`<server>.<tool>`) but models reach for the
+ * bare name the server advertises. The bare "not registered" error sent one
+ * model through three reasoning rounds rediscovering the namespace on every
+ * such call. The error now names the correction.
+ */
+describe('createToolDispatcher — namespaced-tool suggestions', () => {
+  const withMcpTool = () => {
+    const reg = new ToolRegistry();
+    reg.register(buildEditTool('burtson-labs.listMessages', async () => ({ output: 'ok' })));
+    reg.register(buildEditTool('burtson-labs.sendEmail', async () => ({ output: 'ok' })));
+    return reg;
+  };
+
+  it('suggests the namespaced tool when the bare name is called', async () => {
+    const { deps } = makeDeps({ registry: withMcpTool() });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch({ name: 'listMessages', params: {}, raw: '' });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('"burtson-labs.listMessages"');
+    expect(result.output).toContain('server prefix');
+  });
+
+  it('matches case-insensitively — models drift on casing', async () => {
+    const { deps } = makeDeps({ registry: withMcpTool() });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch({ name: 'listmessages', params: {}, raw: '' });
+    expect(result.output).toContain('burtson-labs.listMessages');
+  });
+
+  it('stays a plain error when nothing matches', async () => {
+    const { deps } = makeDeps({ registry: withMcpTool() });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch({ name: 'nonexistent_tool', params: {}, raw: '' });
+    expect(result.isError).toBe(true);
+    expect(result.output).not.toContain('Did you mean');
+  });
+});

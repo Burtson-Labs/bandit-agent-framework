@@ -47,6 +47,35 @@ export interface McpAuthFailure {
   server: string;
   /** Original error text, preserved so the user can see what actually failed. */
   original: string;
+  /**
+   * The command that actually refreshes THIS server's credential.
+   *
+   * Defaults to `/mcp connect <server>`, which re-runs the server's own
+   * connect flow — right for OAuth-style servers. Wrong for servers with
+   * `auth: 'bandit'`: their credential IS the user's Bandit sign-in, and
+   * `/mcp connect` would reopen the transport carrying the same rejected key,
+   * fail identically, and teach the user that the recovery advice is noise.
+   * Hosts pass the hint from the server's auth config at registration time —
+   * see getAllMcpAgentTools.
+   */
+  reconnectCommand?: string;
+}
+
+/**
+ * Stable sentinel embedded in every auth-recovery guidance message.
+ *
+ * The loop's false-tool-absence detector fires on "I can't access X" claims
+ * when X is registered — which is exactly what a CORRECT auth-expiry answer
+ * looks like. It needs ground truth that an auth failure really happened this
+ * turn, and this marker in a tool result is that ground truth. A distinctive
+ * token rather than matching the prose so rewording the guidance can't
+ * silently break the exemption.
+ */
+export const AUTH_RECOVERY_MARKER = '[auth-recovery]';
+
+/** True when a tool result carries auth-recovery guidance from this module. */
+export function isAuthRecoveryGuidance(text: string): boolean {
+  return typeof text === 'string' && text.includes(AUTH_RECOVERY_MARKER);
 }
 
 /**
@@ -76,8 +105,9 @@ export function looksLikeAuthFailure(message: string): boolean {
  */
 export function describeMcpAuthFailure(failure: McpAuthFailure): string {
   const { server, original } = failure;
+  const command = failure.reconnectCommand ?? `/mcp connect ${server}`;
   return [
-    `Authentication for the "${server}" MCP server has expired or been rejected.`,
+    `${AUTH_RECOVERY_MARKER} Authentication for the "${server}" MCP server has expired or been rejected.`,
     '',
     `Underlying error: ${original}`,
     '',
@@ -87,7 +117,9 @@ export function describeMcpAuthFailure(failure: McpAuthFailure): string {
     '',
     'Do this now, in order:',
     `1. Tell the user plainly that the "${server}" connection needs re-authorizing,`,
-    `   and that they can fix it by running: /mcp connect ${server}`,
+    `   and that they can fix it by running: ${command}`,
+    `   Present that command as inline code in one sentence — do not wrap it in a`,
+    `   code fence or put it on its own line.`,
     '2. Do NOT silently switch to another route to get the same data. If you can',
     '   reach it another way, say what you are about to do and why FIRST — a user',
     '   who is not told their connection expired will assume it worked.',
@@ -100,9 +132,14 @@ export function describeMcpAuthFailure(failure: McpAuthFailure): string {
  * Wrap an MCP invocation error, upgrading auth-shaped failures into recovery
  * instructions and passing everything else through unchanged.
  */
-export function formatMcpToolError(namespacedName: string, server: string, message: string): string {
+export function formatMcpToolError(
+  namespacedName: string,
+  server: string,
+  message: string,
+  reconnectCommand?: string
+): string {
   if (looksLikeAuthFailure(message)) {
-    return describeMcpAuthFailure({ server, original: message });
+    return describeMcpAuthFailure({ server, original: message, reconnectCommand });
   }
   return `Error invoking ${namespacedName}: ${message}`;
 }

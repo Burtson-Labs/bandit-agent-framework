@@ -25,6 +25,7 @@ import type { SessionStore } from './session';
 import type { ToolExecutionContext } from '@burtson-labs/agent-core';
 import { describeConfig, globalConfigPath, saveApiKey, clearApiKey, saveProvider, saveOllamaUrl, saveOpenaiConfig, saveTavilyKey, clearTavilyKey, addRepoRoot, removeRepoRoot, type ResolvedConfig, type ConfiguredProviderKind } from './config';
 import { OPENAI_PRESETS } from './openaiPresets';
+import { isStandaloneBinary } from './install/manage';
 
 // Canonical registry package — version checks always go here.
 const REGISTRY_PACKAGE = '@burtson-labs/bandit-stealth-cli';
@@ -68,6 +69,32 @@ function fetchLatestVersion(): Promise<string | null> {
 }
 
 /** Semver compare — returns -1 / 0 / 1. Handles 3-segment versions only. */
+/**
+ * Tokens that mean "actually install it" on `/update`.
+ *
+ * Exported so this is testable in isolation, which the previous inline version
+ * was not — and it was broken for every flag the help text advertises.
+ *
+ * The old check was `/\b(--apply|-y|now)\b/`. `\b` matches a transition between
+ * a word and a non-word character, and `--apply` BEGINS with a non-word
+ * character, so no boundary exists before it and the alternative could never
+ * match. Same for `-y`. Only the undocumented `now` worked, so `/update
+ * --apply` silently re-printed the "update available" banner forever while the
+ * user did exactly what the output told them to.
+ *
+ * Exact-token matching instead of a regex: flags are discrete words, and this
+ * cannot develop a boundary subtlety later.
+ */
+const APPLY_TOKENS = new Set(['--apply', '-y', '--yes', 'apply', 'now']);
+
+export function wantsApply(args: string): boolean {
+  return (args ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((token) => APPLY_TOKENS.has(token.toLowerCase()));
+}
+
 function semverCompare(a: string, b: string): number {
   const parse = (v: string) => v.replace(/[^0-9.]/g, '').split('.').map((s) => parseInt(s, 10) || 0);
   const [aMajor, aMinor, aPatch] = parse(a);
@@ -2957,7 +2984,7 @@ export const slashCommands: SlashCommand[] = [
       // installed globally or run from a `pnpm link` dev copy.
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const current = (require('../package.json') as { version: string }).version;
-      const apply = /\b(--apply|-y|now)\b/.test(args.trim());
+      const apply = wantsApply(args);
       process.stdout.write(c.dim('checking registry…\n'));
       const latest = await fetchLatestVersion();
       if (!latest) {
@@ -2983,29 +3010,52 @@ export const slashCommands: SlashCommand[] = [
       // without `-g` from a non-package directory creates a node_modules
       // tree wherever the user ran bandit and leaves the global shim
       // pointing at the old version).
+      // Which install is running decides how to update it. `npm i -g` against a
+      // curl-installed standalone binary installs a SECOND copy into npm's
+      // global prefix while the `bandit` on PATH stays the old binary — the
+      // update reports success and changes nothing. Route to the mechanism that
+      // actually owns this install.
+      const standalone = isStandaloneBinary();
+      const upgradeCmd = standalone ? 'bandit upgrade' : `npm i -g ${PACKAGE_NAME}`;
+
       if (!apply) {
-        return [
+        const lines = [
           `${c.accent(glyph.spark)} Update available: ${c.bold(current)} → ${c.bold(latest)}`,
-          '',
-          c.dim('Install now without leaving the REPL:'),
-          `  ${c.cyan('/update --apply')}   ${c.dim('(runs ' + c.cyan('npm i -g ' + PACKAGE_NAME) + ' for you, then exits)')}`,
-          '',
-          c.dim('Or do it manually — exit the REPL, then run one of:'),
-          `  ${c.cyan('npm i -g ' + PACKAGE_NAME)}`,
-          `  ${c.cyan('pnpm add -g ' + PACKAGE_NAME)}`,
-          c.dim('(must include ') + c.cyan('-g') + c.dim(' or it installs locally and the global ') + c.cyan('bandit') + c.dim(' shim stays on the old version.)'),
-          '',
-          c.dim('Or see what changed:'),
-          `  ${c.cyan('npm view ' + REGISTRY_PACKAGE + ' versions --json')}`
-        ].join('\n');
+          ''
+        ];
+        if (standalone) {
+          lines.push(
+            c.dim('You are running the standalone binary. Update it with:'),
+            `  ${c.cyan('bandit upgrade')}   ${c.dim('(replaces the binary in place)')}`,
+            '',
+            c.dim('Or from this REPL: ') + c.cyan('/update --apply'),
+            c.dim('Do NOT use ') + c.cyan('npm i -g') + c.dim(' here — it would add a second install alongside the binary.')
+          );
+        } else {
+          lines.push(
+            c.dim('Install now without leaving the REPL:'),
+            `  ${c.cyan('/update --apply')}   ${c.dim('(runs ' + c.cyan(upgradeCmd) + ' for you, then exits)')}`,
+            '',
+            c.dim('Or do it manually — exit the REPL, then run one of:'),
+            `  ${c.cyan('npm i -g ' + PACKAGE_NAME)}`,
+            `  ${c.cyan('pnpm add -g ' + PACKAGE_NAME)}`,
+            c.dim('(must include ') + c.cyan('-g') + c.dim(' or it installs locally and the global ') + c.cyan('bandit') + c.dim(' shim stays on the old version.)')
+          );
+        }
+        lines.push('', c.dim('Or see what changed:'), `  ${c.cyan('npm view ' + REGISTRY_PACKAGE + ' versions --json')}`);
+        return lines.join('\n');
       }
-      // --apply path: run the global install ourselves so the user can't
-      // forget the -g flag. We exit the REPL afterwards because the
-      // currently-running process is still pinned to the old dist/cli.js
-      // — the next `bandit` invocation picks up the new binary.
-      process.stdout.write(c.dim('Running ') + c.cyan('npm i -g ' + PACKAGE_NAME) + c.dim(' …\n'));
+
+      // --apply path: run the upgrade ourselves so the user can't pick the
+      // wrong mechanism (or forget `-g`). We exit the REPL afterwards because
+      // the running process is still pinned to the old build — the next
+      // `bandit` invocation picks up the new one.
+      const [bin, ...binArgs] = standalone
+        ? ['bandit', 'upgrade']
+        : ['npm', 'i', '-g', PACKAGE_NAME];
+      process.stdout.write(c.dim('Running ') + c.cyan(upgradeCmd) + c.dim(' …\n'));
       const result = await new Promise<{ code: number | null; err?: string }>((resolve) => {
-        const proc = cp.spawn('npm', ['i', '-g', PACKAGE_NAME], {
+        const proc = cp.spawn(bin, binArgs, {
           shell: false,
           stdio: ['ignore', 'inherit', 'inherit']
         });
@@ -3021,9 +3071,9 @@ export const slashCommands: SlashCommand[] = [
         return '';
       }
       return [
-        c.red(`${glyph.warn} Install failed${result.err ? `: ${result.err}` : ` (npm exited ${result.code})`}.`),
+        c.red(`${glyph.warn} Update failed${result.err ? `: ${result.err}` : ` (exited ${result.code})`}.`),
         c.dim('Run it manually from your shell:'),
-        `  ${c.cyan('npm i -g ' + PACKAGE_NAME)}`
+        `  ${c.cyan(upgradeCmd)}`
       ].join('\n');
     }
   },

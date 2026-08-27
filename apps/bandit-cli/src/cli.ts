@@ -315,7 +315,12 @@ function permissionRisk(name: string, params: Record<string, string>): string {
   }
   if (name === 'run_command') {
     const full = `${params.cmd ?? ''} ${params.args ?? ''}`.trim();
-    if (/\b(rm|dd|mkfs|chmod|chown|sudo)\b|\b--force\b|\b-f\b/.test(full)) {
+    // `(^|\s)` rather than `\b` before the dashed flags: `\b` needs a
+    // word/non-word transition and `--force` STARTS with a non-word
+    // character, so `\b--force\b` never matched and `git push --force`
+    // silently got the generic risk line. Same defect as the old /update
+    // flag parsing.
+    if (/\b(rm|dd|mkfs|chmod|chown|sudo)\b|(^|\s)--force\b|(^|\s)-f\b/.test(full)) {
       return 'High impact shell command. Check the command and working directory carefully.';
     }
     if (/\b(npm|pnpm|yarn|bun|pip|cargo|go)\b.*\b(install|add|update|upgrade)\b/i.test(full)) {

@@ -29,6 +29,7 @@ import { executeParallelBatch } from './loop/parallelExecute';
 import { applyGoalAnchorIfNeeded } from './loop/goalAnchor';
 import { tryAnnounceIntentNudge, tryAskUserNudge } from './loop/finalAnswerNudges';
 import { detectFalseToolAbsence, buildToolAvailabilityNudge } from './toolAvailabilityDetector';
+import { isAuthRecoveryGuidance } from '../mcp/authFailure';
 import {
   sleep,
   isRetryableLlmError,
@@ -456,6 +457,10 @@ export class ToolUseLoop {
     let toolAbsenceCorrectionsFired = 0;
     let toolErrorRecoveryFired = 0;
     let lastIterationHadToolError = false;
+    // Set when a tool result carried MCP auth-recovery guidance this turn —
+    // exempts the model's "I can't reach X until you re-authorize" answer from
+    // the false-tool-absence detector. See the setter below for the trace.
+    let authRecoveryObservedThisTurn = false;
     const PARSE_RETRY_CAP = 2;
     const FAKE_TOOL_RESULT_CAP = 2;
     const TOOL_ABSENCE_CORRECTION_CAP = 1;
@@ -1208,6 +1213,10 @@ export class ToolUseLoop {
         !hitLimit
         && !hasToolCalls(response)
         && toolAbsenceCorrectionsFired < TOOL_ABSENCE_CORRECTION_CAP
+        // A real auth failure happened this turn — an unavailability claim is
+        // the CORRECT answer, not a hallucination. Nudging here made the model
+        // repeat its reauth answer verbatim, doubled in the transcript.
+        && !authRecoveryObservedThisTurn
       ) {
         const registeredNames = this.registry.getAll().map((t) => t.name);
         // Reasoning channels MUST be stripped before prose-matching:
@@ -2202,6 +2211,20 @@ export class ToolUseLoop {
       // iteration's no-tool-call branch can fire the recovery nudge if
       // the model abandons the request rather than retrying.
       lastIterationHadToolError = toolResults.some((r) => r.isError === true);
+
+      // An auth-recovery guidance result means the correct next move is the
+      // model REPORTING an unavailability — "the connection expired, run X" —
+      // which is precisely the phrasing the false-tool-absence detector calls
+      // a hallucination (the tool IS registered; its credential is not).
+      // Observed live: the model gave the right reauth answer, the detector
+      // fired its harness check, and the model repeated the same answer —
+      // rendered twice in the terminal. Once this flag is set, the claim is
+      // ground-truthed for the rest of the turn.
+      if (!authRecoveryObservedThisTurn
+        && toolResults.some((r) => r.isError === true && isAuthRecoveryGuidance(r.output))) {
+        authRecoveryObservedThisTurn = true;
+        emit('tool_loop:auth_recovery_guidance', { iteration: iterations });
+      }
 
       // Inject tool results as the next user message.
       let resultsMessage = buildToolResultsMessage(toolResults);
