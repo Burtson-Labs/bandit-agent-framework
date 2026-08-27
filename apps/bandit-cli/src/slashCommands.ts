@@ -1966,7 +1966,7 @@ export const slashCommands: SlashCommand[] = [
           return [
             c.bold('Burtson Labs MCP — Google Workspace connections'),
             '',
-            c.dim('  /mcp blabs google connect [--workspace=<label>] [--scopes=<csv>]'),
+            c.dim('  /mcp blabs google connect [--account=<email>] [--workspace=<label>] [--scopes=<csv>]'),
             c.dim('    Authorize a new Google account via browser. Default scopes:'),
             c.dim('    gmail,docs,drive,sheets,calendar.'),
             '',
@@ -1988,11 +1988,17 @@ export const slashCommands: SlashCommand[] = [
           const rest = tokens.slice(2);
           let workspace: string | undefined;
           let scopes: string | undefined;
+          let account: string | undefined;
           for (const t of rest) {
             if (t.startsWith('--workspace=')) workspace = t.slice('--workspace='.length).trim();
             else if (t.startsWith('--scopes=')) scopes = t.slice('--scopes='.length).trim();
+            // --account= / --email= pre-selects a Google account in the picker
+            // (login_hint), so a user with several signed in lands on the right
+            // one. Both spellings accepted since users reach for either.
+            else if (t.startsWith('--account=')) account = t.slice('--account='.length).trim();
+            else if (t.startsWith('--email=')) account = t.slice('--email='.length).trim();
           }
-          const connectOutput = await connectGoogleViaCli(cfg, { workspace, scopes });
+          const connectOutput = await connectGoogleViaCli(cfg, { workspace, scopes, account });
           // Auto-reload the MCP pool when the connect succeeded — the
           // host wrote a new entry to mcp-servers.json, but the pool
           // was initialised at session start and won't pick it up

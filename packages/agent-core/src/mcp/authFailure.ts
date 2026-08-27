@@ -39,7 +39,11 @@ const AUTH_FAILURE_PATTERNS: RegExp[] = [
   /\b(?:401|403)\b|\bunauthori[sz]ed\b|\bforbidden\b/i,
   /\bauthentication (?:failed|required|error)\b/i,
   /\bnot authenticated\b|\bre-?authenticat/i,
-  /\binvalid_grant\b|\binvalid_token\b|\btoken_expired\b/i
+  /\binvalid_grant\b|\binvalid_token\b|\btoken_expired\b/i,
+  // An error that names a refresh token is an auth failure — Google's is
+  // "refused the refresh token", which none of the verb-specific patterns
+  // above catch on their own.
+  /\brefresh[_ ]?token\b/i
 ];
 
 export interface McpAuthFailure {
@@ -79,6 +83,24 @@ export function isAuthRecoveryGuidance(text: string): boolean {
 }
 
 /**
+ * Signals that an auth failure is specifically a GOOGLE Workspace token, even
+ * when it surfaces through a Bandit-authenticated MCP server.
+ *
+ * Why this matters: a server like `burtson-labs` authenticates its transport
+ * with the user's Bandit key (so the per-server hint says `/login`), but then
+ * uses the user's stored GOOGLE refresh token to reach Gmail/Drive/Calendar.
+ * When GOOGLE rejects that token, `/login` (re-auth Bandit) does nothing — the
+ * fix is `/mcp google connect` (re-authorize Google). The transport is fine;
+ * the downstream Google grant is what expired. The error text is the only place
+ * that distinguishes the two, so we read it.
+ */
+const GOOGLE_AUTH_SIGNALS = /\b(google|gmail|googleemail|workspace|refresh token)\b/i;
+
+export function looksLikeGoogleAuthFailure(message: string): boolean {
+  return !!message && looksLikeAuthFailure(message) && GOOGLE_AUTH_SIGNALS.test(message);
+}
+
+/**
  * Does this MCP failure look like an expired or rejected credential?
  *
  * Checked against the error text only. Tool output that merely *mentions*
@@ -105,7 +127,13 @@ export function looksLikeAuthFailure(message: string): boolean {
  */
 export function describeMcpAuthFailure(failure: McpAuthFailure): string {
   const { server, original } = failure;
-  const command = failure.reconnectCommand ?? `/mcp connect ${server}`;
+  // Error content wins over the server's static auth config: a Google-token
+  // failure needs `/mcp google connect` regardless of how the server's
+  // transport authenticates. Otherwise fall back to the config-derived hint
+  // (e.g. `/login` for Bandit-auth servers), then the generic default.
+  const command = looksLikeGoogleAuthFailure(original)
+    ? '/mcp google connect   (re-authorize your Google Workspace — pick the correct account in the browser)'
+    : (failure.reconnectCommand ?? `/mcp connect ${server}`);
   return [
     `${AUTH_RECOVERY_MARKER} Authentication for the "${server}" MCP server has expired or been rejected.`,
     '',
