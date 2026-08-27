@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.386
+
+- **Fixed: connecting Google Workspace now actually works.** A connected account was never being found by the email tools because of a mismatch in how the connection was looked up — so Gmail/Drive/Calendar failed with "no connection" even right after connecting. (Requires the matching auth-service update.)
+- **Clearer recovery when a connection needs setting up.** When a connected service isn't authorized yet, Bandit now points you at the in-app `/mcp google connect` command (instead of a website link) and no longer repeats the same message several times.
+
 ## 1.7.385
 
 - **Expired-Google guidance now names the right command.** When a connected service fails on its Google sign-in (Gmail/Drive/Calendar), Bandit tells you to run `/mcp google connect` — re-authorizing Google — instead of `/login`, which only refreshes your Bandit sign-in and wouldn't have fixed it.
