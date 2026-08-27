@@ -2,6 +2,12 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.384
+
+- **The agent stops wasting turns on connected-service tool names.** When it calls a tool by its short name (`listMessages` instead of `burtson-labs.listMessages`), Bandit now just runs the right one — previously it retried and re-reasoned for several rounds before getting the prefix right, filling the chat with noise.
+- **No more doubled "run /login" answer.** When a connection expired, the agent gave the correct reconnect instructions and then got re-prompted into repeating them. It now says it once.
+- **Reasoning is collapsed by default so the answer isn't buried.** For thinking models that narrate heavily, the transcript now shows a short preview of the reasoning with the rest collapsed. `/reasoning full` shows all of it, `/reasoning off` hides it to a one-line marker, `/reasoning compact` is the default. The model still thinks fully — this only changes what's displayed.
+
 ## 1.7.383
 
 - **The CLI recovers from crashes instead of eating your work.** If Bandit hits an unexpected error, it now restores your terminal (no more invisible cursor or wedged shell), tells you your conversation is saved, and shows the exact `bandit --resume` command to pick up where you left off — plus writes a crash log for bug reports.
