@@ -177,6 +177,10 @@ export interface SlashContext {
    * for every subsequent chat request in this session. Toggled via
    * the `/think` slash command. */
   thinkingMode: { get(): boolean | undefined; set(next: boolean | undefined): void };
+  /** Reasoning-display mode ('full' | 'compact' | 'off'). `/reasoning` reads and
+   *  sets it; the setter persists to config. Separate from thinkingMode, which
+   *  controls whether the model thinks — this controls only how much is shown. */
+  reasoningDisplay?: { get(): string; set(next: string): void };
   /** Permission mode + the record of what it let through. `/auto` flips the
    *  mode; `/permissions` reads both. The setter writes the runtime override,
    *  so it beats env and settings for the rest of the session. */
@@ -288,7 +292,7 @@ const HELP_GROUPS: Array<{ title: string; names: string[] }> = [
   { title: 'Daily Work', names: ['init', 'plan', 'review', 'test', 'refactor', 'explain', 'commit', 'retry'] },
   { title: 'Context', names: ['paste', 'remember', 'memory', 'compact', 'rewind', 'session'] },
   { title: 'Automation', names: ['tasks', 'skills', 'skill', 'mcp', 'repos'] },
-  { title: 'Account & Runtime', names: ['login', 'logout', 'usage', 'ollama', 'tavily', 'think', 'profile', 'watchdog', 'notify', 'theme', 'update'] },
+  { title: 'Account & Runtime', names: ['login', 'logout', 'usage', 'ollama', 'tavily', 'think', 'profile', 'watchdog', 'notify', 'theme', 'reasoning', 'update'] },
   { title: 'Reports', names: ['trace', 'insights', 'onboard', 'changelog'] }
 ];
 
@@ -2389,6 +2393,34 @@ export const slashCommands: SlashCommand[] = [
         return c.green('✓ thinking mode AUTO — using the runtime default per model');
       }
       return c.red(`Unknown argument "${arg}". Use: /think on, /think off, /think auto.`);
+    }
+  },
+  {
+    name: 'reasoning',
+    description: 'How much of a thinking model\'s reasoning to show (/reasoning compact, /reasoning full, /reasoning off)',
+    run(args, ctx) {
+      if (!ctx.reasoningDisplay) {return c.dim('(reasoning display is only available in the interactive REPL)');}
+      const arg = args.trim().toLowerCase();
+      if (!arg) {
+        const current = ctx.reasoningDisplay.get();
+        return [
+          c.bold('Reasoning display: ') + c.green(current),
+          c.dim('  /reasoning compact   show a short preview, collapse the rest (default)'),
+          c.dim('  /reasoning full      show the model\'s full chain-of-thought'),
+          c.dim('  /reasoning off       show only a one-line "thought for N lines" marker'),
+          '',
+          c.dim('  This only changes what\'s DISPLAYED — the model still thinks (that\'s'),
+          c.dim('  where it picks tools). Use /think to control whether it thinks at all.')
+        ].join('\n');
+      }
+      if (arg === 'compact' || arg === 'full' || arg === 'off') {
+        ctx.reasoningDisplay.set(arg);
+        const blurb = arg === 'compact'
+          ? 'showing a short preview of reasoning'
+          : arg === 'full' ? 'showing full reasoning' : 'hiding reasoning (marker only)';
+        return c.green(`${glyph.check} reasoning display: ${arg} — ${blurb}`);
+      }
+      return c.red(`Unknown argument "${arg}". Use: /reasoning compact, /reasoning full, /reasoning off.`);
     }
   },
   {

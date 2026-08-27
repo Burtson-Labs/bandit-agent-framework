@@ -349,3 +349,64 @@ describe('onMessagesSnapshot — mid-turn persistence hook', () => {
     expect(result.hitLimit).toBe(false);
   });
 });
+
+describe('auth-recovery — no doubled final answer', () => {
+  // Live trace (bandit-core-2): a tool returned auth-recovery guidance, the
+  // model gave the correct "run /login" answer, then the tool-error-recovery
+  // nudge fired ("don't abandon the request") and the model re-stated it — the
+  // reauth answer appeared TWICE in the transcript.
+  const authTool = {
+    name: 'burtson-labs.listMessages',
+    description: 'list messages',
+    parameters: [],
+    async execute() {
+      return {
+        output: '[auth-recovery] Authentication for the "burtson-labs" server has expired. Run /login.',
+        isError: true,
+      };
+    },
+  };
+
+  it('does not re-prompt after a prose answer to an auth-recovery error', async () => {
+    const registry = new ToolRegistry();
+    registry.register(authTool);
+    let turn = 0;
+    const { chat, recorder } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) return '<tool_call>{"name":"burtson-labs.listMessages","params":{}}</tool_call>';
+      // Correct answer: name the expired connection + the fix. No tool call.
+      return "I can't check your Gmail — the burtson-labs connection expired. Run `/login`.";
+    });
+    const loop = new ToolUseLoop(registry, testCtx, {});
+
+    const result = await loop.run('check my email', chat);
+
+    // Exactly two chat calls: the tool call, then the final answer. A THIRD
+    // call would mean the recovery nudge fired and the model answered twice.
+    expect(recorder.callCount).toBe(2);
+    expect(result.finalResponse).toContain('/login');
+    expect(result.hitLimit).toBe(false);
+  });
+
+  it('still nudges on an ORDINARY tool error (the recovery path is unchanged)', async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'thing',
+      description: 't',
+      parameters: [],
+      async execute() { return { output: 'boom: bad param', isError: true }; },
+    });
+    let turn = 0;
+    const { chat, recorder } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) return '<tool_call>{"name":"thing","params":{}}</tool_call>';
+      if (turn === 2) return 'Oh well, moving on to something else.'; // abandons
+      return 'Final answer after the nudge.';
+    });
+    const loop = new ToolUseLoop(registry, testCtx, {});
+
+    await loop.run('do the thing', chat);
+    // A non-auth error still triggers the "don't abandon" nudge → a 3rd call.
+    expect(recorder.callCount).toBe(3);
+  });
+});

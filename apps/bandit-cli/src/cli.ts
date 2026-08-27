@@ -74,6 +74,7 @@ import { promptPermission, formatDenialReason } from './permissionPrompt';
 import { installCrashGuard } from './crashGuard';
 import { pickSession } from './sessionPicker';
 import { searchHistory } from './input/historySearch';
+import { renderReasoning, isReasoningDisplay, type ReasoningDisplay } from './reasoningDisplay';
 import { formatContextMeter, estimateConversationTokens } from './contextMeter';
 import { promptAskUser } from './askUserPrompt';
 import { looksLikeYesNoQuestion } from './heuristics/yesNoDetect';
@@ -87,7 +88,7 @@ import { consumeTablesInChunk, flushTableState } from './terminal/tableRender';
 import { consumeMarkdownInChunk, flushMarkdownState } from './terminal/markdownRender';
 import { fuzzyMatchWorkspaceFiles } from './input/fileCompleter';
 import { buildCliChatFn } from './agent/cliChatFn';
-import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, saveModel, saveProvider, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
+import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, saveModel, saveProvider, saveReasoningDisplay, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
 import { initTelemetry, resolveTelemetryConfig, telemetryStartTurn, telemetryEvent, telemetryEndTurn, telemetryEndTurnAwait } from './telemetry/otlp';
 import { notifyCli, type CliNotification } from './notifications';
 import {
@@ -715,6 +716,9 @@ interface RunOptions {
    *  agent run doesn't lose the whole turn. Wired to session.snapshot in the
    *  REPL. See tool-use-loop's onMessagesSnapshot. */
   onMessagesSnapshot?: (messages: ToolLoopMessage[]) => void;
+  /** How much reasoning to render. A getter so a mid-session /reasoning toggle
+   *  takes effect on the next block. Defaults to 'compact' when omitted. */
+  reasoningDisplay?: () => ReasoningDisplay;
   /** Host notification hook. The REPL wires this to desktop/bell
    * preferences; one-shot runs can omit it. */
   notify?: (notification: CliNotification) => void;
@@ -1013,13 +1017,27 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     thinkingBuffer.length = 0;
     thinkingFlushed = true;
     if (!body) return;
-    // Two-space indent the body so the dim block visually sets apart
-    // from the main response. Newlines inside thinking keep their
-    // indent. Trailing blank line separates reasoning from the answer.
-    const indented = body.replace(/\n/g, '\n  ');
+    // Verbose thinking models bury the answer under a wall of chain-of-thought,
+    // so the display mode caps how much lands in scrollback. 'compact' (the
+    // default) shows a preview + a "/reasoning full" note; 'off' shows a
+    // one-line marker; 'full' is the old behavior. Thinking itself is
+    // unaffected — it's where these models pick tools.
+    const mode = opts.reasoningDisplay?.() ?? 'compact';
+    const render = renderReasoning(body, mode);
+    const header = '\n' + c.dim('  ' + c.accent('⟡') + ' reasoning');
+    if (render.lines.length === 0) {
+      // 'off' — just the marker, no body.
+      process.stdout.write(header + c.dim(` — ${render.collapsedNote}`) + '\n\n');
+      return;
+    }
+    const indented = render.lines.join('\n').replace(/\n/g, '\n  ');
+    const footer = render.collapsedNote
+      ? '\n' + c.dim('  ' + c.accent('…') + ' ' + render.collapsedNote)
+      : '';
     process.stdout.write(
-      '\n' + c.dim('  ' + c.accent('⟡') + ' reasoning') +
+      header +
       '\n' + c.dim(c.italic('  ' + indented)) +
+      footer +
       '\n\n'
     );
   };
@@ -3003,6 +3021,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // for non-reasoning). Toggled via the `/think on|off|auto` slash
   // command. Read on every chat request via buildChat's getThink().
   let sessionThinkingOverride: boolean | undefined = undefined;
+  // Reasoning display mode. Seeded from config (default 'compact'), changed via
+  // /reasoning for the session and persisted. Read fresh each block so a
+  // mid-session toggle applies immediately.
+  let sessionReasoningDisplay: ReasoningDisplay = isReasoningDisplay(fileConfig.reasoningDisplay)
+    ? fileConfig.reasoningDisplay
+    : 'compact';
   // co-author trailer toggle. Default ON: Bandit appends
   // `Co-authored-by: Bandit <bandit@burtson.ai>` to commits it issues
   // on the user's behalf so the Bandit ninja shows up on GitHub PR /
@@ -4037,6 +4061,15 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       get: () => sessionThinkingOverride,
       set: (next) => { sessionThinkingOverride = next; }
     },
+    reasoningDisplay: {
+      get: () => sessionReasoningDisplay,
+      set: (next) => {
+        if (isReasoningDisplay(next)) {
+          sessionReasoningDisplay = next;
+          void saveReasoningDisplay(next).catch(() => { /* non-fatal */ });
+        }
+      }
+    },
     permissions: {
       getMode: () => modeOverride.current
         ?? resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).mode,
@@ -4627,6 +4660,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             // a long agent run recovers to the last completed iteration instead
             // of losing the whole turn. session.snapshot is atomic + best-effort.
             onMessagesSnapshot: (messages) => { void session.snapshot(messages); },
+            reasoningDisplay: () => sessionReasoningDisplay,
             customRepoRoots: resolved.repoRoots,
             tavilyApiKey: resolved.tavilyApiKey,
             backgroundStore,

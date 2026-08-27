@@ -115,15 +115,36 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
         isError: true
       };
     }
-    const tool = registry.get(tc.name);
+    let tool = registry.get(tc.name);
+    // Name the model actually reached for stays `tc.name`; `resolvedName` is
+    // what we run and report the result under (they differ only on an
+    // auto-corrected bare MCP name).
+    let resolvedName = tc.name;
+    if (!tool) {
+      // MCP tools register namespaced (`<server>.<tool>`), but models call the
+      // bare name the server advertises — `listMessages`, not
+      // `burtson-labs.listMessages`. A suggestion error wasn't enough: models
+      // ignored it and burned 3+ iterations re-deriving the namespace before
+      // getting it right (observed live on bandit-core-2). When exactly ONE
+      // registered tool ends in the bare name, just run THAT — the retry loop
+      // collapses to zero. Only auto-correct on an UNAMBIGUOUS match; if two
+      // servers expose the same bare name we can't guess which, so we fall
+      // through to the suggestion error and let the model disambiguate.
+      const wanted = tc.name.toLowerCase();
+      const matches = registry.getAll()
+        .map((t) => t.name)
+        .filter((n) => {
+          const lower = n.toLowerCase();
+          return lower.endsWith(`.${wanted}`) || lower.endsWith(`__${wanted}`);
+        });
+      if (matches.length === 1) {
+        resolvedName = matches[0];
+        tool = registry.get(resolvedName);
+        emit('tool_loop:tool_name_autocorrected', { from: tc.name, to: resolvedName });
+      }
+    }
     if (!tool) {
       emit('tool_loop:tool_not_found', { name: tc.name });
-      // MCP tools are namespaced `<server>.<tool>`, but models reach for the
-      // bare name the server advertises — `listMessages`, not
-      // `burtson-labs.listMessages`. The bare error sent the model into a
-      // check-the-list / retry spiral that burned 3+ iterations per turn
-      // (observed live: three reasoning rounds rediscovering the namespace).
-      // Name the correction and the retry converges in one step.
       const wanted = tc.name.toLowerCase();
       const suggestions = registry.getAll()
         .map((t) => t.name)
@@ -154,16 +175,20 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
     // fixed the bug" summary. The counter said 8, the detector
     // saw a non-zero count, the user read the lie. Observed
     // 2026-05-01 on the bandit website's plans.tsx grid bug.
+    // Report and gate under `resolvedName` — the tool that actually runs — so
+    // the permission gate matches server-scoped rules and the model sees the
+    // result under the correct namespaced name (which teaches it the name for
+    // next time). These equal `tc.name` unless a bare MCP name was corrected.
     emit('tool_loop:tool_execute', {
-      name: tc.name,
+      name: resolvedName,
       params: tc.params,
       rawSnippet: tc.raw.slice(0, 400)
     });
-    const gate = await beforeToolExecute({ name: tc.name, params: tc.params });
+    const gate = await beforeToolExecute({ name: resolvedName, params: tc.params });
     if (!gate.allow) {
       const reason = gate.reason ?? 'blocked by pre-execute guard';
-      emit('tool_loop:tool_blocked', { name: tc.name, reason });
-      return { name: tc.name, output: `Blocked: ${reason}`, isError: true };
+      emit('tool_loop:tool_blocked', { name: resolvedName, reason });
+      return { name: resolvedName, output: `Blocked: ${reason}`, isError: true };
     }
     try {
       const result: ToolResult = await tool.execute(tc.params, ctx);
@@ -206,16 +231,16 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
       // which already applies the same redactor at the parser
       // boundary, so both paths converge on the same masked text.
       emit('tool_loop:tool_result', {
-        name: tc.name,
+        name: resolvedName,
         isError: result.isError,
         outputLength: result.output.length,
         outputSnippet: applySecretRedactionIfEnabled(result.output.slice(0, 280))
       });
-      return { name: tc.name, output: result.output, isError: result.isError };
+      return { name: resolvedName, output: result.output, isError: result.isError };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      emit('tool_loop:tool_error', { name: tc.name, error: msg });
-      return { name: tc.name, output: `Error executing tool "${tc.name}": ${msg}`, isError: true };
+      emit('tool_loop:tool_error', { name: resolvedName, error: msg });
+      return { name: resolvedName, output: `Error executing tool "${resolvedName}": ${msg}`, isError: true };
     }
   };
 }
