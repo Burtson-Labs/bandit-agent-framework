@@ -219,36 +219,68 @@ describe('createToolDispatcher — exception path', () => {
 
 /**
  * MCP tools register namespaced (`<server>.<tool>`) but models reach for the
- * bare name the server advertises. The bare "not registered" error sent one
- * model through three reasoning rounds rediscovering the namespace on every
- * such call. The error now names the correction.
+ * bare name the server advertises. A suggestion error wasn't enough — models
+ * ignored it and burned 3+ iterations re-deriving the namespace. When exactly
+ * ONE registered tool ends in the bare name, the dispatcher now RUNS it,
+ * collapsing the retry loop to zero. Ambiguous or unmatched names still error.
  */
-describe('createToolDispatcher — namespaced-tool suggestions', () => {
-  const withMcpTool = () => {
+describe('createToolDispatcher — bare MCP name auto-correction', () => {
+  const withOneMcpTool = () => {
     const reg = new ToolRegistry();
-    reg.register(buildEditTool('burtson-labs.listMessages', async () => ({ output: 'ok' })));
+    reg.register(buildEditTool('burtson-labs.listMessages', async () => ({ output: 'ran-it' })));
     reg.register(buildEditTool('burtson-labs.sendEmail', async () => ({ output: 'ok' })));
     return reg;
   };
 
-  it('suggests the namespaced tool when the bare name is called', async () => {
-    const { deps } = makeDeps({ registry: withMcpTool() });
+  it('auto-runs the unambiguous namespaced tool for a bare name', async () => {
+    const { deps, emitted } = makeDeps({ registry: withOneMcpTool() });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch({ name: 'listMessages', params: {}, raw: '' });
+    // It RAN — no error, real output — and reports under the corrected name so
+    // the model learns it for next time.
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toBe('ran-it');
+    expect(result.name).toBe('burtson-labs.listMessages');
+    expect(emitted.find((e) => e.type === 'tool_loop:tool_name_autocorrected')).toBeDefined();
+  });
+
+  it('auto-corrects case-insensitively — models drift on casing', async () => {
+    const { deps } = makeDeps({ registry: withOneMcpTool() });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch({ name: 'LISTMESSAGES', params: {}, raw: '' });
+    expect(result.name).toBe('burtson-labs.listMessages');
+    expect(result.output).toBe('ran-it');
+  });
+
+  it('gates the corrected tool under its real name, so server-scoped rules match', async () => {
+    const blocked: string[] = [];
+    const { deps } = makeDeps({
+      registry: withOneMcpTool(),
+      beforeToolExecute: ({ name }: { name: string }) => { blocked.push(name); return { allow: false, reason: 'no' }; },
+    });
+    const dispatch = createToolDispatcher(deps);
+    await dispatch({ name: 'listMessages', params: {}, raw: '' });
+    // The gate saw the namespaced name, not the bare one.
+    expect(blocked).toEqual(['burtson-labs.listMessages']);
+  });
+
+  it('falls back to a suggestion when the bare name is AMBIGUOUS', async () => {
+    // Two servers expose the same bare tool — we can't guess which, so we
+    // suggest rather than silently pick one.
+    const reg = new ToolRegistry();
+    reg.register(buildEditTool('gmail.listMessages', async () => ({ output: 'a' })));
+    reg.register(buildEditTool('outlook.listMessages', async () => ({ output: 'b' })));
+    const { deps } = makeDeps({ registry: reg });
     const dispatch = createToolDispatcher(deps);
     const result = await dispatch({ name: 'listMessages', params: {}, raw: '' });
     expect(result.isError).toBe(true);
-    expect(result.output).toContain('"burtson-labs.listMessages"');
-    expect(result.output).toContain('server prefix');
-  });
-
-  it('matches case-insensitively — models drift on casing', async () => {
-    const { deps } = makeDeps({ registry: withMcpTool() });
-    const dispatch = createToolDispatcher(deps);
-    const result = await dispatch({ name: 'listmessages', params: {}, raw: '' });
-    expect(result.output).toContain('burtson-labs.listMessages');
+    expect(result.output).toContain('Did you mean');
+    expect(result.output).toContain('gmail.listMessages');
+    expect(result.output).toContain('outlook.listMessages');
   });
 
   it('stays a plain error when nothing matches', async () => {
-    const { deps } = makeDeps({ registry: withMcpTool() });
+    const { deps } = makeDeps({ registry: withOneMcpTool() });
     const dispatch = createToolDispatcher(deps);
     const result = await dispatch({ name: 'nonexistent_tool', params: {}, raw: '' });
     expect(result.isError).toBe(true);

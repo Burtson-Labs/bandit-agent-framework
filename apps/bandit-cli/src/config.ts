@@ -41,6 +41,9 @@ export interface BanditConfig {
    *  theme picker, overridable via /theme. Absent on legacy installs;
    *  the picker fires once when this is undefined. */
   theme?: string;
+  /** How much of a thinking model's chain-of-thought to show:
+   *  'full' | 'compact' | 'off'. Default 'compact'. Set via /reasoning. */
+  reasoningDisplay?: string;
   ollama?: {
     url?: string;
     headers?: Record<string, string>;
@@ -621,6 +624,20 @@ export async function saveTheme(theme: string): Promise<void> {
     // first run — file doesn't exist yet
   }
   existing.theme = theme;
+  await fs.promises.writeFile(GLOBAL_CONFIG, JSON.stringify(existing, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+/** Persist the reasoning-display preference to ~/.bandit/config.json. Same
+ *  write pattern as saveTheme. */
+export async function saveReasoningDisplay(mode: string): Promise<void> {
+  const dir = path.join(os.homedir(), '.bandit');
+  try { await fs.promises.mkdir(dir, { recursive: true }); } catch { /* exists */ }
+  let existing: BanditConfig = {};
+  try {
+    const raw = await fs.promises.readFile(GLOBAL_CONFIG, 'utf-8');
+    existing = JSON.parse(raw) as BanditConfig;
+  } catch { /* first run */ }
+  existing.reasoningDisplay = mode;
   await fs.promises.writeFile(GLOBAL_CONFIG, JSON.stringify(existing, null, 2), { encoding: 'utf-8', mode: 0o600 });
 }
 

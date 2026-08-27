@@ -1259,6 +1259,14 @@ export class ToolUseLoop {
         && !hasToolCalls(response)
         && lastIterationHadToolError
         && toolErrorRecoveryFired < TOOL_ERROR_RECOVERY_CAP
+        // Auth-recovery guidance already told the model exactly what to do
+        // (surface the expired connection + the reconnect command), and a
+        // prose answer doing that IS the correct completion — not a silent
+        // abandonment. Firing the generic "don't abandon" nudge on top made
+        // the model re-state its answer, so the "run /login" reply appeared
+        // twice in the transcript. Same flag that gates the false-tool-absence
+        // detector below.
+        && !authRecoveryObservedThisTurn
       ) {
         toolErrorRecoveryFired++;
         emit('tool_loop:tool_error_recovery', {
