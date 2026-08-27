@@ -200,3 +200,44 @@ describe('Google-token failures route to the Google reconnect command', () => {
     expect(out).not.toContain('/mcp google connect');
   });
 });
+
+/**
+ * Field report v3: after disconnecting the stale account, the tool failed with
+ * "No Google connection matches the request (workspace=primary, email=any).
+ * Visit …/account/google-connections to connect one." That's a precondition
+ * failure, not an expiry — nothing is "rejected" or "expired" — so the old
+ * detection missed it. The wrapper never fired, so the model pointed at the
+ * WEBSITE (from the raw error) and the double-answer suppression never engaged.
+ */
+describe('missing-connection preconditions are recoverable too', () => {
+  const noConn = 'No Google connection matches the request (workspace=primary, email=any). Visit https://burtson.ai/account/google-connections to connect one.';
+
+  it('detects a "no connection" error as an auth failure', () => {
+    expect(looksLikeAuthFailure(noConn)).toBe(true);
+    expect(looksLikeGoogleAuthFailure(noConn)).toBe(true);
+  });
+
+  it('routes it to /mcp google connect and carries the recovery marker', () => {
+    const out = describeMcpAuthFailure({ server: 'burtson-labs', original: noConn, reconnectCommand: '/login' });
+    expect(isAuthRecoveryGuidance(out)).toBe(true); // → suppresses the double-answer
+    expect(out).toContain('/mcp google connect');
+    expect(out).not.toContain('/login');
+  });
+
+  it('prefers the CLI command over the web URL in the error, and hints at /mcp google list', () => {
+    const out = describeMcpAuthFailure({ server: 'burtson-labs', original: noConn });
+    expect(out).toMatch(/prefer that cli command over any web/i);
+    expect(out).toContain('/mcp google list'); // for the workspace-mismatch case
+  });
+
+  it('still keeps the anti-fence display instruction', () => {
+    const out = describeMcpAuthFailure({ server: 's', original: noConn });
+    expect(out).toMatch(/inline code/);
+    expect(out).toMatch(/do not wrap it in a/);
+  });
+
+  it('leaves a genuinely unrelated error alone', () => {
+    expect(looksLikeAuthFailure('No results found for that query')).toBe(false);
+    expect(looksLikeAuthFailure('Connection reset by peer')).toBe(false);
+  });
+});
