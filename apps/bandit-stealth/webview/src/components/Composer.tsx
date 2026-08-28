@@ -47,6 +47,9 @@ export interface ComposerProps {
   // Auto-approve toggle + outbound config update:
   autoApproveEdits: boolean;
   onToggleEditAutoApprove: () => void;
+  // Permission-mode pill (ask → auto → plan):
+  permissionMode: string;
+  onCyclePermissionMode: () => void;
   // Model / provider settings slot:
   modelLabel: string;
   providerKind: "bandit" | "ollama" | "openai-compatible";
@@ -88,6 +91,8 @@ export function Composer(props: ComposerProps): JSX.Element {
     micState,
     autoApproveEdits,
     onToggleEditAutoApprove,
+    permissionMode,
+    onCyclePermissionMode,
     modelLabel,
     providerKind,
     onSelectProvider,
@@ -128,6 +133,8 @@ export function Composer(props: ComposerProps): JSX.Element {
       onRequestSkills={onRequestSkills}
       editAutoApproveEnabled={autoApproveEdits}
       onToggleEditAutoApprove={onToggleEditAutoApprove}
+      permissionMode={permissionMode}
+      onCyclePermissionMode={onCyclePermissionMode}
       modelLabel={modelLabel}
       settingsSlot={
         <div className="composer-settings-models">

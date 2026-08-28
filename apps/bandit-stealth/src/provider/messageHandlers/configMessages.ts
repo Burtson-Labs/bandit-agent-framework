@@ -18,6 +18,16 @@ export async function handleSetConfig(
     );
     await deps.syncState();
   }
+  if (message.key === 'agent.permissionMode') {
+    // Only the three cycleable modes are settable from the composer pill;
+    // `dangerous` stays a deliberate settings-only choice. Anything else is
+    // ignored so a malformed message can't push an invalid mode.
+    const next = typeof message.value === 'string' ? message.value : '';
+    if (next === 'ask' || next === 'auto' || next === 'plan') {
+      await configuration.update('agent.permissionMode', next, vscode.ConfigurationTarget.Workspace);
+      await deps.syncState();
+    }
+  }
   if (message.key === 'autoContextEnabled') {
     // Global target so the toggle sticks across workspaces — users
     // who want context attached for one repo almost always want it

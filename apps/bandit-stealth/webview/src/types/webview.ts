@@ -172,6 +172,10 @@ export interface WebviewState {
   skipValidationInDev?: boolean;
   createBranchBeforeRun?: boolean;
   autoApproveEdits?: boolean;
+  /** Active agent permission mode ('plan' | 'ask' | 'auto' | 'dangerous'),
+   *  mirrored from `banditStealth.agent.permissionMode` so the composer's
+   *  mode pill reflects it. */
+  permissionMode?: string;
   autoContextEnabled?: boolean;
   voiceAutoSpeakPref?: boolean;
   voiceMicPref?: boolean;

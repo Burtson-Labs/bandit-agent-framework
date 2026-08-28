@@ -8,6 +8,7 @@ const makeDeps = () => ({
   setToolUseEnabled: vi.fn(),
   setCreateBranchBeforeRun: vi.fn(),
   setAutoApproveEdits: vi.fn(),
+  setPermissionMode: vi.fn(),
   setAutoContextEnabled: vi.fn(),
   setDeveloperMode: vi.fn(),
   setSkipValidationInDev: vi.fn()
@@ -76,5 +77,17 @@ describe("applyPreferencesSnapshot", () => {
     expect(deps.setToolUseEnabled).toHaveBeenCalledWith(false);
     expect(deps.setCreateBranchBeforeRun).toHaveBeenCalledWith(false);
     expect(deps.setAutoApproveEdits).toHaveBeenCalledWith(false);
+  });
+
+  it("permissionMode mirrors the snapshot and defaults to 'ask' when omitted", () => {
+    const deps = makeDeps();
+    applyPreferencesSnapshot(baseState, deps);
+    expect(deps.setPermissionMode).toHaveBeenCalledWith("ask");
+
+    applyPreferencesSnapshot({ ...baseState, permissionMode: "plan" }, deps);
+    expect(deps.setPermissionMode).toHaveBeenLastCalledWith("plan");
+
+    applyPreferencesSnapshot({ ...baseState, permissionMode: "auto" }, deps);
+    expect(deps.setPermissionMode).toHaveBeenLastCalledWith("auto");
   });
 });
