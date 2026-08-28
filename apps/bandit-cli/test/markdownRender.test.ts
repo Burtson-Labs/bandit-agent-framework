@@ -77,8 +77,14 @@ describe('renderMarkdownLine — lists and rules', () => {
 
   it('preserves indentation for nested list items', () => {
     const state = createStreamStrippingState();
+    // Consume the once-per-step ● marker on a throwaway opening line so this
+    // asserts the core renderer's indent handling, not the step gutter.
+    renderMarkdownLine('opening line', state);
     const out = renderMarkdownLine('  - nested', state);
-    expect(out.startsWith('  ')).toBe(true);
+    expect(out).toContain('nested');
+    // The two-space indent survives on the item line (which may follow an
+    // injected blank line separating the list from the opening prose).
+    expect(out.split('\n').pop()!.startsWith('  ')).toBe(true);
   });
 
   it('renders a horizontal rule for ---, ***, ___', () => {

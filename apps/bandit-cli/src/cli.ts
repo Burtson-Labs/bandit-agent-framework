@@ -1607,6 +1607,11 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         streamState.markdownBuffer = '';
         streamState.inCodeFence = false;
         streamState.tableInCodeFence = false;
+        // Fresh vertical-rhythm + step-marker state per LLM call: the first
+        // prose line of each step gets its own ● gutter dot and no leading
+        // blank line.
+        streamState.prevBlockKind = 'none';
+        streamState.stepStarted = false;
         // Also reset the reasoning display — each LLM call gets its
         // own thinking block (thinking tied to one turn's prompt).
         thinkingBuffer.length = 0;
