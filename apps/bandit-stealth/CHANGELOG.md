@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.387
+
+- **Quieter transcripts.** The `✦ recap:` summary line now only appears after a long answer that scrolled off — it no longer echoes a second, truncated copy of a table, code block, or any answer that already fits on your screen. Turns read as one clean response instead of feeling printed twice.
+
 ## 1.7.386
 
 - **Fixed: connecting Google Workspace now actually works.** A connected account was never being found by the email tools because of a mismatch in how the connection was looked up — so Gmail/Drive/Calendar failed with "no connection" even right after connecting. (Requires the matching auth-service update.)
