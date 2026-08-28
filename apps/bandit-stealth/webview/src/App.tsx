@@ -353,6 +353,7 @@ export function App(): JSX.Element {
   const [imageAttachments, setImageAttachments] = useState<string[]>([]);
   const [autoContextEnabled, setAutoContextEnabled] = useState(false);
   const [autoApproveEdits, setAutoApproveEdits] = useState(false);
+  const [permissionMode, setPermissionMode] = useState("ask");
   const [voiceMicEnabled, setVoiceMicEnabled] = useState(false);
   const [voiceAutoSpeakPref, setVoiceAutoSpeakPref] = useState(false);
   const [voiceMicPref, setVoiceMicPref] = useState(false);
@@ -1658,6 +1659,7 @@ export function App(): JSX.Element {
       setToolUseEnabled,
       setCreateBranchBeforeRun,
       setAutoApproveEdits,
+      setPermissionMode,
       setAutoContextEnabled,
       setDeveloperMode,
       setSkipValidationInDev
@@ -2185,6 +2187,23 @@ export function App(): JSX.Element {
       value: next
     });
   }, [autoApproveEdits]);
+
+  const handleCyclePermissionMode = useCallback(() => {
+    // Local cycle mirrors host-kit's CYCLE_MODES (ask → auto → plan).
+    // Kept as inline strings on purpose: importing host-kit into the
+    // webview bundle would drag in its os/path top-level imports and blank
+    // the page. The boundary itself stays enforced server-side; this only
+    // rotates the setting, which the extension persists + validates.
+    const cycle = ["ask", "auto", "plan"];
+    const idx = cycle.indexOf(permissionMode);
+    const next = cycle[(idx + 1) % cycle.length] ?? "ask";
+    setPermissionMode(next); // optimistic; the state sync confirms it
+    vscode.postMessage({
+      type: "setConfig",
+      key: "agent.permissionMode",
+      value: next
+    });
+  }, [permissionMode]);
 
   const handleSelectTheme = useCallback(
     (preference: ThemePreference) => {
@@ -2718,6 +2737,8 @@ export function App(): JSX.Element {
                     micState={micRecording}
                     autoApproveEdits={autoApproveEdits}
                     onToggleEditAutoApprove={handleToggleAutoApproveEdits}
+                    permissionMode={permissionMode}
+                    onCyclePermissionMode={handleCyclePermissionMode}
                     modelLabel={modelLabel}
                     providerKind={providerKind}
                     onSelectProvider={handleSelectProvider}

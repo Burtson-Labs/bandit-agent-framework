@@ -3314,6 +3314,88 @@
   background: rgba(14, 165, 233, 0.1);
 }
 
+/* Permission-mode pill — same shape as the edit-auto pill; color signals the
+   active boundary (blue = plan/read-only, green = auto, red = dangerous,
+   neutral = ask). */
+.composer-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.65);
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.composer-mode-pill:hover:not(:disabled) {
+  color: rgba(226, 232, 240, 0.95);
+  border-color: rgba(148, 163, 184, 0.6);
+}
+
+.composer-mode-pill:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-mode-pill__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.composer-mode-pill__label {
+  white-space: nowrap;
+}
+
+.composer-mode-pill.is-plan {
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.composer-mode-pill.is-auto {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.composer-mode-pill.is-dangerous {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.agent-ui-theme-light .composer-mode-pill {
+  color: rgba(15, 23, 42, 0.6);
+  border-color: rgba(100, 116, 139, 0.35);
+}
+
+.agent-ui-theme-light .composer-mode-pill.is-plan {
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.5);
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.agent-ui-theme-light .composer-mode-pill.is-auto {
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.5);
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.agent-ui-theme-light .composer-mode-pill.is-dangerous {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.5);
+  background: rgba(220, 38, 38, 0.1);
+}
+
 /* Skill picker popover opened from the `/` button. */
 .composer-slash-wrap {
   position: relative;

@@ -148,6 +148,9 @@ export interface WebviewState {
   skipValidationInDev?: boolean;
   createBranchBeforeRun?: boolean;
   autoApproveEdits?: boolean;
+  /** Active agent permission mode, mirrored to the webview's composer mode
+   *  pill. Keep in sync with the webview copy in webview/src/types/webview.ts. */
+  permissionMode?: string;
   autoContextEnabled?: boolean;
   ollamaStatus?: 'ready' | 'offline' | 'no-model' | 'unknown';
   ollamaModelMissing?: string;

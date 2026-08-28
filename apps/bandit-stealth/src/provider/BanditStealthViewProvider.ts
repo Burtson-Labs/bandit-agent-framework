@@ -3443,6 +3443,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     state.enableToolUse = configuration.get<boolean>('enableToolUse', true) ?? true;
     state.createBranchBeforeRun = configuration.get<boolean>('agent.createBranchBeforeRun', false) ?? false;
     state.autoApproveEdits = configuration.get<boolean>('agent.autoApproveEdits', false) ?? false;
+    state.permissionMode = configuration.get<string>('agent.permissionMode', 'ask') ?? 'ask';
     state.autoContextEnabled = configuration.get<boolean>('autoContextEnabled', false) ?? false;
     state.ollamaStatus = this.ollamaStatus;
     state.ollamaModelMissing = this.ollamaModelMissing;

@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.393
+
+- **The permission mode now shows right on the chat box.** A colored mode pill sits in the composer's bottom row — blue for plan (read-only), green for auto, neutral for ask. Click it to cycle ask → auto → plan without leaving the chat, the same rotation as the CLI's shift+tab and the status-bar item. So the boundary Bandit is operating under is always visible exactly where you're typing.
+
 ## 1.7.392
 
 - **New plan mode — read-only, so you can review before anything changes.** In plan mode Bandit reads, searches, and runs read-only shell (`git diff`, `ls`, `grep`) freely, but every edit, file write, state-changing command, delete, and network call is blocked — it presents a concrete plan (the files it would touch, the edits, the commands) and waits. Nothing runs until you leave plan mode. Great for "tell me what you'd do" before handing over the keys.

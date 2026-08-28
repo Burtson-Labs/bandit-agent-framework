@@ -24,6 +24,39 @@ export interface ComposerContextAttachment extends ChatMessageContextFile {
   preview?: string;
 }
 
+/** Label + tooltip + CSS key for the permission-mode pill. `key` drives the
+ *  color variant (`.composer-mode-pill.is-plan` etc.). Unknown modes fall back
+ *  to the neutral `ask`. */
+function describePermissionMode(mode: string): { key: string; label: string; tooltip: string } {
+  switch (mode) {
+    case "plan":
+      return {
+        key: "plan",
+        label: "Plan",
+        tooltip: "Plan mode (read-only): Bandit reads and searches but makes no changes — it presents a plan. Click to cycle → ask."
+      };
+    case "auto":
+      return {
+        key: "auto",
+        label: "Auto",
+        tooltip: "Auto mode: routine work runs without a card; destructive calls still ask. Click to cycle → plan."
+      };
+    case "dangerous":
+      return {
+        key: "dangerous",
+        label: "Danger",
+        tooltip: "Dangerous mode: no permission cards at all. Set in settings; click cycles → auto."
+      };
+    case "ask":
+    default:
+      return {
+        key: "ask",
+        label: "Ask",
+        tooltip: "Ask mode: every non-allowlisted call shows a permission card. Click to cycle → auto."
+      };
+  }
+}
+
 export interface SlashCommandHint {
   /** Command name, no leading slash. */
   name: string;
@@ -86,6 +119,14 @@ export interface ChatComposerProps {
   /** Handler invoked when the user toggles edit-auto-approve. When omitted
    * the toggle is hidden. */
   onToggleEditAutoApprove?: () => void;
+  /** Active permission mode ('plan' | 'ask' | 'auto' | 'dangerous'). When set
+   * (with onCyclePermissionMode) the composer renders an always-visible mode
+   * pill in the bottom row — the boundary the agent is operating under, on
+   * screen where the user's attention is. */
+  permissionMode?: string;
+  /** Click handler for the mode pill — cycles ask → auto → plan. When omitted
+   * the pill is hidden. */
+  onCyclePermissionMode?: () => void;
   /** Extra controls rendered inside the `/` command menu under a
    * "Settings" section. Use this to hang host-specific settings
    * (e.g. model picker, provider switcher) off the same menu that
@@ -170,6 +211,8 @@ export const ChatComposer = ({
   onRequestSkills,
   editAutoApproveEnabled,
   onToggleEditAutoApprove,
+  permissionMode,
+  onCyclePermissionMode,
   settingsSlot,
   modelLabel,
   footerSlot,
@@ -886,6 +929,25 @@ export const ChatComposer = ({
               )}
             </div>
           )}
+          {/* Permission-mode pill — always visible so the boundary the agent
+              runs under is on screen. Click cycles ask → auto → plan. Sits
+              leftmost as the higher-level control above edit-auto. */}
+          {onCyclePermissionMode && permissionMode && (() => {
+            const m = describePermissionMode(permissionMode);
+            return (
+              <button
+                type="button"
+                className={clsx("composer-mode-pill", `is-${m.key}`)}
+                onClick={onCyclePermissionMode}
+                data-has-tooltip="true"
+                data-tooltip={m.tooltip}
+                disabled={disabled}
+              >
+                <span className="composer-mode-pill__dot" aria-hidden="true" />
+                <span className="composer-mode-pill__label">{m.label}</span>
+              </button>
+            );
+          })()}
           {/* Edit-auto pill joins the controls row next to the slash
               button — keeps the textarea full-width above and gives
               the composer a single Claude-style bottom row. */}

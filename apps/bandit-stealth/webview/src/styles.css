@@ -1417,7 +1417,8 @@ body.bandit-theme-midnight {
    height + padding so it aligns with the footer chips visually across
    the composer, not just within the footer-slot cluster. */
 .stealth-shell .composer-actions .composer-edit-auto,
-.stealth-shell .composer-actions .composer-edit-auto-toggle {
+.stealth-shell .composer-actions .composer-edit-auto-toggle,
+.stealth-shell .composer-actions .composer-mode-pill {
   height: 1.75rem;
   padding: 0 0.7rem;
   display: inline-flex;
@@ -1447,6 +1448,15 @@ body.bandit-theme-midnight {
     display: none;
   }
   .stealth-shell .composer-actions .composer-edit-auto {
+    padding: 0 0.45rem;
+  }
+  /* Collapse the mode pill to its color dot too — the boundary stays
+     visible (the dot's color still signals the mode) without pushing the
+     send button onto a second row. */
+  .stealth-shell .composer-actions .composer-mode-pill .composer-mode-pill__label {
+    display: none;
+  }
+  .stealth-shell .composer-actions .composer-mode-pill {
     padding: 0 0.45rem;
   }
 }

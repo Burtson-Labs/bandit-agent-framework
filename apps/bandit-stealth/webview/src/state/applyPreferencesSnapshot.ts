@@ -16,6 +16,7 @@ export interface PreferencesSnapshotDeps {
   setToolUseEnabled: (value: boolean) => void;
   setCreateBranchBeforeRun: (value: boolean) => void;
   setAutoApproveEdits: (value: boolean) => void;
+  setPermissionMode: (value: string) => void;
   setAutoContextEnabled: (value: boolean) => void;
   setDeveloperMode: (value: boolean) => void;
   setSkipValidationInDev: (value: boolean) => void;
@@ -28,6 +29,7 @@ export function applyPreferencesSnapshot(state: WebviewState, deps: PreferencesS
   deps.setToolUseEnabled(state.enableToolUse === true);
   deps.setCreateBranchBeforeRun(state.createBranchBeforeRun === true);
   deps.setAutoApproveEdits(state.autoApproveEdits === true);
+  deps.setPermissionMode(state.permissionMode ?? "ask");
   if (typeof state.autoContextEnabled === "boolean") {
     deps.setAutoContextEnabled(state.autoContextEnabled);
   }
