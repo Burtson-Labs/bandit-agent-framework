@@ -61,5 +61,18 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string | u
   if (contextBlock && contextBlock.trim().length > 0) {
     prompt = prompt ? `${prompt}\n\n${contextBlock}` : contextBlock;
   }
+
+  // Plan-mode reminder — only present when plan mode is active, so the model
+  // plans immediately instead of attempting a change and being refused. Mirror
+  // of the CLI's plan-mode note so both hosts behave identically.
+  const permissionMode = configuration.get<string>('agent.permissionMode', 'ask') ?? 'ask';
+  if (permissionMode === 'plan') {
+    const note = [
+      '## Plan mode is ON (read-only)',
+      'You may read files, search the codebase, and run READ-ONLY shell (git diff/status/log, ls, grep). Every edit, file write, state-changing command, delete, and network-write is BLOCKED and will be refused — do not attempt them.',
+      'Investigate as much as you need, then present a concise, concrete plan: the exact files you would change, the edits you would make, and the commands you would run. Then stop. The user leaves plan mode to approve execution.'
+    ].join('\n');
+    prompt = prompt ? `${prompt}\n\n${note}` : note;
+  }
   return prompt;
 }

@@ -40,6 +40,15 @@ export interface RiskAssessment {
   why: string;
   /** Stable identifier for the rule that decided this (logging / tests). */
   rule: string;
+  /**
+   * True only when the call reads/inspects and changes NOTHING — the strict
+   * subset plan mode allows through. Deliberately narrower than the `routine`
+   * tier: an in-workspace edit or a `vitest` run is `routine` (auto mode runs
+   * it) but is NOT read-only (plan mode blocks it). Absent/false means "not
+   * known to be read-only", which plan mode treats as blocked — the safe
+   * default for anything we can't positively vouch for.
+   */
+  readOnly?: boolean;
 }
 
 export interface RiskContext {
@@ -59,6 +68,19 @@ const ROUTINE_COMMANDS = new Set([
   'tsc', 'eslint', 'prettier', 'jest', 'vitest', 'mocha', 'playwright',
   'pytest', 'ruff', 'mypy', 'black', 'gofmt', 'rustc', 'javac',
   'ls', 'cat', 'head', 'tail', 'grep', 'find', 'jq', 'yq', 'wc', 'which', 'echo', 'pwd'
+]);
+
+/**
+ * The pure-inspection subset of ROUTINE_COMMANDS: they only print or read and
+ * cannot mutate the filesystem or run project code. This is what plan mode
+ * lets through as a shell command. `find` and the build/test tools
+ * (tsc/vitest/…) are intentionally EXCLUDED — `find -delete`/`-exec` mutate,
+ * and a test run executes arbitrary project code. Plan-mode exploration that
+ * needs a directory tree should use the read-only `find_directory` /
+ * `list_files` tools instead.
+ */
+const READ_ONLY_COMMANDS = new Set([
+  'ls', 'cat', 'head', 'tail', 'grep', 'jq', 'yq', 'wc', 'which', 'echo', 'pwd'
 ]);
 
 /** Read-only git subcommands. Anything not listed is treated as state-changing. */
@@ -256,7 +278,7 @@ export function classifyRisk(
     }
 
     if (READ_ONLY_TOOLS.has(name)) {
-      return { tier: 'routine', rule: 'read-only', why: 'Reads local state only.' };
+      return { tier: 'routine', rule: 'read-only', why: 'Reads local state only.', readOnly: true };
     }
 
     if (EDIT_TOOLS.has(name)) {
@@ -296,7 +318,7 @@ export function classifyRisk(
       const sub = argv[1] ?? '';
       if (bin === 'git') {
         return ROUTINE_GIT.has(sub)
-          ? { tier: 'routine', rule: 'git-read', why: 'Reads git state.' }
+          ? { tier: 'routine', rule: 'git-read', why: 'Reads git state.', readOnly: true }
           : { tier: 'elevated', rule: 'git-state-change', why: 'Changes git state in this repository.' };
       }
       const allowedSubs = ROUTINE_SUBCOMMANDS[bin];
@@ -304,6 +326,9 @@ export function classifyRisk(
         return allowedSubs.has(sub)
           ? { tier: 'routine', rule: 'build-or-test', why: 'Builds or tests this project.' }
           : { tier: 'elevated', rule: 'package-manager', why: `Runs \`${bin} ${sub}\`, which can change project state.` };
+      }
+      if (READ_ONLY_COMMANDS.has(bin)) {
+        return { tier: 'routine', rule: 'read-only-command', why: 'Inspects files or state without changing them.', readOnly: true };
       }
       if (ROUTINE_COMMANDS.has(bin)) {
         return { tier: 'routine', rule: 'build-or-test', why: 'Builds, checks, or inspects this project.' };
@@ -321,7 +346,7 @@ export function classifyRisk(
       return { tier: 'elevated', rule: 'mcp-mutating', why: 'Changes data in a connected service.' };
     }
     if (/^(list|get|search|read|find|fetch|query|describe)[A-Z_]/.test(bare)) {
-      return { tier: 'routine', rule: 'mcp-read', why: 'Reads from a connected service.' };
+      return { tier: 'routine', rule: 'mcp-read', why: 'Reads from a connected service.', readOnly: true };
     }
 
     return { tier: 'elevated', rule: 'unknown-tool', why: 'Bandit is asking before using this capability.' };

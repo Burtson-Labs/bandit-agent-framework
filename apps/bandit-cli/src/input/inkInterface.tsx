@@ -93,6 +93,10 @@ export interface InkInterfaceOptions {
    *  onPauseInTurn suspended, so the rest of the turn keeps committing to
    *  <Static>. */
   onResumeInTurn?: () => void;
+  /** shift+tab (backtab) in the input frame. The host rotates the permission
+   *  mode (ask → auto → plan → ask), updates the mode chip via
+   *  iface.setPermissionMode, and prints the boundary toast. */
+  onCyclePermissionMode?: () => void;
 }
 
 interface CommittedLine {
@@ -162,13 +166,16 @@ interface InkInterfaceState {
    *  classify it as a `/btw` nudge. Without this an empty-Enter on a
    *  deny+note prompt is swallowed and the whole turn hangs. */
   awaitingLine: boolean;
+  /** Active permission mode, mirrored here so the input frame's mode chip
+   *  + border color re-render the moment the host cycles it (shift+tab). */
+  permissionMode: string;
 }
 
 class InkInterfaceStore {
   private state: InkInterfaceState = {
     value: '', promptText: '❯ ', committed: [], submitting: false, cursorBump: 0, narratorLines: [],
     turnMode: false, turnPlan: [], turnStatus: '', turnStream: '', turnComposer: '', turnCta: '', turnComposerBump: 0,
-    awaitingLine: false
+    awaitingLine: false, permissionMode: 'ask'
   };
   private listeners = new Set<() => void>();
   private nextCommitId = 1;
@@ -199,6 +206,12 @@ class InkInterfaceStore {
   setPromptText(next: string): void {
     if (this.state.promptText === next) return;
     this.state = { ...this.state, promptText: next };
+    this.emit();
+  }
+
+  setPermissionMode(next: string): void {
+    if (this.state.permissionMode === next) return;
+    this.state = { ...this.state, permissionMode: next };
     this.emit();
   }
 
@@ -340,6 +353,10 @@ export interface InkLineInterface extends EventEmitter {
    *  inference. Optional so callers can call it through `?.` without
    *  branching on the readline-vs-ink path. */
   setNarratorLines?(lines: string[]): void;
+  /** Update the permission-mode chip + border color shown in the input
+   *  frame. Host calls this after resolving the mode at startup and after
+   *  every shift+tab / `/auto` / `/plan` change. */
+  setPermissionMode?(mode: string): void;
 
   // ---- turn-view surface (BANDIT_TURN_VIEW) ----
   // All optional so the readline path and the default ink path can call
@@ -517,6 +534,8 @@ export function createInkLineInterface(opts: InkInterfaceOptions): InkLineInterf
                 value={state.value}
                 promptText={state.promptText}
                 footerTip={opts.footerTip}
+                permissionMode={state.permissionMode}
+                onCyclePermissionMode={opts.onCyclePermissionMode}
                 searchFiles={opts.searchFiles}
                 completer={opts.completer}
                 cursorBumpKey={state.cursorBump}
@@ -820,6 +839,11 @@ export function createInkLineInterface(opts: InkInterfaceOptions): InkLineInterf
     // check short-circuits unchanged snapshots so the 2s host tick
     // doesn't trigger a useless render at idle.
     store.setNarratorLines(lines);
+  };
+
+  iface.setPermissionMode = (mode: string): void => {
+    if (closed) return;
+    store.setPermissionMode(mode);
   };
 
   // ---- turn-view surface ----

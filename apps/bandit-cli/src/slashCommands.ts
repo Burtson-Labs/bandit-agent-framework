@@ -2270,7 +2270,7 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: 'auto',
-    description: 'Let routine work run without prompting (/auto on, /auto off, /auto). Destructive calls always ask.',
+    description: 'Permission mode: /auto on (routine runs), /auto plan (read-only), /auto off (ask). shift+tab cycles.',
     run(args, ctx) {
       if (!ctx.permissions) {return c.red('Permission mode is not available in this context.');}
       const arg = args.trim().toLowerCase();
@@ -2279,19 +2279,34 @@ export const slashCommands: SlashCommand[] = [
       if (!arg) {
         const label = current === 'auto'
           ? c.green('auto')
+          : current === 'plan' ? c.blue('plan')
           : current === 'dangerous' ? c.red('dangerous') : c.dim('ask');
         const approved = ctx.permissions.ledger().size();
         return [
           c.bold('Permission mode: ') + label + c.dim(` (${ctx.permissions.modeSource()})`),
           '',
+          c.dim('  plan       read-only — reads/searches run; every change is blocked until you leave plan mode'),
           c.dim('  ask        every non-allowlisted call prompts (default)'),
           c.dim('  auto       routine work runs unprompted; anything destructive still asks'),
           c.dim('  dangerous  nothing prompts — for CI and sandboxes only'),
           '',
+          c.dim('  shift+tab  ') + c.dim('cycle ask → auto → plan without typing'),
           c.dim('  /auto on   ') + c.dim('switch to auto for this session'),
+          c.dim('  /auto plan ') + c.dim('switch to read-only plan mode'),
           c.dim('  /auto off  ') + c.dim('back to ask'),
           approved > 0 ? c.dim(`  ${approved} call(s) auto-approved so far — /permissions to review`) : ''
         ].filter(Boolean).join('\n');
+      }
+
+      if (arg === 'plan') {
+        ctx.permissions.setMode('plan');
+        return [
+          c.blue(`${glyph.check} plan mode ON — read-only`),
+          c.dim('  Bandit reads, searches, and runs read-only shell (git diff, ls, grep) freely.'),
+          c.dim('  Every edit, write, command that changes state, delete, or network-write is'),
+          c.dim('  blocked — Bandit presents a plan instead. Leave plan mode (shift+tab, or'),
+          c.dim('  /auto off) to let it act.')
+        ].join('\n');
       }
 
       if (arg === 'on' || arg === 'auto') {
@@ -2321,7 +2336,7 @@ export const slashCommands: SlashCommand[] = [
           + 'Set BANDIT_DANGEROUSLY_APPROVE_ALL=1, or "permissions": { "mode": "dangerous" } in .bandit/settings.json.'
         );
       }
-      return c.red(`Unknown argument "${arg}". Use: /auto on, /auto off, /auto reset.`);
+      return c.red(`Unknown argument "${arg}". Use: /auto on, /auto plan, /auto off, /auto reset.`);
     }
   },
   {
@@ -2334,11 +2349,17 @@ export const slashCommands: SlashCommand[] = [
       const rules = ctx.permissions.sessionRules();
       const out: string[] = [];
 
-      const label = mode === 'auto' ? c.green('auto') : mode === 'dangerous' ? c.red('dangerous') : c.dim('ask');
+      const label = mode === 'auto' ? c.green('auto')
+        : mode === 'plan' ? c.blue('plan')
+        : mode === 'dangerous' ? c.red('dangerous') : c.dim('ask');
       out.push(c.bold('Permission mode: ') + label + c.dim(` (${ctx.permissions.modeSource()})`));
       if (mode === 'auto') {
         out.push(c.dim('  Routine calls run unprompted. Destructive calls always ask — that floor'));
         out.push(c.dim('  cannot be configured away.'));
+      } else if (mode === 'plan') {
+        out.push(c.dim('  Read-only. Reads, searches, and read-only shell (git diff, ls, grep) run;'));
+        out.push(c.dim('  every edit, write, mutating command, delete, and network-write is blocked'));
+        out.push(c.dim('  until you leave plan mode (shift+tab, or /auto off).'));
       } else if (mode === 'dangerous') {
         out.push(c.red('  Every prompt is disabled, including for destructive calls.'));
       }
