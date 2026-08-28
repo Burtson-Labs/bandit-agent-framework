@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.389
+
+- **Bandit can now build its own skills with a dedicated tool.** Added a `create_skill` capability, so when you ask it to "make a skill" it writes a proper, ready-to-load skill file (`.bandit/skills/<name>.md`) instead of insisting it can't. Run `/skill reload` afterward and the new skill activates automatically. A skill captures a workflow — e.g. "make a PDF" becomes a reusable playbook that generates the file via a script — using the tools Bandit already has.
+
 ## 1.7.388
 
 - **Bandit knows it can build skills again.** Asking "can you make a skill that does X" was getting a wrong "I can't create a tool for myself" — the model confused a skill (a markdown playbook it writes) with a native tool. It now understands it authors skills by writing a file, and that a skill can capture a workflow for things it has no built-in tool for (like generating a PDF via a script).
