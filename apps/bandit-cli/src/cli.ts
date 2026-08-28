@@ -74,6 +74,7 @@ import { promptPermission, formatDenialReason } from './permissionPrompt';
 import { installCrashGuard } from './crashGuard';
 import { pickSession } from './sessionPicker';
 import { searchHistory } from './input/historySearch';
+import { isInputFrameChrome } from './input/inputFrameChrome';
 import { shouldShowRecap } from './recapDecision';
 import { renderReasoning, isReasoningDisplay, type ReasoningDisplay } from './reasoningDisplay';
 import { formatContextMeter, estimateConversationTokens } from './contextMeter';
@@ -3428,7 +3429,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         // the committed line. Mid-line CRs (rare here — the spinner, the
         // only \r source, is sink-silenced in turn mode) are left intact.
         const line = sanitizeForStatic(turnCaptureBuffer.slice(0, nl).replace(/\r$/, ''));
-        ink.commitTurnLine?.(line);
+        // Drop input-frame chrome (composer border, bare prompt, footer tip) so
+        // a stray live-frame render never lands in scrollback history. Safe:
+        // these lines carry no conversation content. See inputFrameChrome.ts.
+        if (!isInputFrameChrome(line)) {
+          ink.commitTurnLine?.(line);
+        }
         turnCaptureBuffer = turnCaptureBuffer.slice(nl + 1);
         nl = turnCaptureBuffer.indexOf('\n');
       }

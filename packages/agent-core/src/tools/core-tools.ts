@@ -2014,7 +2014,7 @@ function shellTokenize(input: string): string[] {
 
 const runCommandTool: AgentTool = {
   name: 'run_command',
-  description: 'Run a shell command in the workspace and return the output. Allowed commands span common dev stacks: node/pnpm/npm/npx, python/pip/pytest, git, cargo, go, dotnet, mvn/gradle/java, ruby/bundle, php/composer, swift/xcodebuild, make/cmake, docker, package managers (brew, npm install -g, pip install, pipx, cargo install, gem install, go install), and read-only inspection tools (ls, cat, head, tail, grep, find, jq, yq). When the user asks you to install a CLI or package, run the install via the right package manager — the host\'s permission gate prompts the user before each invocation, so attempting an install is the correct behavior, not refusal. Only fall back to "ask the user to run it in their shell" when the command is genuinely outside the allow-list AND no package-manager equivalent exists. Call the binary directly via cmd/args (cmd="git", args="status") — NEVER wrap it in `bash -c` / `sh -c` / `zsh -c`; shell interpreters are blocked and the runner already spawns the program for you. For pipes or globs, use `search_code` (grep) or `list_files` (find), or run the steps separately.',
+  description: 'Run a shell command in the workspace and return the output. Allowed commands span common dev stacks: node/pnpm/npm/npx, python/pip/pytest, git, cargo, go, dotnet, mvn/gradle/java, ruby/bundle, php/composer, swift/xcodebuild, make/cmake, docker, package managers (brew, npm install -g, pip install, pipx, cargo install, gem install, go install), and read-only inspection tools (ls, cat, head, tail, grep, find, jq, yq). When the user asks you to install a CLI or package, run the install via the right package manager — the host\'s permission gate prompts the user before each invocation, so attempting an install is the correct behavior, not refusal. Only fall back to "ask the user to run it in their shell" when the command is genuinely outside the allow-list AND no package-manager equivalent exists. Call the binary directly via cmd/args (cmd="git", args="status") — NEVER wrap it in `bash -c` / `sh -c` / `zsh -c`; shell interpreters are blocked and the runner already spawns the program for you. For pipes or globs, use `search_code` (grep) or `list_files` (find), or run the steps separately. NO SHELL: `&&`, `|`, `;`, `source`, `cd`, and `~`/glob expansion do NOT work — run each step as its own call. Python: prefer `python3 -m pip` (bare `pip` is often not on PATH); if pip reports an "externally-managed-environment" (PEP 668), create a venv once (cmd="python3", args="-m venv .venv") and then call `.venv/bin/pip` and `.venv/bin/python` DIRECTLY — never `source .venv/bin/activate`.',
   parameters: [
     { name: 'cmd', description: 'The command to run (e.g. "npm", "tsc", "git")', required: true },
     { name: 'args', description: 'Space-separated arguments (e.g. "run build", "status", "--noEmit")' },
@@ -2091,13 +2091,50 @@ const runCommandTool: AgentTool = {
         stderr.trim() ? `stderr:\n${stderr.trim()}` : '',
         `exit code: ${exitCode}`
       ].filter(Boolean).join('\n\n');
-      const output = truncate(combined, MAX_COMMAND_CHARS, 'run_command');
+      let output = truncate(combined, MAX_COMMAND_CHARS, 'run_command');
+      if (exitCode !== 0) {
+        // Turn a recognized recurring failure into a one-shot fix. Without this
+        // the model rediscovers the same environment gotchas across many
+        // iterations — a real trace spent 25 rounds and 9 errors learning that
+        // pip isn't on PATH and this Python is PEP-668 externally-managed.
+        const hint = runCommandFailureHint(fullCommand, combined);
+        if (hint) {output += `\n\n${hint}`;}
+      }
       return { output, isError: exitCode !== 0 };
     } catch (err) {
-      return { output: `Error running command "${cmd}": ${err instanceof Error ? err.message : String(err)}`, isError: true };
+      const msg = err instanceof Error ? err.message : String(err);
+      const hint = runCommandFailureHint(fullCommand, msg);
+      return { output: `Error running command "${cmd}": ${msg}${hint ? `\n\n${hint}` : ''}`, isError: true };
     }
   }
 };
+
+/**
+ * Directive hint for a failed run_command, or '' when nothing recognized.
+ *
+ * run_command spawns ONE program with no shell, and macOS/Homebrew Python is
+ * externally managed — two facts the model relearns the hard way every session.
+ * These map the exact error text to the exact fix so the loop converges in one
+ * step instead of twenty. Pure and exported for tests.
+ */
+export function runCommandFailureHint(fullCommand: string, output: string): string {
+  const cmd = fullCommand.toLowerCase();
+  const out = output.toLowerCase();
+
+  // PEP 668 — the biggest time sink. Global pip installs are blocked.
+  if (out.includes('externally-managed-environment') || out.includes('externally managed')) {
+    return 'HINT: this Python blocks global installs (PEP 668). Create a venv ONCE — run_command cmd="python3" args="-m venv .venv" — then install with `.venv/bin/pip install <pkg>` and run scripts with `.venv/bin/python <script.py>`. Do NOT use `source .venv/bin/activate` or `&&`: run_command has no shell, so activate/cd/&&/pipes do not work. Run each step as its own run_command.';
+  }
+  // pip not on PATH — the model tries `pip` first; it usually isn't installed.
+  if (/spawn pip enoent|\bpip\b.*(not found|enoent|command not found)/.test(out) || cmd.trim().startsWith('pip ')) {
+    return 'HINT: `pip` is often not on PATH — use `python3 -m pip install <pkg>` instead. If that reports an externally-managed environment, create a venv and use `.venv/bin/pip`.';
+  }
+  // The model reached for shell features run_command can't provide.
+  if (/(^|\s)source\s|\s&&\s|\s\|\s|(^|\s)cd\s/.test(cmd) || out.includes('unable to create directory')) {
+    return 'HINT: run_command runs ONE program with NO shell — `source`, `&&`, `|`, `cd`, and `~`/glob expansion do not work. Run each step as a separate run_command, and call venv binaries directly (`.venv/bin/python`, `.venv/bin/pip`) rather than activating.';
+  }
+  return '';
+}
 
 // ── watch_command ──────────────────────────────────────────────────────────────
 //
