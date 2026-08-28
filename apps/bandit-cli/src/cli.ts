@@ -74,6 +74,7 @@ import { promptPermission, formatDenialReason } from './permissionPrompt';
 import { installCrashGuard } from './crashGuard';
 import { pickSession } from './sessionPicker';
 import { searchHistory } from './input/historySearch';
+import { shouldShowRecap } from './recapDecision';
 import { renderReasoning, isReasoningDisplay, type ReasoningDisplay } from './reasoningDisplay';
 import { formatContextMeter, estimateConversationTokens } from './contextMeter';
 import { promptAskUser } from './askUserPrompt';
@@ -3927,7 +3928,17 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       .replace(/^\s*-{3,}\s*$/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    if (visible.length < 40 && userPrompt.trim().length < 30) return;
+    // Only show the recap when it actually helps — long prose that scrolled.
+    // Suppressed for tables/code (self-documenting) and answers that still fit
+    // on screen, which is where it read as a redundant second copy.
+    if (!shouldShowRecap({
+      userPrompt,
+      rawResponse: assistantResponse,
+      cleanedResponse: visible,
+      terminalRows: process.stdout.rows ?? 24,
+    })) {
+      return;
+    }
     const promptSummary = userPrompt.trim().replace(/\s+/g, ' ').slice(0, 80);
     const firstSentence = visible.split(/(?<=[.!?])\s+/)[0]?.replace(/\s+/g, ' ').slice(0, 100) ?? '';
     if (!firstSentence) return;
