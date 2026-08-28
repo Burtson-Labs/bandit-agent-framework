@@ -16,6 +16,26 @@
  * still grow into a tag (e.g. a lone `<` at the tail) are kept in
  * `state.buffer` and re-examined on the next chunk.
  */
+
+/**
+ * Block classification for the markdown renderer's vertical-rhythm pass.
+ * Each rendered line is tagged with one of these so the renderer can inject
+ * a single blank line at block boundaries (header ↔ prose, prose ↔ list,
+ * around code fences) — the breathing room that makes dense model output
+ * readable instead of a wall of text. `none` is the pre-first-line sentinel.
+ */
+export type MarkdownBlockKind =
+  | 'none'
+  | 'blank'
+  | 'text'
+  | 'header'
+  | 'hr'
+  | 'ulist'
+  | 'olist'
+  | 'quote'
+  | 'fence'
+  | 'code';
+
 export interface StreamStrippingState {
   buffer: string;
   /** Which suppression mode, if any, is currently open. `null` means
@@ -47,6 +67,15 @@ export interface StreamStrippingState {
    * state mid-stream. Used to bail out of pipe-row → box-render when
    * the user is showing markdown source as an example. */
   tableInCodeFence: boolean;
+  /** Kind of the previously rendered markdown line — drives the
+   * vertical-rhythm pass that injects a blank line at block boundaries.
+   * `none` until the first line of the step renders. */
+  prevBlockKind: MarkdownBlockKind;
+  /** Whether the ● step marker has already been emitted for the current
+   * assistant step. Reset to false at each new LLM call so exactly one
+   * gutter dot leads each step's prose (matching other agent CLIs), then
+   * flipped true on the step's first non-blank line. */
+  stepStarted: boolean;
 }
 
 /**
@@ -192,6 +221,8 @@ export function createStreamStrippingState(): StreamStrippingState {
     inTable: false,
     markdownBuffer: '',
     inCodeFence: false,
-    tableInCodeFence: false
+    tableInCodeFence: false,
+    prevBlockKind: 'none',
+    stepStarted: false
   };
 }

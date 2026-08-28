@@ -20,9 +20,9 @@
  * end-of-line markup (a `**bold**` span won't render until its
  * closing `**` lands in the same line).
  */
-import { c, supportsBlockArt, supportsTrueColor, downsampleTruecolorTo256 } from '../ansi';
+import { c, glyph, supportsBlockArt, supportsTrueColor, downsampleTruecolorTo256 } from '../ansi';
 import { resolveLang, highlightCode } from '../syntaxHighlight';
-import type { StreamStrippingState } from '../streaming/streamStripping';
+import type { StreamStrippingState, MarkdownBlockKind } from '../streaming/streamStripping';
 
 export const HEADER_RE = /^(#{1,6})\s+(.*)$/;
 export const FENCE_RE = /^(\s*)(```|~~~)(.*)$/;
@@ -78,7 +78,12 @@ const CODE_HIGHLIGHT = supportsBlockArt();
 const CODE_TRUECOLOR = supportsTrueColor();
 const CODE_FENCE_RESET = '\x1b[39m';
 
-export function renderMarkdownLine(line: string, state: StreamStrippingState): string {
+/**
+ * Classify + render a single line WITHOUT the block-spacing / step-marker
+ * pass. Returns the ANSI text plus the block kind so the wrapper can decide
+ * whether a blank line belongs before it.
+ */
+function renderLineCore(line: string, state: StreamStrippingState): { kind: MarkdownBlockKind; text: string } {
   // Code fence toggles. The fence line itself is rendered as a dim
   // divider so the user sees code-block boundaries without a stray
   // ``` floating in the prose.
@@ -87,9 +92,10 @@ export function renderMarkdownLine(line: string, state: StreamStrippingState): s
     state.inCodeFence = !state.inCodeFence;
     const lang = fenceMatch[3].trim();
     state.fenceLang = state.inCodeFence ? lang : undefined;
-    return c.dim(state.inCodeFence
-      ? (lang ? `── ${lang} ──` : '──────')
-      : '──────');
+    return {
+      kind: 'fence',
+      text: c.dim(state.inCodeFence ? (lang ? `── ${lang} ──` : '──────') : '──────')
+    };
   }
   if (state.inCodeFence) {
     // IDE-style syntax highlighting on truecolor terminals when the fence
@@ -101,17 +107,17 @@ export function renderMarkdownLine(line: string, state: StreamStrippingState): s
         const lit = highlightCode(line, lang, CODE_FENCE_RESET);
         // Truecolor terminals get the 24-bit palette; 256-color terminals
         // (Apple Terminal) get a downsample — foreground-only, no bleed.
-        return CODE_TRUECOLOR ? lit : downsampleTruecolorTo256(lit);
+        return { kind: 'code', text: CODE_TRUECOLOR ? lit : downsampleTruecolorTo256(lit) };
       }
     }
-    return c.cyan(line);
+    return { kind: 'code', text: c.cyan(line) };
   }
   // Horizontal rule: `---`, `***`, `___` (3+ same chars). Avoid
   // colliding with `***bold***` (no spaces between asterisks) by
   // requiring whitespace separation in the regex.
   if (HRULE_RE.test(line) && line.trim().length >= 3) {
     const width = Math.min(process.stdout.columns || 60, 80);
-    return c.dim('─'.repeat(width));
+    return { kind: 'hr', text: c.dim('─'.repeat(width)) };
   }
   // ATX header: # to ###### with a single bold accent line. Keep
   // depth visible via dim leading marker so nested sections are
@@ -121,7 +127,7 @@ export function renderMarkdownLine(line: string, state: StreamStrippingState): s
     const level = headerMatch[1].length;
     const body = applyInlineMarkdown(headerMatch[2]);
     const marker = c.dim('#'.repeat(level));
-    return `${marker} ${c.bold(c.accent(body))}`;
+    return { kind: 'header', text: `${marker} ${c.bold(c.accent(body))}` };
   }
   // Blockquote: dim italic, keep `│` rail prefix so it visually
   // detaches from surrounding prose.
@@ -129,23 +135,68 @@ export function renderMarkdownLine(line: string, state: StreamStrippingState): s
   if (blockquoteMatch) {
     const indent = blockquoteMatch[1];
     const body = applyInlineMarkdown(blockquoteMatch[2]);
-    return `${indent}${c.dim('│ ')}${c.italic(body)}`;
+    return { kind: 'quote', text: `${indent}${c.dim('│ ')}${c.italic(body)}` };
   }
   // Unordered list: replace marker with bullet glyph; keep indent.
   const ulistMatch = ULIST_RE.exec(line);
   if (ulistMatch) {
     const indent = ulistMatch[1];
     const body = applyInlineMarkdown(ulistMatch[3]);
-    return `${indent}${c.accent('•')} ${body}`;
+    return { kind: 'ulist', text: `${indent}${c.accent('•')} ${body}` };
   }
   // Ordered list: keep `N.` marker but accent it.
   const olistMatch = OLIST_RE.exec(line);
   if (olistMatch) {
     const indent = olistMatch[1];
     const body = applyInlineMarkdown(olistMatch[3]);
-    return `${indent}${c.accent(olistMatch[2])} ${body}`;
+    return { kind: 'olist', text: `${indent}${c.accent(olistMatch[2])} ${body}` };
   }
-  return applyInlineMarkdown(line);
+  const kind: MarkdownBlockKind = line.trim().length === 0 ? 'blank' : 'text';
+  return { kind, text: applyInlineMarkdown(line) };
+}
+
+/**
+ * Should a blank line separate a `prev`-kind block from a `curr`-kind one?
+ *
+ * The rule of thumb mirrors what other agent CLIs do: give every real block
+ * boundary one line of breathing room, but keep the interior of a group
+ * tight — consecutive list items, code-block lines, blockquote lines, and
+ * soft-wrapped prose lines all stay together. A blank the model emitted
+ * itself already reads as `prev === 'blank'`, so we never double it.
+ */
+export function needsBlankBetween(prev: MarkdownBlockKind, curr: MarkdownBlockKind): boolean {
+  if (prev === 'none' || prev === 'blank') return false; // start of step / already spaced
+  if (curr === 'blank') return false;                    // the blank line spaces itself
+  // Keep list items in a group tight.
+  if ((prev === 'ulist' || prev === 'olist') && (curr === 'ulist' || curr === 'olist')) return false;
+  // Keep code-block interior + its own fences tight.
+  if ((prev === 'fence' || prev === 'code') && (curr === 'fence' || curr === 'code')) return false;
+  // Keep a multi-line blockquote tight.
+  if (prev === 'quote' && curr === 'quote') return false;
+  // Keep prose paragraphs tight — only a model-emitted blank splits them.
+  if (prev === 'text' && curr === 'text') return false;
+  // Everything else is a real block boundary → one blank line.
+  return true;
+}
+
+/** The gutter dot that leads each assistant step's prose. */
+export const STEP_MARKER = `${c.accent(glyph.bullet)} `;
+
+export function renderMarkdownLine(line: string, state: StreamStrippingState): string {
+  const core = renderLineCore(line, state);
+  // Vertical rhythm: inject a single blank line at block boundaries so
+  // dense model output breathes instead of stacking header-on-prose-on-list.
+  const gap = needsBlankBetween(state.prevBlockKind, core.kind) ? '\n' : '';
+  // Step marker: exactly one ● leads the first non-blank line of the step.
+  // Leading blank lines don't consume it, so a step that opens with a stray
+  // newline still gets its dot on the first real line.
+  let marker = '';
+  if (!state.stepStarted && core.kind !== 'blank') {
+    marker = STEP_MARKER;
+    state.stepStarted = true;
+  }
+  state.prevBlockKind = core.kind;
+  return gap + marker + core.text;
 }
 
 export function consumeMarkdownInChunk(state: StreamStrippingState, text: string): string {

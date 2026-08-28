@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.391
+
+- **Responses are easier to read in the terminal.** Bandit now adds breathing room between sections of an answer — a blank line above and below headings, and space around lists and code blocks — so a dense reply no longer arrives as a wall of text. Bulleted lists and code stay tight internally; only real section breaks get the extra space. Each answer is also led by a `●` marker so it's clear where a new step begins.
+
 ## 1.7.390
 
 - **Faster at tasks that need a Python package.** When a command fails because `pip` isn't on PATH, the Python is externally managed (PEP 668), or a shell feature like `source`/`&&` was used, Bandit now gets the exact fix back immediately — create a venv, use `.venv/bin/pip` directly, etc. A recent "make a PDF" task spent ~25 rounds rediscovering these; it should now take a handful. The `run_command` guidance also states these upfront so it often avoids the misstep entirely.
