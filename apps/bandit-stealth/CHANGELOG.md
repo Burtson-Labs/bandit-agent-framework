@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.388
+
+- **Bandit knows it can build skills again.** Asking "can you make a skill that does X" was getting a wrong "I can't create a tool for myself" — the model confused a skill (a markdown playbook it writes) with a native tool. It now understands it authors skills by writing a file, and that a skill can capture a workflow for things it has no built-in tool for (like generating a PDF via a script).
+
 ## 1.7.387
 
 - **Quieter transcripts.** The `✦ recap:` summary line now only appears after a long answer that scrolled off — it no longer echoes a second, truncated copy of a table, code block, or any answer that already fits on your screen. Turns read as one clean response instead of feeling printed twice.
