@@ -10,7 +10,7 @@
  */
 
 import type { SkillManifest } from '../skill-types';
-import { readFileTool, writeFileTool, applyEditTool, replaceRangeTool, applyPatchTool, listFilesTool, lsTool, findDirectoryTool, searchCodeTool, runCommandTool, watchCommandTool } from '../core-tools';
+import { readFileTool, writeFileTool, applyEditTool, replaceRangeTool, applyPatchTool, listFilesTool, lsTool, findDirectoryTool, searchCodeTool, runCommandTool, watchCommandTool, createSkillTool } from '../core-tools';
 
 export const coreSkill: SkillManifest = {
   id: 'core/filesystem',
@@ -18,5 +18,8 @@ export const coreSkill: SkillManifest = {
   version: '1.0.0',
   description: 'Read, write, search files and run shell commands in the workspace.',
   activation: 'always',
-  tools: [readFileTool, writeFileTool, applyEditTool, replaceRangeTool, applyPatchTool, listFilesTool, lsTool, findDirectoryTool, searchCodeTool, runCommandTool, watchCommandTool]
+  // create_skill is here (not a separate skill) so the model always has a
+  // first-class way to author skills — it kept claiming it "couldn't create a
+  // skill" because there was no tool named that. Now there is.
+  tools: [readFileTool, writeFileTool, applyEditTool, replaceRangeTool, applyPatchTool, listFilesTool, lsTool, findDirectoryTool, searchCodeTool, runCommandTool, watchCommandTool, createSkillTool]
 };

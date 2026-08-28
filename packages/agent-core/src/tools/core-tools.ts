@@ -2203,6 +2203,115 @@ const watchCommandTool: AgentTool = {
   }
 };
 
+// ── create_skill ────────────────────────────────────────────────────────────
+//
+// Makes skill creation a FIRST-CLASS, discoverable capability instead of
+// something the model has to infer it can do by writing a file. Models —
+// bandit-core-2 especially — kept answering "I can't create a skill / I don't
+// have a tool for that" when asked to build one, because they equate "no tool
+// named X" with "can't do X". A dedicated `create_skill` tool ends that: the
+// answer to "do you have a write-skill tool?" is now literally yes.
+//
+// A skill is a markdown playbook at `.bandit/skills/<id>.md` (YAML frontmatter +
+// body) that the loader activates by trigger. This tool writes exactly that
+// shape, so hand-authoring mistakes (bad frontmatter, wrong path) can't break
+// the skill.
+
+/** Derive a kebab-case skill id from a name (or a provided id). */
+export function toSkillId(nameOrId: string): string {
+  return nameOrId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'skill';
+}
+
+/** Render one trigger token for a YAML flow-sequence, quoting when needed. */
+function yamlTrigger(token: string): string {
+  const t = token.trim();
+  return /^[a-z0-9][a-z0-9 _.-]*$/i.test(t) && !t.includes(':') && !/\s{2,}/.test(t) && !t.includes(' ')
+    ? t
+    : JSON.stringify(t); // quotes multi-word / special tokens
+}
+
+/**
+ * Build the full `.bandit/skills/<id>.md` file body from skill fields. Pure and
+ * exported so the format is unit-testable without touching disk.
+ */
+export function buildSkillMarkdown(input: {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  triggers?: string[];
+  activation?: 'always' | 'auto' | 'on-demand';
+}): string {
+  const activation = input.activation ?? 'auto';
+  const fm: string[] = [
+    '---',
+    `id: ${input.id}`,
+    `name: ${input.name.replace(/\n/g, ' ').trim()}`,
+    `description: ${input.description.replace(/\n/g, ' ').trim()}`,
+    `activation: ${activation}`,
+  ];
+  const triggers = (input.triggers ?? []).map((t) => t.trim()).filter(Boolean);
+  if (triggers.length > 0) {
+    fm.push(`triggers: [${triggers.map(yamlTrigger).join(', ')}]`);
+  }
+  fm.push('---', '');
+  // Ensure the body opens with a heading so the injected instructions read as a
+  // titled playbook — add one only if the model didn't already.
+  const body = input.instructions.trim();
+  const withHeading = /^#{1,6}\s/.test(body) ? body : `# ${input.name.trim()}\n\n${body}`;
+  return `${fm.join('\n')}${withHeading}\n`;
+}
+
+const createSkillTool: AgentTool = {
+  name: 'create_skill',
+  description: 'Create a reusable Bandit SKILL — a markdown playbook saved to .bandit/skills/<id>.md that teaches you how to do a recurring task with the tools you ALREADY have. Use this whenever the user asks you to "make/create/write a skill". A skill does NOT add a new tool; it captures a workflow (which tools/commands to run, when, with what flags) so it auto-activates next time the topic comes up. Example: a "pdf" skill whose body says to generate a PDF by writing an fpdf2 Python script and running it with run_command. After creating it, tell the user to run /skill reload (or restart) to activate it.',
+  parameters: [
+    { name: 'name', description: 'Human-readable skill name, e.g. "PDF Generator".', required: true },
+    { name: 'description', description: 'One line on when this skill applies — shown to you when it activates (e.g. "Use when the user wants a PDF or Word document").', required: true },
+    { name: 'instructions', description: 'The playbook body in markdown. Write it as steps you can follow verbatim later: which tools/commands to use, exact flags, install steps, gotchas. This is injected into your system prompt when the skill activates.', required: true },
+    { name: 'triggers', description: 'Comma-separated words/phrases that auto-activate the skill (e.g. "pdf, word doc, docx, export"). Optional but recommended.', required: false },
+    { name: 'id', description: 'Optional kebab-case id for the filename. Derived from the name when omitted.', required: false },
+    { name: 'activation', description: 'always | auto | on-demand. Default "auto" (activates on a trigger match).', required: false },
+  ],
+  async execute(params, ctx: ToolExecutionContext): Promise<ToolResult> {
+    const name = params.name?.trim();
+    const description = params.description?.trim();
+    const instructions = params.instructions?.trim();
+    if (!name) {return { output: 'Error: name is required.', isError: true };}
+    if (!description) {return { output: 'Error: description is required.', isError: true };}
+    if (!instructions) {return { output: 'Error: instructions (the skill body) are required — this is the playbook you will follow when the skill activates.', isError: true };}
+
+    const id = toSkillId(params.id?.trim() || name);
+    const activationRaw = params.activation?.trim().toLowerCase();
+    const activation = activationRaw === 'always' || activationRaw === 'on-demand' ? activationRaw : 'auto';
+    const triggers = (params.triggers ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const content = buildSkillMarkdown({ id, name, description, instructions, triggers, activation });
+    const relPath = `.bandit/skills/${id}.md`;
+    const absPath = isAbsolutePath(relPath) ? relPath : `${ctx.workspaceRoot}/${relPath}`;
+    try {
+      await ctx.writeFile(absPath, content);
+    } catch (err) {
+      return { output: `Error writing skill "${relPath}": ${err instanceof Error ? err.message : String(err)}`, isError: true };
+    }
+    return {
+      output:
+        `Created skill "${name}" → ${relPath}. ` +
+        `It ${activation === 'auto' && triggers.length ? `auto-activates on: ${triggers.join(', ')}` : `has activation "${activation}"`}. ` +
+        `Tell the user to run \`/skill reload\` (or restart Bandit) to load it, then it applies automatically. ` +
+        `Do not restate the file contents — briefly confirm what the skill does and how to activate it.`,
+    };
+  }
+};
+
 /**
  * Returns a ToolRegistry pre-loaded with all core tools.
  * Pass the result to ToolUseLoop or use it standalone.
@@ -2222,7 +2331,8 @@ export function createCoreToolRegistry(): ToolRegistry {
     findDirectoryTool,
     searchCodeTool,
     runCommandTool,
-    watchCommandTool
+    watchCommandTool,
+    createSkillTool
   ]);
 }
 
@@ -2238,5 +2348,6 @@ export {
   findDirectoryTool,
   searchCodeTool,
   runCommandTool,
-  watchCommandTool
+  watchCommandTool,
+  createSkillTool
 };
