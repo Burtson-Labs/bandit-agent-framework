@@ -98,6 +98,10 @@ describe('CLI buildSystemPrompt — tier-gated composition', () => {
     const noSkillGoal = buildSystemPrompt('', { modelId: 'bandit-logic', userGoal: 'tell me about this repo' });
     expect(skillGoal).toMatch(/^## Authoring skills/m);
     expect(noSkillGoal).not.toMatch(/^## Authoring skills/m);
+    // The guide must actively correct the "I can't create a skill / can't make
+    // a tool for myself" misconception that had a model decline a doable ask.
+    expect(skillGoal).toMatch(/YES, you can create skills/);
+    expect(skillGoal).toMatch(/no NATIVE tool for/);
     // Even with skill guide on, large tier stays well under a reasonable
     // ceiling. The skill-authoring section adds ~2 KB on its own.
     expect(skillGoal.length).toBeLessThanOrEqual(CLI_BUDGETS.large + 3 * 1024);
