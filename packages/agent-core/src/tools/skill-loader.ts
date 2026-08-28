@@ -340,7 +340,7 @@ function parseYamlInlineArray(source: string): string[] {
   return out;
 }
 
-function parseMarkdownSkill(source: string, filePath: string): SkillManifest | null {
+export function parseMarkdownSkill(source: string, filePath: string): SkillManifest | null {
   const { frontmatter, body } = splitFrontmatter(source);
 
   if (!frontmatter.id || !frontmatter.name) {

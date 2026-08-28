@@ -144,19 +144,17 @@ describe('buildSkillPromptBlock', () => {
 });
 
 describe('built-in skills', () => {
-  it('core skill has 11 tools including apply_edit, replace_range, apply_patch, watch_command, find_directory', () => {
+  it('core skill has 12 tools including apply_edit, replace_range, apply_patch, watch_command, find_directory, create_skill', () => {
     // read_file, write_file, apply_edit, replace_range, apply_patch,
-    // list_files, ls, find_directory, search_code, run_command, watch_command.
-    // apply_edit was added in v1.5.42 after a pburg-bowl trace showed
-    // the extension system prompt advertised apply_edit while the
+    // list_files, ls, find_directory, search_code, run_command, watch_command,
+    // create_skill. apply_edit was added in v1.5.42 after a pburg-bowl trace
+    // showed the extension system prompt advertised apply_edit while the
     // skill manifest omitted it — every call came back tool-not-found.
-    // watch_command was added in . apply_patch was added in
-    // (multi-file edit envelope). find_directory was added in
-    // so the agent can locate sibling repos without asking the
-    // user where they live. The assertion below is the guard: if
-    // someone trims any of them from the skill, this fails BEFORE the
-    // bug reaches production.
-    expect(coreSkill.tools).toHaveLength(11);
+    // apply_patch is the multi-file edit envelope; find_directory locates
+    // sibling repos; create_skill lets the agent author its own skills (models
+    // kept claiming they couldn't). The assertion is the guard: if someone
+    // trims any of them from the skill, this fails BEFORE the bug ships.
+    expect(coreSkill.tools).toHaveLength(12);
     expect(coreSkill.activation).toBe('always');
     const names = coreSkill.tools.map(t => t.name);
     expect(names).toContain('ls');
@@ -165,6 +163,7 @@ describe('built-in skills', () => {
     expect(names).toContain('apply_patch');
     expect(names).toContain('watch_command');
     expect(names).toContain('find_directory');
+    expect(names).toContain('create_skill');
   });
 
   it('git skill exposes the full toolset (v1.7.239 expanded from 4 → 9)', () => {

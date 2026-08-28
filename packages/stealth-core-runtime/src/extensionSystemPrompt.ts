@@ -218,7 +218,7 @@ const SMALL_MODEL_QUIRKS = [
 
 const SKILL_AUTHORING = [
   '## Authoring Skills',
-  'YES, you can create skills — a skill is a markdown file you write with `write_file` to `.bandit/skills/<name>.md`, so never say "I can\'t create a skill." A skill can encode a workflow for things with no native tool (e.g. "make a PDF" → a script run with `run_command`).',
+  'YES, you can create skills — you have a `create_skill` tool (name, description, instructions, triggers). Never say "I can\'t create a skill." A skill can encode a workflow for things with no native tool (e.g. "make a PDF" → a script run with `run_command`).',
   'A skill is a context package, not a tool plugin. You already have `run_command`, `read_file`, `write_file`, `git_*` — a skill tells you WHEN to reach for them and WHICH flags/patterns to use.',
   'Skills live at `.bandit/skills/<name>.md` as markdown with YAML frontmatter:',
   '',
