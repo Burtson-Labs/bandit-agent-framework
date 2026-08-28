@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.390
+
+- **Faster at tasks that need a Python package.** When a command fails because `pip` isn't on PATH, the Python is externally managed (PEP 668), or a shell feature like `source`/`&&` was used, Bandit now gets the exact fix back immediately — create a venv, use `.venv/bin/pip` directly, etc. A recent "make a PDF" task spent ~25 rounds rediscovering these; it should now take a handful. The `run_command` guidance also states these upfront so it often avoids the misstep entirely.
+- **Fewer stray input boxes in the transcript.** The terminal no longer leaves empty composer-box fragments scattered through the chat history in turn view.
+
 ## 1.7.389
 
 - **Bandit can now build its own skills with a dedicated tool.** Added a `create_skill` capability, so when you ask it to "make a skill" it writes a proper, ready-to-load skill file (`.bandit/skills/<name>.md`) instead of insisting it can't. Run `/skill reload` afterward and the new skill activates automatically. A skill captures a workflow — e.g. "make a PDF" becomes a reusable playbook that generates the file via a script — using the tools Bandit already has.
