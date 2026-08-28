@@ -281,15 +281,23 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
     }
 
     if (outcome.action === 'deny') {
+      // Plan mode denies non-read-only calls with an instructive reason so the
+      // model presents a plan rather than retrying; surface THAT, not the
+      // generic policy string (mirrors the CLI). Everything else is a policy
+      // deny.
+      const inPlanMode = mode === 'plan';
+      const reason = inPlanMode
+        ? outcome.reason
+        : `denied by permission policy (${name}${primary ? `:${primary}` : ''})`;
       await turnLog?.append({
         type: 'permission-denied',
         name,
         primary: previewText(primary),
         displayPrimary: previewText(displayPrimary),
-        source: 'policy',
-        reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})`
+        source: inPlanMode ? 'plan-mode' : 'policy',
+        reason
       });
-      return { allow: false, reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})` };
+      return { allow: false, reason };
     }
     {
       // Turn-local auto-grant: if the user already approved this exact

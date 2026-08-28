@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.391",
+  "version": "1.7.392",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -94,6 +94,12 @@
         "title": "Switch Model",
         "category": "Bandit Stealth",
         "icon": "$(symbol-misc)"
+      },
+      {
+        "command": "banditStealth.cyclePermissionMode",
+        "title": "Cycle Permission Mode (ask → auto → plan)",
+        "category": "Bandit Stealth",
+        "icon": "$(shield)"
       },
       {
         "command": "banditStealth.agent.startGoal",
@@ -624,17 +630,19 @@
           "banditStealth.agent.permissionMode": {
             "type": "string",
             "enum": [
+              "plan",
               "ask",
               "auto",
               "dangerous"
             ],
             "default": "ask",
             "enumDescriptions": [
+              "Read-only. Bandit reads, searches, and runs read-only shell (git diff, ls, grep), but every edit, write, mutating command, delete, and network-write is blocked — it presents a plan instead of acting.",
               "Every non-allowlisted tool call shows a permission card.",
               "Routine work runs without a card: reading files, editing files inside the workspace, running builds and tests. Everything else still asks.",
               "No permission cards at all, including for destructive calls. Intended for sandboxes and automation, not everyday use."
             ],
-            "markdownDescription": "How much Bandit may do without asking.\n\n- `ask` — every non-allowlisted call shows a card (default).\n- `auto` — routine work runs unprompted; deletes, writes outside the workspace, force-push, global installs, credential files, and anything that sends data out **still ask every time**, even if a saved allow rule covers them.\n- `dangerous` — no cards at all. Sandboxes and automation only."
+            "markdownDescription": "How much Bandit may do without asking.\n\n- `plan` — **read-only**: reads, searches, and read-only shell run; every change is blocked until you leave plan mode. Bandit presents a plan.\n- `ask` — every non-allowlisted call shows a card (default).\n- `auto` — routine work runs unprompted; deletes, writes outside the workspace, force-push, global installs, credential files, and anything that sends data out **still ask every time**, even if a saved allow rule covers them.\n- `dangerous` — no cards at all. Sandboxes and automation only.\n\nThe status-bar item cycles ask → auto → plan (`dangerous` stays here in settings only)."
           }
         }
       },

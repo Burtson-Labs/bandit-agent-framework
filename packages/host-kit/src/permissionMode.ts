@@ -1,6 +1,11 @@
 /**
  * Permission mode — how much Bandit is allowed to do without stopping to ask.
  *
+ *   plan       Read-only. Reads, searches, and read-only shell (`git diff`,
+ *              `ls`, `grep`) run unprompted; every edit, write, mutating
+ *              command, delete, and network-write is DENIED — not queued for a
+ *              prompt, denied outright — so the model presents a plan instead
+ *              of acting. Leaving plan mode is the user's explicit approval.
  *   ask        (default) Every non-allowlisted call prompts. Today's behavior.
  *   auto       `routine` calls run unprompted; `elevated` and `critical` still
  *              prompt. This is the mode meant for "let it work while I watch."
@@ -12,16 +17,44 @@
  * is a different mode from `dangerous` rather than a softer setting on the same
  * dial — a mode whose exceptions are configurable is a bypass with extra steps.
  *
+ * `plan` is the mirror image: instead of a floor on what auto-approves, it's a
+ * ceiling on what runs at all. Its boundary is `risk.readOnly`, which is
+ * strictly narrower than the `routine` tier — an in-workspace edit is `routine`
+ * (auto runs it) but not read-only (plan blocks it). "Deny, don't prompt" is
+ * the whole point: a plan-mode prompt would just be an interruption the user
+ * clicks through, defeating the "research first, act later" boundary.
+ *
  * `dangerous` has no floor, by design and by name. If someone needs an
  * unattended full-access run, they should have to type a word that tells them
  * what they are doing; the failure mode we are avoiding is a user reaching for
  * "auto" in a blog post and getting "no confirmation for anything."
+ *
+ * The shift+tab cycle (both hosts) rotates ask → auto → plan → ask. `dangerous`
+ * is NOT in the cycle — it stays an env/settings-only deliberate act.
  */
 import type { RiskAssessment, RiskTier } from './riskTiers';
 
-export type PermissionMode = 'ask' | 'auto' | 'dangerous';
+export type PermissionMode = 'plan' | 'ask' | 'auto' | 'dangerous';
 
-export const PERMISSION_MODES: readonly PermissionMode[] = ['ask', 'auto', 'dangerous'] as const;
+export const PERMISSION_MODES: readonly PermissionMode[] = ['plan', 'ask', 'auto', 'dangerous'] as const;
+
+/**
+ * The subset of modes the shift+tab UI rotates through, in cycle order.
+ * `dangerous` is deliberately excluded — reaching a full bypass should require
+ * typing an env var / settings value, not a keypress in a cycle.
+ */
+export const CYCLE_MODES: readonly PermissionMode[] = ['ask', 'auto', 'plan'] as const;
+
+/**
+ * The next mode when the user presses shift+tab. Rotates within CYCLE_MODES;
+ * a current mode that isn't in the cycle (e.g. `dangerous`) lands back at the
+ * cycle's start so the key always does something predictable.
+ */
+export function nextCycleMode(current: PermissionMode): PermissionMode {
+  const idx = CYCLE_MODES.indexOf(current);
+  if (idx === -1) return CYCLE_MODES[0];
+  return CYCLE_MODES[(idx + 1) % CYCLE_MODES.length];
+}
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
@@ -123,6 +156,14 @@ export function shouldAutoApprove(mode: PermissionMode, risk: RiskAssessment): A
   if (mode === 'dangerous') {
     return { autoApprove: true, reason: 'permission mode is "dangerous" (all prompts disabled)' };
   }
+  if (mode === 'plan') {
+    // Read-only calls run silently; everything else is BLOCKED in plan mode
+    // (see decidePermission). Auto-approving a non-read-only call here would
+    // be wrong, so this only waives the prompt for reads.
+    return risk.readOnly
+      ? { autoApprove: true, reason: `plan mode: read-only call (${risk.rule})` }
+      : { autoApprove: false, reason: `plan mode blocks non-read-only calls (${risk.rule})` };
+  }
   if (mode !== 'auto') {
     return { autoApprove: false, reason: 'permission mode is "ask"' };
   }
@@ -159,16 +200,21 @@ export interface PermissionOutcome {
  * extension never had). One function, one order, one set of tests:
  *
  *   1. `deny` from policy — nothing overrides an explicit deny.
- *   2. **The critical floor.** A `critical` call always asks, even when a
+ *   2. **Plan mode.** A hard read-only ceiling: read-only calls allow, every
+ *      other call DENIES (not asks). Sits above the critical floor and the
+ *      allow-policy path on purpose — in plan mode an allowlisted write is
+ *      still blocked, and a destructive call is denied outright rather than
+ *      surfaced as a prompt. The deny reason tells the model to present a plan.
+ *   3. **The critical floor.** A `critical` call always asks, even when a
  *      stored rule says allow. This is what stops a saved grant from widening
  *      into destruction: approving `git push origin main` for the session
  *      stores `run_command:git push*`, which as a bare glob would also cover
  *      `git push --force`. It doesn't, because force-push classifies critical
  *      and lands here. Same protection covers a hand-written `run_command:git *`
  *      in settings.json, which had this hole before the floor existed.
- *   3. `dangerous` mode — no floor, by name and by design.
- *   4. `auto` mode — routine runs unattended.
- *   5. Otherwise the policy decides.
+ *   4. `dangerous` mode — no floor, by name and by design.
+ *   5. `auto` mode — routine runs unattended.
+ *   6. Otherwise the policy decides.
  *
  * The security guard and PreToolUse hooks run BEFORE this, in the host. This
  * function answers "does the user have to be asked", not "is this call safe".
@@ -178,6 +224,16 @@ export function decidePermission(input: PermissionDecisionInput): PermissionOutc
 
   if (policyDecision === 'deny') {
     return { action: 'deny', reason: 'denied by permission policy' };
+  }
+
+  if (mode === 'plan') {
+    if (risk.readOnly) {
+      return { action: 'allow', reason: `plan mode: read-only call (${risk.rule})` };
+    }
+    return {
+      action: 'deny',
+      reason: `plan mode is on — Bandit is read-only right now. Present your plan for the user; they leave plan mode (shift+tab) to approve running this (${risk.rule}).`
+    };
   }
 
   if (mode === 'dangerous') {

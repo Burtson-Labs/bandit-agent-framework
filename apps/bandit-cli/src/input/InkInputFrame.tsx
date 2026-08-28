@@ -26,6 +26,7 @@
 import * as React from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
+import { modeChrome } from './modeChrome';
 
 export interface InkInputFrameProps {
   /** Current buffer contents. The adapter owns this state so the
@@ -84,6 +85,13 @@ export interface InkInputFrameProps {
    *  to follow programmatic inserts, which is what stranded the cursor
    *  at column 0 after a clipboard image paste. */
   cursorBumpKey?: number;
+  /** Current permission mode ('plan' | 'ask' | 'auto' | 'dangerous').
+   *  Drives the always-visible mode chip in the footer + the frame's
+   *  border color, so the active boundary is on screen at all times. */
+  permissionMode?: string;
+  /** shift+tab (backtab) cycles the permission mode. The host owns the
+   *  actual rotation + the boundary toast; this just fires on the chord. */
+  onCyclePermissionMode?: () => void;
 }
 
 const SHORTCUT_ROWS: Array<[string, string, string, string, string, string]> = [
@@ -92,7 +100,7 @@ const SHORTCUT_ROWS: Array<[string, string, string, string, string, string]> = [
   ['@',     'pin a file',       'Ctrl+C', 'cancel turn',   '/login',    'save cloud API key'],
   ['↑ / ↓', 'history',          'Ctrl+D', 'exit',          '/provider', 'switch ollama/bandit'],
   ['',      '',                 'Enter',  'submit',        '/model',    'switch model'],
-  ['',      '',                 '',       '',              '/tasks',    'background subagents'],
+  ['',      '',                 'shift+tab', 'cycle mode', '/tasks',    'background subagents'],
   ['',      '',                 '',       '',              '/rewind',   'undo agent edit'],
   ['',      '',                 '',       '',              '/clear',    'reset chat']
 ];
@@ -298,6 +306,14 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
   useInput((input, key) => {
     props.onActivity?.();
 
+    // shift+tab (backtab) cycles the permission mode — a global chord placed
+    // first so nothing else can shadow it. Nothing else in the frame binds
+    // shift+tab (the @-overlay uses plain Tab), so this is collision-free.
+    if (key.tab && key.shift && props.onCyclePermissionMode) {
+      props.onCyclePermissionMode();
+      return;
+    }
+
     // Reverse history search (Ctrl+R). Handled first so it owns all input while
     // active — the TextInput is unmounted during search (see the render below),
     // so there's no competing capture.
@@ -474,11 +490,17 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
       ? '▸ SHELL MODE — next Enter runs in /bin/sh; the agent will not see it'
       : (props.footerTip && props.footerTip.length > 0 ? props.footerTip : '? for shortcuts');
 
+  // Always-on mode chip. In search / shell mode those overlays own the border
+  // color, but the chip still shows the standing permission mode underneath.
+  const mode = modeChrome(props.permissionMode);
+  const showModeChip = !searchActive && !showBang;
+  const borderColor = searchActive ? 'magenta' : (showBang ? 'yellow' : (mode.color ?? 'gray'));
+
   return (
     <Box flexDirection="column" width={frameWidth}>
       {showShortcuts && <ShortcutsOverlay />}
       {atActive && <AtMentionOverlay results={atResults} selectedIdx={atSelectedIdx} />}
-      <Box borderStyle="round" borderColor={searchActive ? 'magenta' : (showBang ? 'yellow' : 'gray')} paddingX={1}>
+      <Box borderStyle="round" borderColor={borderColor} paddingX={1}>
         {searchActive ? (
           // Reverse-search prompt in place of the input. TextInput is unmounted
           // here so it can't also consume keystrokes — the frame's useInput
@@ -509,8 +531,20 @@ export function InkInputFrame(props: InkInputFrameProps): React.JSX.Element {
             Without this, a wide normal hint wraps to 2 lines on a narrow
             terminal while the shorter shell-mode hint fits on 1 — the
             height flip-flop is what ink fails to erase, stranding the old
-            footer when you type `!` then backspace. */}
-        <Text color={showBang ? 'yellow' : undefined} dimColor={!showBang} wrap="truncate-end">{hint}</Text>
+            footer when you type `!` then backspace.
+            The mode chip leads the line (colored) so the active boundary is
+            always visible; `shift+tab` is spelled out so the cycle is
+            discoverable. Both sit in the same one-line Box as the hint. */}
+        <Text wrap="truncate-end">
+          {showModeChip && (
+            <Text color={mode.color} dimColor={mode.color === undefined}>
+              {mode.glyph} {mode.label} mode{mode.note ? ` (${mode.note})` : ''}
+              <Text dimColor> · shift+tab</Text>
+              <Text dimColor>  ·  </Text>
+            </Text>
+          )}
+          <Text color={showBang ? 'yellow' : undefined} dimColor={!showBang}>{hint}</Text>
+        </Text>
       </Box>
     </Box>
   );

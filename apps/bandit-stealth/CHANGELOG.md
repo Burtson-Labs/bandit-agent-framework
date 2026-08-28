@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.392
+
+- **New plan mode — read-only, so you can review before anything changes.** In plan mode Bandit reads, searches, and runs read-only shell (`git diff`, `ls`, `grep`) freely, but every edit, file write, state-changing command, delete, and network call is blocked — it presents a concrete plan (the files it would touch, the edits, the commands) and waits. Nothing runs until you leave plan mode. Great for "tell me what you'd do" before handing over the keys.
+- **A permission mode you can see and switch at a glance.** The current mode is always on screen now. In the CLI, **shift+tab** cycles ask → auto → plan and the input box shows a colored mode chip (and border). In the editor, a status-bar item shows the mode and clicking it cycles the same way. `/auto plan` and `/permissions` cover it in the CLI. Full-bypass (`dangerous`) stays a deliberate settings-only choice — it's not in the cycle.
+
 ## 1.7.391
 
 - **Responses are easier to read in the terminal.** Bandit now adds breathing room between sections of an answer — a blank line above and below headings, and space around lists and code blocks — so a dense reply no longer arrives as a wall of text. Bulleted lists and code stay tight internally; only real section breaks get the extra space. Each answer is also led by a `●` marker so it's clear where a new step begins.

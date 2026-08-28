@@ -140,6 +140,7 @@ import {
   grantRuleFor,
   decidePermission,
   resolvePermissionMode,
+  nextCycleMode,
   AutoApprovalLedger,
   type PermissionMode,
   type RiskAssessment,
@@ -1192,16 +1193,26 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     }
 
     if (outcome.action === 'deny') {
+      // Plan mode denies non-read-only calls with an instructive reason (see
+      // decidePermission). Surface THAT to the model — not the generic policy
+      // string — so it presents a plan instead of retrying blindly, and show
+      // a calm plan-flavored line rather than a scary red "denied".
+      const inPlanMode = permissionMode() === 'plan';
+      const reason = inPlanMode
+        ? outcome.reason
+        : `denied by permission policy (${name}${primary ? `:${primary}` : ''})`;
       await turnLog?.append({
         type: 'permission-denied',
         name,
         primary: previewText(primary),
         displayPrimary: previewText(displayPrimary),
-        source: 'policy',
-        reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})`
+        source: inPlanMode ? 'plan-mode' : 'policy',
+        reason
       });
-      process.stdout.write(c.red(`  ${glyph.cross} denied: ${name}${primary ? ' ' + primary : ''}\n`));
-      return { allow: false, reason: `denied by permission policy (${name}${primary ? `:${primary}` : ''})` };
+      process.stdout.write(inPlanMode
+        ? c.blue(`  ◆ plan mode — not run: ${name}${displayPrimary ? ' ' + displayPrimary : ''} (read-only; presenting a plan)\n`)
+        : c.red(`  ${glyph.cross} denied: ${name}${primary ? ' ' + primary : ''}\n`));
+      return { allow: false, reason };
     }
     {
       // acquire the picker mutex before rendering anything.
@@ -2067,8 +2078,20 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // (unchanged) or re-read (mtime moved since we captured it).
   const recentReadsBlock = buildRecentReadsAddendum(opts.recentReads);
   const baseSystemPrompt = buildSystemPrompt(memoryBlock, promptOpts);
+  // Plan-mode reminder — only present when plan mode is active (zero effect on
+  // the common path / prompt cache otherwise). Tells the model up front that
+  // it's read-only so it plans immediately instead of attempting an edit,
+  // getting refused, and only then planning.
+  const planModeNote = permissionMode() === 'plan'
+    ? [
+        '## Plan mode is ON (read-only)',
+        'You may read files, search the codebase, and run READ-ONLY shell (git diff/status/log, ls, grep). Every edit, file write, state-changing command, delete, and network-write is BLOCKED and will be refused — do not attempt them.',
+        'Investigate as much as you need, then present a concise, concrete plan: the exact files you would change, the edits you would make, and the commands you would run. Then stop. The user leaves plan mode (shift+tab) to approve execution.'
+      ].join('\n')
+    : '';
   const systemPrompt = [
     baseSystemPrompt,
+    planModeNote,
     recentReadsBlock ? recentReadsBlock : '',
     skillInstructions ? `## Skill Instructions\n\n${skillInstructions}` : ''
   ].filter(Boolean).join('\n\n');
@@ -3337,13 +3360,27 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         // stdin (the permission picker's arrow menu) renders straight to
         // the terminal instead of into <Static> while ink is unmounted.
         onPauseInTurn: () => { removeTurnCapture(); },
-        onResumeInTurn: () => { installTurnCapture(rl as InkLineInterface); }
+        onResumeInTurn: () => { installTurnCapture(rl as InkLineInterface); },
+        // shift+tab rotates ask → auto → plan → ask. The mode chip + border
+        // color update immediately (that IS the feedback — no scrollback
+        // line, matching how the boundary stays on screen at all times).
+        // `dangerous` is intentionally not reachable here.
+        onCyclePermissionMode: () => {
+          const current = modeOverride.current
+            ?? resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).mode;
+          const next = nextCycleMode(current);
+          modeOverride.current = next;
+          (rl as InkLineInterface).setPermissionMode?.(next);
+        }
       })
     : readline.createInterface({ input: process.stdin, output: process.stdout, completer });
   // Esc-to-cancel for the ink path. Readline registers its own keypress
   // handler below; the ink adapter emits a synthetic 'escape' event
   // instead so cli.ts can route it without observing raw stdin.
   if (useInk) {
+    // Seed the input-frame mode chip with the resolved startup mode so the
+    // boundary is on screen from the first prompt (not just after a change).
+    (rl as InkLineInterface).setPermissionMode?.(modeOverride.current ?? resolvedMode.mode);
     (rl as InkLineInterface).on('escape', () => {
       if (!activeTurnController || activeTurnController.signal.aborted) return;
       activeTurnController.abort();
@@ -4095,7 +4132,13 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     permissions: {
       getMode: () => modeOverride.current
         ?? resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).mode,
-      setMode: (next) => { modeOverride.current = next; },
+      setMode: (next) => {
+        modeOverride.current = next;
+        // Keep the input-frame mode chip in lockstep with /auto, /plan, and
+        // /auto reset (undefined → fall back to the resolved default).
+        const eff = next ?? resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).mode;
+        (rl as InkLineInterface).setPermissionMode?.(eff);
+      },
       modeSource: () => modeOverride.current
         ? 'set with /auto this session'
         : `from ${resolvePermissionMode({ settingsMode: hookSettings.permissions?.mode, env: process.env }).source}`,

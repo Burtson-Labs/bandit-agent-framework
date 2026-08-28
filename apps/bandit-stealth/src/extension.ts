@@ -43,6 +43,51 @@ import { BanditStealthViewProvider } from './provider/BanditStealthViewProvider'
 // by type from `./extension` — preserves the existing import surface.
 export { BanditStealthViewProvider } from './provider/BanditStealthViewProvider';
 
+/**
+ * Status-bar chrome for the active permission mode. Always shown so the current
+ * boundary is visible at a glance; clicking the item cycles ask → auto → plan.
+ * Plan reads as a read-only "eye", dangerous gets the error background as a
+ * standing warning.
+ */
+function modeStatusChrome(mode: string): {
+  text: string;
+  tooltip: string;
+  color: vscode.ThemeColor | undefined;
+  background: vscode.ThemeColor | undefined;
+} {
+  switch (mode) {
+    case 'plan':
+      return {
+        text: '$(eye) Plan',
+        tooltip: 'Bandit permission mode: PLAN (read-only)\nReads, searches, and read-only shell run; every edit, command, delete, and network-write is blocked — Bandit presents a plan.\nClick to cycle → ask',
+        color: new vscode.ThemeColor('charts.blue'),
+        background: undefined
+      };
+    case 'auto':
+      return {
+        text: '$(zap) Auto',
+        tooltip: 'Bandit permission mode: AUTO\nRoutine work runs without a card; destructive calls still ask.\nClick to cycle → plan',
+        color: new vscode.ThemeColor('charts.green'),
+        background: undefined
+      };
+    case 'dangerous':
+      return {
+        text: '$(alert) Danger',
+        tooltip: 'Bandit permission mode: DANGEROUS\nNo permission cards at all, including destructive calls. Set in settings; the click-cycle skips this.\nClick to cycle → auto',
+        color: undefined,
+        background: new vscode.ThemeColor('statusBarItem.errorBackground')
+      };
+    case 'ask':
+    default:
+      return {
+        text: '$(shield) Ask',
+        tooltip: 'Bandit permission mode: ASK (default)\nEvery non-allowlisted call shows a permission card.\nClick to cycle → auto',
+        color: undefined,
+        background: undefined
+      };
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   // Resolve the bundled platform-specific recorder (currently macOS
   // only — bandit-mic, a tiny Swift AVFoundation binary). When present,
@@ -90,9 +135,24 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'banditStealth.switchModel';
 
+  // Permission-mode chip, just left of the model item. Always visible so the
+  // active boundary is on screen; click cycles ask → auto → plan (same rotation
+  // as the CLI's shift+tab). `dangerous` shows if set, but the cycle skips it.
+  const modeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  modeStatusBarItem.command = 'banditStealth.cyclePermissionMode';
+  function updateModeStatusBar(): void {
+    const mode = vscode.workspace.getConfiguration('banditStealth').get<string>('agent.permissionMode', 'ask') ?? 'ask';
+    const chip = modeStatusChrome(mode);
+    modeStatusBarItem.text = chip.text;
+    modeStatusBarItem.tooltip = chip.tooltip;
+    modeStatusBarItem.color = chip.color;
+    modeStatusBarItem.backgroundColor = chip.background;
+  }
+
   let lastContextBudget: { tokenEstimate: number; contextWindow: number; source: string } | undefined;
 
   function updateStatusBarText(busy?: boolean, statusText?: string, contextBudget?: { tokenEstimate: number; contextWindow: number; source: string }): void {
+    updateModeStatusBar();
     if (contextBudget !== undefined) {
       lastContextBudget = contextBudget;
     }
@@ -129,6 +189,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   updateStatusBarText();
   statusBarItem.show();
+  modeStatusBarItem.show();
 
   // On activation, auto-detect Ollama availability and model capabilities.
   // Shows a helpful status message so users know the agent is ready.
@@ -275,6 +336,7 @@ export function activate(context: vscode.ExtensionContext): void {
     provider,
     diffContentProvider,
     statusBarItem,
+    modeStatusBarItem,
     configChangeListener,
     statusChangeListener,
     vscode.workspace.registerTextDocumentContentProvider(DiffContentProvider.scheme, diffContentProvider),

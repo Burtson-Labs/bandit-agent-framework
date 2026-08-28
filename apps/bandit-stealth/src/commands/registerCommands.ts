@@ -9,6 +9,7 @@ import { linkWorkspace } from './linkWorkspace';
 import { indexRepo } from './indexRepo';
 import { openInTerminal, toggleUseTerminal } from './terminal';
 import { insightsCommand } from './insights';
+import { cyclePermissionMode } from './cyclePermissionMode';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -28,6 +29,7 @@ export function registerCommands(
     vscode.commands.registerCommand('banditStealth.toggleMode', () => provider.toggleMode()),
     vscode.commands.registerCommand('banditStealth.traceViewer', () => provider.openTraceViewer()),
     vscode.commands.registerCommand('banditStealth.switchModel', () => switchModel(updateStatusBarText, context)),
+    vscode.commands.registerCommand('banditStealth.cyclePermissionMode', () => cyclePermissionMode(updateStatusBarText)),
     vscode.commands.registerCommand('banditStealth.agent.startGoal', (inputGoal?: string) =>
       startGoal(provider, runtimeController, inputGoal)
     ),
