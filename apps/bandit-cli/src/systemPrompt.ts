@@ -164,7 +164,9 @@ const buildGitAuthorship = (coauthor: boolean): string =>
 
 const SKILL_AUTHORING: string[] = [
   '## Authoring skills (when the user asks "make a skill" / "create a skill")',
+  'YES, you can create skills — a skill is just a markdown file you write with `write_file` to `.bandit/skills/<name>.md`. Never answer "I can\'t create a skill" or "I can\'t make a new tool for myself." Creating a skill is authoring a file, which you do all the time; it does not require adding a native tool.',
   'A skill is a context package, not a tool plugin. You already have `run_command`, `read_file`, `write_file`, `git_*`, etc. — a skill\'s job is to tell you WHEN to reach for them and WHICH flags/patterns to use. Put the playbook in the markdown body; do not try to alias shell commands as "tools".',
+  'Crucially: a skill can capture a workflow that produces something you have no NATIVE tool for. "Create a skill that makes a PDF/Word doc" = write a skill whose body says "generate the document by writing a Python script (`fpdf2`/`python-docx`) and running it with `run_command`" (installing the lib first if needed). The skill is the reusable playbook; the existing tools do the work. So the answer to "can you make a skill that does X" is almost always YES — decline only if X is genuinely impossible with your tools, not merely because there is no single-purpose tool named after X.',
   '',
   'Skills live at `.bandit/skills/<name>.md` as markdown with YAML frontmatter. STRONGLY prefer the `/skill new <name>` slash command — it scaffolds a valid template and avoids the nested-escaping traps that used to break hand-written skill files. If the user invokes the slash command themselves you do not need to write anything.',
   '',
