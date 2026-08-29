@@ -221,6 +221,8 @@ ${c.bold('Usage')}
   bandit --session <id>       Start / continue a named session
   bandit doctor               Find and consolidate multiple bandit installs
   bandit upgrade              Update the standalone binary to the latest release
+  bandit runner               Run tasks driven remotely from Bandit Stealth Web
+                              (try: bandit runner --dry-run "your task")
   bandit --help               Show this message
   bandit --version            Show version
   bandit --no-ink             Fall back to the legacy readline input (or set BANDIT_INK_INPUT=0)
@@ -410,8 +412,10 @@ interface ProviderBundle {
 /**
  * Turn a ResolvedConfig into the ProviderSettings the runtime consumes.
  * Also enforces the "bandit provider requires an api key" invariant.
+ * Exported so the `bandit runner` subcommand can resolve the same
+ * provider/model bundle the REPL uses without duplicating the logic.
  */
-function buildProviderSettings(cfg: ResolvedConfig): ProviderBundle {
+export function buildProviderSettings(cfg: ResolvedConfig): ProviderBundle {
   const kind = cfg.provider;
   if (kind === 'bandit' && !cfg.apiKey) {
     throw new Error('BANDIT_API_KEY (or bandit.apiKey in ~/.bandit/config.json) is required when provider=bandit');
@@ -5256,6 +5260,14 @@ async function main(): Promise<void> {
     const { serveBanditMcp } = await import('@burtson-labs/agent-core');
     process.stderr.write(`bandit MCP server: workspace=${workspace}${readOnly ? ' (read-only)' : ''}, ${exposed.length} tools\n`);
     await serveBanditMcp({ tools: exposed, toolCtx, name: 'bandit', version: '1.0.0' });
+    return;
+  }
+
+  if (rawArgs[0] === 'runner') {
+    // Local half of remote control: run tasks driven from Bandit Stealth Web,
+    // or `--dry-run "<prompt>"` to preview plan-mode execution locally now.
+    const { runRunnerCommand } = await import('./runner/command');
+    await runRunnerCommand(rawArgs.slice(1), process.cwd());
     return;
   }
 

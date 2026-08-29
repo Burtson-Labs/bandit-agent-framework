@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.394
+
+- **New `bandit runner` command — the start of remote control.** This is the local agent that will let you drive Bandit from Bandit Stealth Web while signed in to a cloud account: it runs tasks against the code on *your* machine and streams progress back. It works today in read-only **plan mode** — `bandit runner --dry-run "your task"` reads and investigates your project and presents a concrete plan without changing anything (edits, deletes, and state-changing commands are refused). The cloud-connected side that dispatches tasks from the web lands next; running `bandit runner` now tells you exactly what's still needed.
+
 ## 1.7.393
 
 - **The permission mode now shows right on the chat box.** A colored mode pill sits in the composer's bottom row — blue for plan (read-only), green for auto, neutral for ask. Click it to cycle ask → auto → plan without leaving the chat, the same rotation as the CLI's shift+tab and the status-bar item. So the boundary Bandit is operating under is always visible exactly where you're typing.
