@@ -1,7 +1,7 @@
 {
   "name": "agent-node-demo",
   "private": true,
-  "version": "1.0.20",
+  "version": "1.0.21",
   "author": {
     "name": "Burtson Labs",
     "email": "team@burtson.ai",
