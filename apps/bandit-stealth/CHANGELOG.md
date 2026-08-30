@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.395
+
+- **Cleaner terminal title.** The window/tab title now leads with a subtle unicode star (`✦`) instead of the ninja emoji — it renders as crisp text in every terminal, with the Bandit name kept in the title (`✦ <task> — Bandit`). Set `BANDIT_NO_TITLE=1` to turn the title off entirely.
+
 ## 1.7.394
 
 - **New `bandit runner` command — the start of remote control.** This is the local agent that will let you drive Bandit from Bandit Stealth Web while signed in to a cloud account: it runs tasks against the code on *your* machine and streams progress back. It works today in read-only **plan mode** — `bandit runner --dry-run "your task"` reads and investigates your project and presents a concrete plan without changing anything (edits, deletes, and state-changing commands are refused). The cloud-connected side that dispatches tasks from the web lands next; running `bandit runner` now tells you exactly what's still needed.
