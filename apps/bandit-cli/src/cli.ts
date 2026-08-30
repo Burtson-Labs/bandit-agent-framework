@@ -3113,13 +3113,16 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   let turnStartedAt = 0;
   let lastTurnMs = 0;
   // Terminal window/tab title — "<glyph> <task> — Bandit" via OSC 0 (sets
-  // icon + title; no-op when stdout isn't a TTY). The U+FE0F after the ninja
-  // forces the solid color emoji over a hollow text glyph. We do NOT set
+  // icon + title; no-op when stdout isn't a TTY). A monochrome unicode star
+  // (U+2726, Bandit's own "spark" glyph) instead of an emoji: it renders as a
+  // clean text glyph in every terminal — no color-emoji weight, no
+  // variation-selector quirks — for the understated look of other agent CLIs,
+  // while the brand stays explicit in the "— Bandit" suffix. We do NOT set
   // process.title: on macOS it leaks adjacent env memory
   // (__CFBundleIdentifier=…) into Terminal's process slot. The host's
   // "node …/cli.js" still shows in that SEPARATE slot when the terminal's
   // active-process title component is on — a terminal setting, not the OSC.
-  const TITLE_PREFIX = '🥷️';
+  const TITLE_PREFIX = '✦';
   // Bind the REAL stdout writer now, before the turn-view ever monkeypatches
   // process.stdout.write. The title OSC must bypass that capture: routed
   // through it (e.g. the reset-to-idle at turn end, which runs while the
