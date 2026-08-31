@@ -4430,6 +4430,60 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   const lineQueue: string[] = [];
   let lineIntercept: ((line: string) => void) | null = null;
   let workerRunning = false;
+  // Live-session remote control: when active, this REPL mirrors its turns to
+  // the cloud and receives remote turns (from the web/phone) into lineQueue.
+  // `remoteTurnQueue` (FIFO of the prompts injected remotely) lets the mirror
+  // skip re-echoing a remote user message the gateway already surfaced.
+  let remoteSession: import('./runner/remoteSession').RemoteSession | null = null;
+  const remoteTurnQueue: string[] = [];
+
+  // `/remote on|off|status` — toggle live-session remote control.
+  const handleRemoteCommand = async (arg: string): Promise<string> => {
+    const a = arg.trim().toLowerCase();
+    if (a === 'off' || a === 'stop') {
+      if (!remoteSession?.active) return c.dim('Remote control is not active.');
+      remoteSession.stop();
+      remoteSession = null;
+      return c.green(`${glyph.check} Remote control stopped.`);
+    }
+    if (a === 'status') {
+      return remoteSession?.active
+        ? c.accent(`Remote Control is active`) + c.dim(` · continue at `) + c.cyan(remoteSession.continueUrl)
+        : c.dim('Remote control is not active. Use /remote on.');
+    }
+    if (a === '' || a === 'on' || a === 'start') {
+      if (remoteSession?.active) {
+        return c.accent('Remote Control is active') + c.dim(` · continue at `) + c.cyan(remoteSession.continueUrl);
+      }
+      const token = resolved.apiKey;
+      if (!token) return c.yellow(`  ${glyph.warn} Remote control needs a Bandit cloud account — run ${c.cyan('/login')} first.`);
+      const gatewayBase = (process.env.BANDIT_GATEWAY_URL ?? resolved.apiUrl ?? 'https://api.burtson.ai').replace(/\/$/, '');
+      const webBase = process.env.BANDIT_WEB_URL ?? 'https://stealth.burtson.ai';
+      const host = os.hostname() || 'device';
+      const rawMode = modeOverride.current ?? resolvedMode.mode;
+      const mode = (rawMode === 'auto' || rawMode === 'plan' ? rawMode : 'plan') as 'plan' | 'auto';
+      const { RemoteSession } = await import('./runner/remoteSession');
+      const session = new RemoteSession({
+        gatewayBase, token, deviceId: `cli-${host}`, deviceLabel: host, webBase,
+        title: conversationTabTitle(), mode,
+        // A remote turn becomes the next prompt in THIS conversation. Tag it in
+        // remoteTurnQueue so the mirror below doesn't re-echo the user message.
+        onRemoteTurn: (prompt) => { remoteTurnQueue.push(prompt); lineQueue.push(prompt); void drainQueue(); }
+      });
+      try {
+        const url = await session.start();
+        remoteSession = session;
+        return [
+          c.accent(`  ${glyph.spark} Remote Control is active`) + c.dim(` · ${mode} mode`),
+          c.dim('  Continue this session from the web: ') + c.cyan(c.underline(url)),
+          c.dim('  Turns here mirror there; input from there runs here. ') + c.dim(`${c.cyan('/remote off')} to stop.`)
+        ].join('\n');
+      } catch (err) {
+        return c.red(`  Couldn't start remote control: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return c.red(`Unknown: /remote ${arg.trim()}. Use /remote on | off | status.`);
+  };
   // Consecutive-server-error circuit breaker. After this many tagged
   // WATCHDOG failures in a row, drop the rest of the queue rather
   // than grinding through ~10 minutes of doomed retries against an
@@ -4504,6 +4558,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         }
         turnStartedAt = Date.now();
         try {
+          // Live-session remote control toggle — handled here (not the slash
+          // registry) because it closes over the REPL's queue + session state.
+          if (line === '/remote' || line.startsWith('/remote ')) {
+            const out = await handleRemoteCommand(line.slice('/remote'.length));
+            if (out) process.stdout.write(out + '\n');
+            rl.prompt();
+            continue;
+          }
           const slash = findSlashCommand(line);
           if (slash) {
             const out = await slash.cmd.run(slash.args, slashCtx);
@@ -4732,6 +4794,13 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             rl.pause();
           }
 
+          // Remote-control mirroring: echo the user prompt to the live session
+          // so the web sees it — but NOT for a turn that CAME from the web (the
+          // gateway already surfaced it; remoteTurnQueue tags those).
+          const isRemoteTurn = remoteTurnQueue.length > 0 && remoteTurnQueue[0] === line;
+          if (isRemoteTurn) remoteTurnQueue.shift();
+          if (remoteSession?.active && !isRemoteTurn) void remoteSession.mirrorUser(line);
+
           const response = await runPrompt({
             prompt: promptWithBgEvents,
             skillRegistry,
@@ -4795,6 +4864,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           });
           activeTurnController.signal.removeEventListener('abort', onAbort);
           activeTurnController = null;
+          // Mirror the assistant's response to the live session (both local and
+          // remote turns) so the web sees the answer.
+          if (remoteSession?.active && response) void remoteSession.mirrorAssistant(response);
           telemetryEndTurn(cancelledByUser ? { error: 'cancelled' } : undefined);
           lastTurnMs = Date.now() - turnStartedAt;
           // Leave the tab title as the conversation title — don't reset to idle

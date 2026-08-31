@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.397
+
+- **New `/remote on` — live-session remote control (foundation).** Your running Bandit session can now register with the cloud so it can be continued and driven from another surface: turns you run here mirror up, and a turn sent to the session runs here in the same conversation (read-only plan mode by default for safety). It prints a continue link and `/remote off` stops it. The web view to drive it visually is the next piece; today the session channel is live end to end.
+
 ## 1.7.396
 
 - **The tab title now names the conversation, not "Bandit — bandit."** It shows the session's short title (from your first message), Claude-style — `✦ <title>` — and stays put after a turn ends instead of snapping back. A fresh session shows the project folder.
