@@ -40,6 +40,10 @@ export interface RemoteTask {
   mode?: RemoteRunMode;
   /** Optional hard cap on tool-loop iterations. */
   maxIterations?: number;
+  /** When set, this is a turn in a LIVE session (remote control): the host
+   *  runs it in that session's ongoing conversation and mirrors to the session
+   *  id, rather than as an isolated one-shot task. */
+  sessionId?: string;
 }
 
 /**
