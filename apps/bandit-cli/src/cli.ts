@@ -3137,7 +3137,25 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     const out = clean ? `${TITLE_PREFIX} ${clean}` : '';
     writeTitleRaw(`\x1b]0;${out}\x07`);
   };
-  const idleWindowTitle = 'Bandit';
+  // Tab title mirrors the CONVERSATION, Claude-style: "✦ <short title>". We
+  // deliberately DON'T append "— Bandit" — the terminal already shows the
+  // process name ("— bandit"), and doubling it read as "Bandit — bandit". The
+  // brand lives in the ✦ glyph + that process component. Empty session (no
+  // messages yet) falls back to the project folder so it's informative, not a
+  // redundant "Bandit".
+  const cwdName = path.basename(cwd) || 'Bandit';
+  const shortTitleFrom = (text: string): string => {
+    const t = (text || '').replace(/\s+/g, ' ').trim();
+    return t.length > 48 ? t.slice(0, 47) + '…' : t;
+  };
+  // First user message = the conversation's stable identity (like Claude's
+  // summarized title). `fallbackPrompt` seeds it on the very first turn, before
+  // that message has landed in `conversation`.
+  const conversationTabTitle = (fallbackPrompt?: string): string => {
+    const firstUser = conversation.find((m) => m.role === 'user')?.content ?? fallbackPrompt;
+    return firstUser ? shortTitleFrom(firstUser) : cwdName;
+  };
+  const idleWindowTitle = cwdName;
   setWindowTitle(idleWindowTitle);
   // Pre-flight the Ollama model so we don't 404 mid-prompt. If the user
   // didn't specify BANDIT_MODEL, silently swap to the closest installed
@@ -3187,6 +3205,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   await session.init();
   if (!session.currentId) await session.startNew();
   const conversation = await session.readConversation();
+  // A resumed session already has a first message — title the tab with it now
+  // rather than waiting for the next turn.
+  setWindowTitle(conversationTabTitle());
 
   // Surface a deprecated or invalid permission-mode setting once, at startup.
   // Silently falling back would leave someone believing BANDIT_AUTO_APPROVE
@@ -4673,12 +4694,11 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           if (!useTurnView) renderStatusBar();
           turnStartedAt = Date.now();
           telemetryStartTurn(line, model);
-          // Reflect the task in the terminal tab title (reset to idle
-          // when the turn ends below) so the window reads like the work,
-          // not "node …/bin/bandit".
-          const taskDesc = line.replace(/\s+/g, ' ').trim();
-          const shortTask = taskDesc.length > 48 ? taskDesc.slice(0, 47) + '…' : taskDesc;
-          setWindowTitle(`${shortTask} — Bandit`);
+          // Reflect the CONVERSATION in the terminal tab title, Claude-style
+          // — the first message titles the session and stays put (no reset to
+          // idle when the turn ends). `line` seeds it on the first turn before
+          // it lands in `conversation`.
+          setWindowTitle(conversationTabTitle(line));
           let cancelledByUser = false;
           const onAbort = () => { cancelledByUser = true; };
           activeTurnController.signal.addEventListener('abort', onAbort, { once: true });
@@ -4777,7 +4797,8 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           activeTurnController = null;
           telemetryEndTurn(cancelledByUser ? { error: 'cancelled' } : undefined);
           lastTurnMs = Date.now() - turnStartedAt;
-          setWindowTitle(idleWindowTitle);
+          // Leave the tab title as the conversation title — don't reset to idle
+          // (that's what dropped the title the moment a turn ended).
           if (cancelledByUser) {
             // The loop returns finalText='[cancelled]' with cancelled=true.
             // Print a clear line so the user sees the Esc was honored, then
