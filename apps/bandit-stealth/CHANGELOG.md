@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.396
+
+- **The tab title now names the conversation, not "Bandit — bandit."** It shows the session's short title (from your first message), Claude-style — `✦ <title>` — and stays put after a turn ends instead of snapping back. A fresh session shows the project folder.
+- **You can see your permission mode while Bandit is working.** The plan/auto/ask chip and its color used to disappear the moment a turn started; now the mid-turn composer keeps the mode chip and colored border on screen the whole time, so you always know the boundary Bandit is operating under.
+
 ## 1.7.395
 
 - **Cleaner terminal title.** The window/tab title now leads with a subtle unicode star (`✦`) instead of the ninja emoji — it renders as crisp text in every terminal, with the Bandit name kept in the title (`✦ <task> — Bandit`). Set `BANDIT_NO_TITLE=1` to turn the title off entirely.

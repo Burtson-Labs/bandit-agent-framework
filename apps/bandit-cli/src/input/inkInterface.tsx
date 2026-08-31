@@ -515,6 +515,7 @@ export function createInkLineInterface(opts: InkInterfaceOptions): InkLineInterf
             status={state.turnStatus}
             stream={state.turnStream}
             composer={state.turnComposer}
+            permissionMode={state.permissionMode}
             // While a sub-flow is reading a line (deny+note, a yes/no
             // answer), the composer IS that answer — so the CTA says so
             // instead of the misleading "type to queue · /btw nudges".

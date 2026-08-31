@@ -29,6 +29,7 @@ import * as React from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import type { DockTodo } from '../spinner';
+import { modeChrome } from './modeChrome';
 
 export interface TurnViewProps {
   /** Plan/todo items, rendered as an in-place tree. Empty → no tree. */
@@ -52,6 +53,10 @@ export interface TurnViewProps {
    *  remounts with the cursor at end-of-text (same trick InkInputFrame
    *  uses). */
   cursorBumpKey?: number;
+  /** Active permission mode — shown as a chip + border color so the boundary
+   *  Bandit is operating under stays visible WHILE it works, not just at the
+   *  idle prompt (the mode/color otherwise vanished for the whole turn). */
+  permissionMode?: string;
 }
 
 // Mirror the spinner dock's collapse threshold so the in-place tree and
@@ -134,6 +139,10 @@ export function TurnView(props: TurnViewProps): React.JSX.Element {
   const { stdout } = useStdout();
   const frameWidth = Math.max(20, (stdout?.columns ?? 80) - 1);
 
+  // Same mode chip + border color as the idle input frame, so the active
+  // boundary (plan / auto / ask) stays on screen while Bandit is working.
+  const mode = modeChrome(props.permissionMode);
+
   return (
     <Box flexDirection="column" width={frameWidth}>
       {props.stream.length > 0 && (
@@ -147,7 +156,7 @@ export function TurnView(props: TurnViewProps): React.JSX.Element {
           <Text>{props.status}</Text>
         </Box>
       )}
-      <Box borderStyle="round" borderColor="gray" paddingX={1} marginTop={props.plan.length > 0 || props.status.length > 0 ? 0 : 0}>
+      <Box borderStyle="round" borderColor={mode.color ?? 'gray'} paddingX={1}>
         <Text color="cyan">❯ </Text>
         <TextInput
           key={`turn-tx-${props.cursorBumpKey ?? 0}`}
@@ -159,7 +168,12 @@ export function TurnView(props: TurnViewProps): React.JSX.Element {
         />
       </Box>
       <Box paddingLeft={2}>
-        <Text dimColor>{cta}</Text>
+        <Text wrap="truncate-end">
+          <Text color={mode.color} dimColor={mode.color === undefined}>
+            {mode.glyph} {mode.label} mode{mode.note ? ` (${mode.note})` : ''}
+          </Text>
+          <Text dimColor>  ·  {cta}</Text>
+        </Text>
       </Box>
     </Box>
   );
