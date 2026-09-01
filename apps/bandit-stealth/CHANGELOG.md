@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.398
+
+- **`/remote` is now discoverable and honest.** It shows up in `/help` and tab-completion; `/remote` on its own (and `/remote help`) explains what it does instead of silently starting. It no longer prints a made-up "continue" link — the web view that drives a session isn't live yet, so it now shows the session id and only prints a URL when you set `BANDIT_WEB_URL` to your Stealth Web host.
+
 ## 1.7.397
 
 - **New `/remote on` — live-session remote control (foundation).** Your running Bandit session can now register with the cloud so it can be continued and driven from another surface: turns you run here mirror up, and a turn sent to the session runs here in the same conversation (read-only plan mode by default for safety). It prints a continue link and `/remote off` stops it. The web view to drive it visually is the next piece; today the session channel is live end to end.

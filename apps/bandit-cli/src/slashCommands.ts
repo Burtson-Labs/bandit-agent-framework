@@ -193,6 +193,10 @@ export interface SlashContext {
     /** Session grants made through the picker, for display. */
     sessionRules(): string[];
   };
+  /** Live-session remote control toggle (`/remote on|off|status|help`). The REPL
+   *  supplies the handler; other hosts leave it undefined and the command
+   *  reports that remote control isn't available there. */
+  remote?: (arg: string) => Promise<string>;
   /** When on, each user prompt runs the heuristic planner first and
    * shows a "proceed? y/N" prompt before the model actually executes.
    * Useful for long refactors / multi-file edits where the user wants
@@ -2266,6 +2270,16 @@ export const slashCommands: SlashCommand[] = [
       }
 
       return c.red(`Unknown /mcp subcommand: ${sub}. Run /mcp for usage.`);
+    }
+  },
+  {
+    name: 'remote',
+    description: 'Live-session remote control: /remote on to drive this session from another surface, /remote off, /remote status.',
+    async run(args, ctx) {
+      if (!ctx.remote) {
+        return c.dim('Remote control is only available in the interactive CLI right now.');
+      }
+      return ctx.remote(args);
     }
   },
   {

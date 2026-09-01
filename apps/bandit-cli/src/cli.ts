@@ -4078,6 +4078,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     session,
     cwd,
     toolCtx: slashToolCtx,
+    // Live-session remote control. The closure defers to handleRemoteCommand,
+    // which is declared later in this scope and only invoked when /remote runs.
+    remote: (arg: string) => handleRemoteCommand(arg),
     model: {
       get current() { return model; },
       set(next: string) {
@@ -4437,9 +4440,41 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   let remoteSession: import('./runner/remoteSession').RemoteSession | null = null;
   const remoteTurnQueue: string[] = [];
 
-  // `/remote on|off|status` — toggle live-session remote control.
+  // Where a remote session can be reached. The web view that drives it lives
+  // in the separate bandit-stealth-web app; until that page ships (and a real
+  // host is set), we DON'T print a link — showing a guessed domain sent people
+  // to a dead NXDOMAIN. Set BANDIT_WEB_URL to your Stealth Web host to enable
+  // the continue link.
+  const remoteWebBase = (process.env.BANDIT_WEB_URL ?? '').replace(/\/$/, '');
+  const remoteReachLine = (): string => {
+    if (!remoteSession?.active) return '';
+    const url = remoteSession.continueUrl;
+    return url
+      ? c.dim('  Continue this session from the web: ') + c.cyan(c.underline(url))
+      : c.dim('  Session id: ') + c.cyan(remoteSession.id ?? '') + c.dim('  (web view coming — set BANDIT_WEB_URL for a link)');
+  };
+  const remoteHelp = (): string => [
+    c.bold('/remote') + c.dim(' — live-session remote control'),
+    c.dim('  Registers this session with the cloud so it can be driven from another surface.'),
+    c.dim('  Turns you run here mirror up; a turn sent to the session runs here in the same'),
+    c.dim('  conversation (read-only plan mode by default).'),
+    '',
+    c.dim('  /remote on      ') + c.dim('start — register + begin receiving remote turns'),
+    c.dim('  /remote off     ') + c.dim('stop'),
+    c.dim('  /remote status  ') + c.dim('show whether it\'s active + the session id'),
+    remoteSession?.active ? '' : c.dim('  (needs a Bandit cloud account — /login first)')
+  ].filter(Boolean).join('\n');
+
+  // `/remote [on|off|status|help]` — toggle/inspect live-session remote control.
   const handleRemoteCommand = async (arg: string): Promise<string> => {
     const a = arg.trim().toLowerCase();
+    // Bare `/remote`, `/remote help`, `?` → help/status, NOT auto-start, so it's
+    // discoverable instead of silently kicking off a session.
+    if (a === '' || a === 'help' || a === '?') {
+      return remoteSession?.active
+        ? c.accent(`${glyph.spark} Remote Control is active`) + '\n' + remoteReachLine() + '\n' + c.dim('  /remote off to stop.')
+        : remoteHelp();
+    }
     if (a === 'off' || a === 'stop') {
       if (!remoteSession?.active) return c.dim('Remote control is not active.');
       remoteSession.stop();
@@ -4448,41 +4483,40 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     }
     if (a === 'status') {
       return remoteSession?.active
-        ? c.accent(`Remote Control is active`) + c.dim(` · continue at `) + c.cyan(remoteSession.continueUrl)
+        ? c.accent(`${glyph.spark} Remote Control is active`) + '\n' + remoteReachLine()
         : c.dim('Remote control is not active. Use /remote on.');
     }
-    if (a === '' || a === 'on' || a === 'start') {
+    if (a === 'on' || a === 'start') {
       if (remoteSession?.active) {
-        return c.accent('Remote Control is active') + c.dim(` · continue at `) + c.cyan(remoteSession.continueUrl);
+        return c.accent(`${glyph.spark} Remote Control is already active`) + '\n' + remoteReachLine();
       }
       const token = resolved.apiKey;
       if (!token) return c.yellow(`  ${glyph.warn} Remote control needs a Bandit cloud account — run ${c.cyan('/login')} first.`);
       const gatewayBase = (process.env.BANDIT_GATEWAY_URL ?? resolved.apiUrl ?? 'https://api.burtson.ai').replace(/\/$/, '');
-      const webBase = process.env.BANDIT_WEB_URL ?? 'https://stealth.burtson.ai';
       const host = os.hostname() || 'device';
       const rawMode = modeOverride.current ?? resolvedMode.mode;
       const mode = (rawMode === 'auto' || rawMode === 'plan' ? rawMode : 'plan') as 'plan' | 'auto';
       const { RemoteSession } = await import('./runner/remoteSession');
       const session = new RemoteSession({
-        gatewayBase, token, deviceId: `cli-${host}`, deviceLabel: host, webBase,
+        gatewayBase, token, deviceId: `cli-${host}`, deviceLabel: host, webBase: remoteWebBase,
         title: conversationTabTitle(), mode,
         // A remote turn becomes the next prompt in THIS conversation. Tag it in
         // remoteTurnQueue so the mirror below doesn't re-echo the user message.
         onRemoteTurn: (prompt) => { remoteTurnQueue.push(prompt); lineQueue.push(prompt); void drainQueue(); }
       });
       try {
-        const url = await session.start();
+        await session.start();
         remoteSession = session;
         return [
           c.accent(`  ${glyph.spark} Remote Control is active`) + c.dim(` · ${mode} mode`),
-          c.dim('  Continue this session from the web: ') + c.cyan(c.underline(url)),
-          c.dim('  Turns here mirror there; input from there runs here. ') + c.dim(`${c.cyan('/remote off')} to stop.`)
-        ].join('\n');
+          remoteReachLine(),
+          c.dim('  Turns here mirror there; input from there runs here. ') + c.cyan('/remote off') + c.dim(' to stop.')
+        ].filter(Boolean).join('\n');
       } catch (err) {
         return c.red(`  Couldn't start remote control: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    return c.red(`Unknown: /remote ${arg.trim()}. Use /remote on | off | status.`);
+    return c.red(`Unknown: /remote ${arg.trim()}. Try ${c.cyan('/remote help')}.`);
   };
   // Consecutive-server-error circuit breaker. After this many tagged
   // WATCHDOG failures in a row, drop the rest of the queue rather
@@ -4558,14 +4592,6 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         }
         turnStartedAt = Date.now();
         try {
-          // Live-session remote control toggle — handled here (not the slash
-          // registry) because it closes over the REPL's queue + session state.
-          if (line === '/remote' || line.startsWith('/remote ')) {
-            const out = await handleRemoteCommand(line.slice('/remote'.length));
-            if (out) process.stdout.write(out + '\n');
-            rl.prompt();
-            continue;
-          }
           const slash = findSlashCommand(line);
           if (slash) {
             const out = await slash.cmd.run(slash.args, slashCtx);
