@@ -105,6 +105,13 @@ export class RemoteSession {
     await this.post({ type: 'user.message', text: prompt });
   }
 
+  /** Mirror a structured turn event (tool.call / tool.result /
+   *  reasoning.text) so remote viewers see the turn's anatomy, not just
+   *  its final text. */
+  async mirrorEvent(evt: { type: string } & Record<string, unknown>): Promise<void> {
+    await this.post(evt);
+  }
+
   /** Mirror the assistant side of a turn (the final response). We deliberately
    *  DON'T emit turn.completed here — that would flip the session container's
    *  status; the gateway keeps a "live" task live. */

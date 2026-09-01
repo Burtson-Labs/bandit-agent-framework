@@ -634,6 +634,10 @@ function buildRecentReadsAddendum(cache: Map<string, RecentReadEntry> | undefine
 }
 
 interface RunOptions {
+  /** Structured turn events for mirrors (remote control): tool.call /
+   *  tool.result / reasoning.text. Fired alongside the local rendering —
+   *  a remote viewer should see the same anatomy the terminal shows. */
+  onTurnEvent?: (evt: { type: string } & Record<string, unknown>) => void;
   prompt: string;
   skillRegistry: SkillRegistry;
   cwd: string;
@@ -1024,6 +1028,9 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     thinkingBuffer.length = 0;
     thinkingFlushed = true;
     if (!body) return;
+    // Mirrors get the full body — the local display cap ('compact'/'off')
+    // is a terminal-scrollback concern, not a transcript one.
+    opts.onTurnEvent?.({ type: 'reasoning.text', text: body });
     // Verbose thinking models bury the answer under a wall of chain-of-thought,
     // so the display mode caps how much lands in scrollback. 'compact' (the
     // default) shows a preview + a "/reasoning full" note; 'off' shows a
@@ -1858,6 +1865,11 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       if (type === 'tool_loop:tool_execute') {
         const p = payload as { name?: string; params?: Record<string, string> };
         const name = p?.name ?? '';
+        opts.onTurnEvent?.({
+          type: 'tool.call',
+          tool: name,
+          params: p?.params ? Object.fromEntries(Object.entries(p.params).map(([k, v]) => [k, previewText(v)])) : {}
+        });
         void turnLog?.append({ type: 'tool-execute', name, params: p?.params ? Object.fromEntries(Object.entries(p.params).map(([k, v]) => [k, previewText(v)])) : {} });
         const skillId = name ? toolToSkill.get(name) : undefined;
         const skillName = skillId ? activeSkills.find(s => s.id === skillId)?.name : undefined;
@@ -1917,6 +1929,13 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         const name = p?.name ?? '';
         const started = toolStartedAt.get(name);
         const duration = started ? Date.now() - started : 0;
+        opts.onTurnEvent?.({
+          type: 'tool.result',
+          tool: name,
+          ok: !p?.isError,
+          summary: p?.outputSnippet ?? '',
+          durationMs: duration
+        });
         // Commit the updated plan to scrollback the moment the model
         // rewrites the todo list, so the checklist is visible and
         // persistent right where the work is happening.
@@ -4502,7 +4521,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         title: conversationTabTitle(), mode,
         // A remote turn becomes the next prompt in THIS conversation. Tag it in
         // remoteTurnQueue so the mirror below doesn't re-echo the user message.
-        onRemoteTurn: (prompt) => { remoteTurnQueue.push(prompt); lineQueue.push(prompt); void drainQueue(); }
+        onRemoteTurn: (prompt) => {
+          // Make the injection VISIBLE: without a banner a turn appearing in
+          // the scrollback out of nowhere reads as a ghost, not a feature.
+          process.stdout.write('\n' + c.accent(`  ${glyph.spark} remote turn from the web`) + '\n');
+          remoteTurnQueue.push(prompt); lineQueue.push(prompt); void drainQueue();
+        }
       });
       try {
         await session.start();
@@ -4828,6 +4852,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           if (remoteSession?.active && !isRemoteTurn) void remoteSession.mirrorUser(line);
 
           const response = await runPrompt({
+            onTurnEvent: (evt) => { if (remoteSession?.active) void remoteSession.mirrorEvent(evt); },
             prompt: promptWithBgEvents,
             skillRegistry,
             cwd,
