@@ -4440,12 +4440,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   let remoteSession: import('./runner/remoteSession').RemoteSession | null = null;
   const remoteTurnQueue: string[] = [];
 
-  // Where a remote session can be reached. The web view that drives it lives
-  // in the separate bandit-stealth-web app; until that page ships (and a real
-  // host is set), we DON'T print a link — showing a guessed domain sent people
-  // to a dead NXDOMAIN. Set BANDIT_WEB_URL to your Stealth Web host to enable
-  // the continue link.
-  const remoteWebBase = (process.env.BANDIT_WEB_URL ?? '').replace(/\/$/, '');
+  // Where a remote session can be reached. The /remote/:sessionId page ships
+  // in bandit-stealth-web (2026-08-31), served at the Stealth Web production
+  // host — that's the default. BANDIT_WEB_URL still overrides for self-hosted
+  // or staging webs. (stealth.burtson.ai is NOT wired in DNS; don't use it
+  // until the domain-consolidation work points it at the web ingress.)
+  const remoteWebBase = (process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com').replace(/\/$/, '');
   const remoteReachLine = (): string => {
     if (!remoteSession?.active) return '';
     const url = remoteSession.continueUrl;
