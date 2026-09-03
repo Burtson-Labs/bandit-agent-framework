@@ -8,7 +8,7 @@
 import { createToolUseLoop, type ToolUseLoopOptions } from '../tools/tool-use-loop';
 import type { ChatFn, ToolExecutionContext } from '../tools/tool-types';
 import type { ToolRegistry } from '../tools/tool-registry';
-import type { NodeExecutor, NodeRunContext } from './types';
+import type { EvidenceItem, NodeExecutor, NodeRunContext } from './types';
 
 export interface LoopNodeDeps {
   registry: ToolRegistry;
@@ -50,8 +50,26 @@ export function wrapLoopAsNode(deps: LoopNodeDeps, buildPrompt: NodePromptBuilde
   }
   return async (nodeCtx) => {
     const chat = deps.chatFactory ? await deps.chatFactory() : deps.chat!;
+    // Auto-evidence: successful edit-tool results become 'file-changed'
+    // evidence without the executor author doing anything — so a contract
+    // like requireEvidence:[{kind:'file-changed'}] works out of the box.
+    // The caller's own emitEvent (if any) still sees every event.
+    const EDIT_TOOLS = new Set(['write_file', 'apply_edit', 'replace_range', 'apply_patch', 'delete_file']);
+    const evidence: EvidenceItem[] = [];
+    const lastPath = new Map<string, string>();
+    const callerEmit = deps.loopOptions?.emitEvent;
+    const emitEvent = (type: string, payload?: unknown): void => {
+      const p = (payload ?? {}) as { name?: string; params?: Record<string, string>; isError?: boolean };
+      if (type === 'tool_loop:tool_execute' && p.name && EDIT_TOOLS.has(p.name)) {
+        lastPath.set(p.name, p.params?.path ?? '');
+      } else if (type === 'tool_loop:tool_result' && p.name && EDIT_TOOLS.has(p.name) && !p.isError) {
+        evidence.push({ kind: 'file-changed', detail: lastPath.get(p.name) || undefined });
+      }
+      callerEmit?.(type, payload);
+    };
     const loop = createToolUseLoop(deps.registry, deps.ctx, {
       ...(deps.loopOptions ?? {}),
+      emitEvent,
       signal: nodeCtx.signal,
     });
     const result = await loop.run(buildPrompt(nodeCtx), chat, deps.systemPrompt);
@@ -61,6 +79,7 @@ export function wrapLoopAsNode(deps: LoopNodeDeps, buildPrompt: NodePromptBuilde
     return {
       output: result.finalResponse,
       summary: result.finalResponse.slice(0, 200),
+      evidence,
     };
   };
 }

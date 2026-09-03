@@ -28,6 +28,7 @@ import {
   type NodeExecutor,
   type NodeResult,
 } from './types';
+import { checkContract } from './contracts';
 
 export interface RunGraphOptions {
   /** Cap on simultaneously running nodes. Default 2 (conservative). */
@@ -79,6 +80,7 @@ export async function runGraph(
   }
   const deps = new Map<string, string[]>(spec.nodes.map((n) => [n.id, n.dependsOn ?? []]));
   const labelOf = new Map<string, string>(spec.nodes.map((n) => [n.id, n.label ?? n.id]));
+  const specOf = new Map(spec.nodes.map((n) => [n.id, n]));
 
   const running = new Map<string, Promise<void>>();
   let anyFailed = false;
@@ -125,10 +127,24 @@ export async function runGraph(
           signal: signal ?? new AbortController().signal,
           upstream,
         });
-        record.state = 'done';
+        // Phase 3: the node only counts as done if its completion contract
+        // holds. A violation is a FAILURE — "finished but produced nothing it
+        // promised" must not feed downstream nodes.
+        const violations = checkContract(specOf.get(id)?.contract, outcome ?? {});
         record.output = outcome?.output;
         record.summary = outcome?.summary;
-        emit('graph:node_done', { id, label: labelOf.get(id), summary: record.summary });
+        record.evidence = outcome?.evidence;
+        if (violations.length > 0) {
+          record.state = 'failed';
+          record.error = violations.join('; ');
+          record.contractViolations = violations;
+          anyFailed = true;
+          emit('graph:node_contract_violation', { id, label: labelOf.get(id), violations });
+          emit('graph:node_failed', { id, label: labelOf.get(id), error: record.error });
+        } else {
+          record.state = 'done';
+          emit('graph:node_done', { id, label: labelOf.get(id), summary: record.summary });
+        }
       } catch (err) {
         record.state = 'failed';
         record.error = err instanceof Error ? err.message : String(err);
