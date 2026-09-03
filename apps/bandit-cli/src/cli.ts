@@ -5418,6 +5418,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (rawArgs[0] === 'graph' && rawArgs[1] === 'demo') {
+    // Experimental graph runtime (BANDIT_GRAPH=1): two parallel read-only
+    // scans → synthesize, rendered straight from graph:* events.
+    const { runGraphDemo } = await import('./graphDemo');
+    await runGraphDemo(rawArgs.slice(2), process.cwd());
+    return;
+  }
+
   if (rawArgs[0] === 'doctor' || rawArgs[0] === 'upgrade' || rawArgs[0] === 'self-update') {
     // Install management — `bandit doctor` finds/consolidates multiple installs,
     // `bandit upgrade` self-updates the standalone binary. Branch before

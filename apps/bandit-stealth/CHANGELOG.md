@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.401
+
+- **Experimental: graph runs.** `BANDIT_GRAPH=1 bandit graph demo` runs a small dependency graph over your repo — two read-only scans in parallel, then a synthesized project brief — with per-node capability limits and a completion check, streaming node progress live. Early preview of multi-step parallel agent runs; off by default.
+
 ## 1.7.398
 
 - **`/remote` is now discoverable and honest.** It shows up in `/help` and tab-completion; `/remote` on its own (and `/remote help`) explains what it does instead of silently starting. It no longer prints a made-up "continue" link — the web view that drives a session isn't live yet, so it now shows the session id and only prints a URL when you set `BANDIT_WEB_URL` to your Stealth Web host.

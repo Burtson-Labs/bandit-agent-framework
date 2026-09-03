@@ -44,6 +44,16 @@ export interface CompletionContract {
   requireEvidence?: EvidenceRequirement[];
 }
 
+/** Per-node capability envelope (Phase 6) — declarative tool-name bounds.
+ *  `denyTools` always blocks; `allowTools`, when present, blocks everything
+ *  not listed. An envelope can only NARROW what the host's own permission
+ *  gate allows, never widen it. Plain data on purpose (planner-proposable,
+ *  checkpoint-persistable). */
+export interface NodeEnvelope {
+  allowTools?: string[];
+  denyTools?: string[];
+}
+
 /** One node in the DAG. */
 export interface GraphNodeSpec {
   /** Unique id within the graph. */
@@ -54,6 +64,8 @@ export interface GraphNodeSpec {
   label?: string;
   /** Completion contract enforced on this node's outcome. */
   contract?: CompletionContract;
+  /** Capability envelope enforced while this node runs. */
+  envelope?: NodeEnvelope;
 }
 
 export interface GraphSpec {
@@ -104,6 +116,10 @@ export interface NodeRunContext {
   signal: AbortSignal;
   /** Terminal results of this node's direct dependencies (all state 'done'). */
   upstream: Record<string, NodeResult>;
+  /** The node's capability envelope, threaded from its spec. Loop-wrapped
+   *  executors enforce it automatically (see loopNode.ts); custom executors
+   *  receive it here and are expected to honor it. */
+  envelope?: NodeEnvelope;
 }
 
 export type NodeExecutor = (ctx: NodeRunContext) => Promise<NodeOutcome> | NodeOutcome;

@@ -126,6 +126,7 @@ export async function runGraph(
           nodeId: id,
           signal: signal ?? new AbortController().signal,
           upstream,
+          envelope: specOf.get(id)?.envelope,
         });
         // Phase 3: the node only counts as done if its completion contract
         // holds. A violation is a FAILURE — "finished but produced nothing it
