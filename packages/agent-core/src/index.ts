@@ -45,6 +45,9 @@ export const createAgentRuntime = (options: CreateAgentRuntimeOptions = {}): Age
 
 // Tool system
 export * from './tools';
+// Graph runtime (DAG of loop-wrapping nodes). Nothing in the framework
+// consumes it yet — hosts opt in explicitly; zero behavior change until then.
+export * from './graph';
 
 // MCP — Model Context Protocol client (Phase 1: groundwork). See
 // docs/integration-playlist/mcp-roadmap.md. Off by default — hosts

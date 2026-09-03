@@ -108,6 +108,11 @@ export interface RunResult {
   finalResponse: string;
   /** Wall clock ms — gut-check on whether a fix slowed us down. */
   wallTimeMs: number;
+  /** Approximate OUTPUT tokens the model generated this run (chars/4 over
+   *  every streamed chunk, including tool-call markup — the same heuristic
+   *  the CLI footer uses). Baseline metric for BanditBench Phase 0: lets a
+   *  future graph/loop routing change prove it didn't inflate token cost. */
+  approxTokens?: number;
   error?: string;
 }
 

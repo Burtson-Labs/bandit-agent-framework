@@ -47,6 +47,9 @@ interface BenchArgs {
   filter?: string;
   runs?: number;
   out: string;
+  /** When set, ALSO write a machine-readable frozen baseline JSON here
+   *  (BanditBench Phase 0): per-fixture success/wall-time/approx-tokens. */
+  baseline?: string;
   provider?: 'ollama' | 'bandit';
   variant?: 'cli' | 'extension';
   onlyBuiltins?: boolean;
@@ -61,6 +64,7 @@ function parseArgs(argv: string[]): BenchArgs {
     else if (a === '--filter') args.filter = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
     else if (a === '--out') args.out = argv[++i];
+    else if (a === '--baseline') args.baseline = argv[++i];
     else if (a === '--provider') args.provider = argv[++i] as 'ollama' | 'bandit';
     else if (a === '--only-builtins') args.onlyBuiltins = true;
     else if (a === '--only-workspace') args.onlyWorkspace = true;
@@ -188,6 +192,46 @@ async function main(): Promise<void> {
   await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
   await fs.promises.writeFile(outPath, md, 'utf8');
   process.stdout.write(`\nbenchmark report: ${path.relative(cwd, outPath) || outPath}\n`);
+
+  // BanditBench Phase 0 — freeze a machine-readable baseline: per-fixture
+  // success, wall time, and approx output tokens. Future changes (graph
+  // scheduling, model swaps, routing) diff themselves against this file to
+  // prove lift instead of asserting it.
+  if (args.baseline) {
+    const baselinePath = path.isAbsolute(args.baseline) ? args.baseline : path.join(cwd, args.baseline);
+    const median = (xs: number[]): number => {
+      if (xs.length === 0) return 0;
+      const s = [...xs].sort((a, b) => a - b);
+      return s[Math.floor(s.length / 2)];
+    };
+    const baseline = {
+      kind: 'bandit-bench-baseline',
+      version: 1,
+      frozenAt: new Date().toISOString(),
+      runsPerFixture: runs,
+      models: entries.map((e) => ({
+        label: e.label,
+        variant: e.report.variant ?? 'cli',
+        fixtures: e.report.fixtureResults.map((fr) => ({
+          id: fr.fixture.id,
+          passRate: fr.passRate,
+          passed: fr.passed,
+          skipped: fr.skipped,
+          medianWallMs: median(fr.runs.map((r) => r.wallTimeMs)),
+          medianApproxTokens: median(fr.runs.map((r) => r.approxTokens ?? 0)),
+          medianIterations: median(fr.runs.map((r) => r.iterations))
+        })),
+        totals: {
+          passedFixtures: e.report.fixtureResults.filter((fr) => fr.passed).length,
+          fixtures: e.report.fixtureResults.length,
+          totalWallTimeMs: e.report.totalWallTimeMs
+        }
+      }))
+    };
+    await fs.promises.mkdir(path.dirname(baselinePath), { recursive: true });
+    await fs.promises.writeFile(baselinePath, JSON.stringify(baseline, null, 2), 'utf8');
+    process.stdout.write(`bench baseline frozen: ${path.relative(cwd, baselinePath) || baselinePath}\n`);
+  }
 
   // Exit non-zero if any model failed any fixture — so this doubles as a
   // CI-gatable "did any model regress" signal without the caller needing
