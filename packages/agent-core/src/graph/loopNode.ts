@@ -9,6 +9,7 @@ import { createToolUseLoop, type ToolUseLoopOptions } from '../tools/tool-use-lo
 import type { ChatFn, ToolExecutionContext } from '../tools/tool-types';
 import type { ToolRegistry } from '../tools/tool-registry';
 import type { EvidenceItem, NodeExecutor, NodeRunContext } from './types';
+import { composeGates, envelopeGate } from './envelopes';
 
 export interface LoopNodeDeps {
   registry: ToolRegistry;
@@ -67,8 +68,13 @@ export function wrapLoopAsNode(deps: LoopNodeDeps, buildPrompt: NodePromptBuilde
       }
       callerEmit?.(type, payload);
     };
+    // Phase 6: the node's envelope (from its spec, threaded via NodeRunContext)
+    // composes with any host-injected gate — envelope first, host policy
+    // second, first deny wins. The envelope can only narrow, never widen.
+    const gate = composeGates(envelopeGate(nodeCtx.envelope), deps.loopOptions?.beforeToolExecute);
     const loop = createToolUseLoop(deps.registry, deps.ctx, {
       ...(deps.loopOptions ?? {}),
+      beforeToolExecute: gate,
       emitEvent,
       signal: nodeCtx.signal,
     });
