@@ -19,6 +19,31 @@
  *    Terminal states never transition again.
  */
 
+/** A structured claim about what a node actually did (Phase 3).
+ *  e.g. { kind: 'file-changed', detail: 'src/x.ts' }. JSON-serializable. */
+export interface EvidenceItem {
+  kind: string;
+  detail?: string;
+  data?: unknown;
+}
+
+export interface EvidenceRequirement {
+  kind: string;
+  /** Minimum count of matching items. Default 1. */
+  min?: number;
+}
+
+/** Declarative completion contract: what a node MUST produce to count as
+ *  done. Checked by the scheduler after the executor resolves; violations are
+ *  failures (dependents skip). Plain data on purpose — proposable by a future
+ *  planner, persistable by future checkpoints. */
+export interface CompletionContract {
+  outputNonEmpty?: boolean;
+  /** Regex source the (stringified) output must match (flags: 's'). */
+  outputMatches?: string;
+  requireEvidence?: EvidenceRequirement[];
+}
+
 /** One node in the DAG. */
 export interface GraphNodeSpec {
   /** Unique id within the graph. */
@@ -27,6 +52,8 @@ export interface GraphNodeSpec {
   dependsOn?: string[];
   /** Human label for UIs; falls back to id. */
   label?: string;
+  /** Completion contract enforced on this node's outcome. */
+  contract?: CompletionContract;
 }
 
 export interface GraphSpec {
@@ -40,6 +67,9 @@ export type NodeState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 
 export interface NodeOutcome {
   output?: unknown;
   summary?: string;
+  /** Structured claims about what was actually done — checked against the
+   *  node's contract and carried on the result for downstream/UIs. */
+  evidence?: EvidenceItem[];
 }
 
 /** Terminal record for one node after a run. */
@@ -48,8 +78,11 @@ export interface NodeResult {
   state: NodeState;
   output?: unknown;
   summary?: string;
+  evidence?: EvidenceItem[];
   /** Set when state === 'failed'. */
   error?: string;
+  /** Set when the failure was a contract violation (state 'failed'). */
+  contractViolations?: string[];
   startedAt?: number;
   endedAt?: number;
   durationMs?: number;
