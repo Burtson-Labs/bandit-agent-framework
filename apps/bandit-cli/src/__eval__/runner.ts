@@ -151,7 +151,16 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       : corePrompt;
 
     const toolCtx = new CliToolExecutionContext(sandbox, createDefaultLanguageAdapters());
-    const chat = await buildChat(provider);
+    const rawChat = await buildChat(provider);
+    // Count every streamed char so the run carries an approx output-token
+    // figure (chars/4, tool markup included — it's real generated cost).
+    let chunkChars = 0;
+    const chat: typeof rawChat = async function* (messages, tools, options) {
+      for await (const chunk of rawChat(messages, tools, options)) {
+        chunkChars += chunk.length;
+        yield chunk;
+      }
+    };
 
     const maxIterations = fixture.maxIterations ?? 8;
     const loop = new ToolUseLoop(registry, toolCtx, { maxIterations });
@@ -203,7 +212,8 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       iterations: result.iterations,
       hitLimit: result.hitLimit,
       finalResponse: result.finalResponse,
-      wallTimeMs: Date.now() - started
+      wallTimeMs: Date.now() - started,
+      approxTokens: Math.round(chunkChars / 4)
     };
   } catch (err) {
     return {
