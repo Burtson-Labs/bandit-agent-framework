@@ -16,11 +16,9 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    mustCallAnyOf: [
-      { name: 'read_file', params: { path: /ARCHITECTURE\.md/ } },
-      { name: 'list_files' },
-      { name: 'ls' }
-    ],
+    // Any attempt to look counts — the assertion is the honest "it's not
+    // there" answer, not the lookup route.
+    mustCallAnyOf: [{ name: /^(read_file|list_files|ls|search_code|run_command)$/ }],
     mustNotCall: ['write_file', 'apply_edit'],
     finalResponseMatches: /doesn't exist|does not exist|no such file|not found|couldn't find|could not find|isn't (present|there)|missing/i,
     maxIterations: 5

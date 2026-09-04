@@ -16,12 +16,11 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    mustCallAllOf: [
-      { name: 'read_file', params: { path: /dev\.json/ } },
-      { name: 'read_file', params: { path: /prod\.json/ } }
-    ],
+    // Any read path is fine; the OUTCOME must name all three differing
+    // settings — answering from one file (or guessing) can't produce that.
+    mustCallAnyOf: [{ name: /^(read_file|run_command|search_code)$/ }],
     mustNotCall: ['write_file', 'apply_edit'],
-    finalResponseMatches: /cache|logLevel|apiUrl/i,
+    finalResponseMatches: /(?=[\s\S]*cache)(?=[\s\S]*logLevel)(?=[\s\S]*api[Uu]rl)/,
     maxIterations: 5
   },
   runs: 3,
