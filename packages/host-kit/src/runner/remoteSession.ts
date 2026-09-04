@@ -137,7 +137,17 @@ export class RemoteSession {
   }
 
   stop(): void {
+    const id = this.sessionId;
     this.controller.abort();
     this.sessionId = null;
+    // Tell the gateway, best-effort — without this every /remote off (and
+    // every closed terminal) left a zombie 'live' session in listings and
+    // a continue link that only fails on first send.
+    if (id) {
+      void this.fetchImpl(
+        `${this.opts.gatewayBase}/api/stealth/runner/session/${encodeURIComponent(id)}/end`,
+        { method: 'POST', headers: { authorization: `Bearer ${this.opts.token}` } }
+      ).catch(() => { /* gateway unreachable — nothing else to do */ });
+    }
   }
 }
