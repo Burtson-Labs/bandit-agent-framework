@@ -80,6 +80,20 @@ export type RunnerEvent =
       noChangeReason?: string;
       assistantText: string;
     }
+  | {
+      /** Graph execution: the accepted plan, one event, nodes in spec order. */
+      type: 'graph.plan';
+      taskId: string;
+      nodes: Array<{ id: string; label: string; dependsOn?: string[] }>;
+    }
+  | {
+      /** Graph execution: one node's lifecycle transition. */
+      type: 'graph.node';
+      taskId: string;
+      node: string;
+      status: 'running' | 'done' | 'failed' | 'skipped';
+      summary?: string;
+    }
   | { type: 'turn.error'; taskId: string; code: string; message: string };
 
 export function parseTurnRequest(body: unknown): TurnRequest {

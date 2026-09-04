@@ -17,8 +17,15 @@ import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
+  buildPlannerPrompt,
+  classifyGraphShaped,
   createCoreToolRegistry,
   createToolUseLoop,
+  defaultNodePrompt,
+  materializeProposal,
+  parseGraphProposal,
+  runGraph,
+  wrapLoopAsNode,
   type ToolExecutionContext,
 } from '@burtson-labs/agent-core';
 import { chatFnFor } from './providers.js';
@@ -157,6 +164,8 @@ function run(
 export async function runTurn(
   req: TurnRequest,
   emit: (e: RunnerEvent) => void,
+  /** Test seam: inject a scripted ChatFn instead of a live provider. */
+  deps?: { chat?: Awaited<ReturnType<typeof chatFnFor>> },
 ): Promise<void> {
   const { taskId } = req;
   emit({ type: 'turn.started', taskId, protocol: 1, runnerVersion: RUNNER_VERSION });
@@ -202,7 +211,104 @@ export async function runTurn(
     },
   });
 
-  const chat = await chatFnFor(req.provider);
+  const chat = deps?.chat ?? (await chatFnFor(req.provider));
+
+  // ── Graph route ────────────────────────────────────────────────────
+  // Decomposable prompts run as a DAG: planner proposes nodes (one extra
+  // completion), each node is its own small tool loop with a completion
+  // contract, independent nodes run concurrently, and every lifecycle
+  // transition streams up as graph.plan / graph.node events. Anything
+  // that fails BEFORE the graph starts falls back to the plain loop —
+  // routing must never cost the user a turn. Kill switch: RUNNER_GRAPH=0.
+  if (!/^(0|false)$/i.test(process.env.RUNNER_GRAPH ?? '') && classifyGraphShaped(req.prompt).suggestsGraph) {
+    let planned: ReturnType<typeof materializeProposal> | null = null;
+    let proposalNodes: Array<{ id: string; label?: string; dependsOn?: string[]; prompt: string; readOnly?: boolean }> = [];
+    try {
+      let plannerText = '';
+      for await (const chunk of chat([{ role: 'user', content: buildPlannerPrompt(req.prompt) }])) {
+        plannerText += chunk;
+      }
+      const parsed = parseGraphProposal(plannerText);
+      if (parsed.ok && parsed.proposal?.kind === 'graph' && (parsed.proposal.nodes?.length ?? 0) > 1) {
+        proposalNodes = parsed.proposal.nodes!;
+        planned = materializeProposal(parsed.proposal, {
+          makeExecutor: (node) =>
+            wrapLoopAsNode(
+              {
+                registry,
+                ctx,
+                chat,
+                systemPrompt: RUNNER_SYSTEM_PROMPT,
+                loopOptions: { maxIterations: Math.max(4, Math.floor((req.maxIterations ?? 10) / 2)) },
+              },
+              defaultNodePrompt(node.prompt),
+            ),
+          // readOnly hint honored as a tool envelope: read/search only.
+          envelopeFor: (node) =>
+            node.readOnly
+              ? { allowTools: ['read_file', 'list_files', 'ls', 'find_directory', 'search_code'] }
+              : undefined,
+        });
+      }
+    } catch {
+      planned = null; // planner unavailable/rejected — plain loop below
+    }
+
+    if (planned) {
+      emit({
+        type: 'graph.plan',
+        taskId,
+        nodes: planned.spec.nodes.map((n) => ({ id: n.id, label: n.label ?? n.id, dependsOn: n.dependsOn })),
+      });
+      const graphResult = await runGraph(planned.spec, planned.executors, {
+        maxConcurrency: 2,
+        emitEvent: (type, payload) => {
+          const p = (payload ?? {}) as Record<string, unknown>;
+          const nodeId = String(p.nodeId ?? p.id ?? '');
+          if (type === 'graph:node_start') {
+            emit({ type: 'graph.node', taskId, node: nodeId, status: 'running' });
+          } else if (type === 'graph:node_done') {
+            emit({ type: 'graph.node', taskId, node: nodeId, status: 'done', summary: String(p.summary ?? '').slice(0, 200) });
+          } else if (type === 'graph:node_failed') {
+            emit({ type: 'graph.node', taskId, node: nodeId, status: 'failed', summary: String(p.error ?? p.violations ?? '').slice(0, 200) });
+          } else if (type === 'graph:node_skipped' || type === 'graph:node_cancelled') {
+            emit({ type: 'graph.node', taskId, node: nodeId, status: 'skipped' });
+          }
+        },
+      });
+
+      const parts: string[] = [];
+      for (const node of planned.spec.nodes) {
+        const r = graphResult.nodes[node.id];
+        if (!r) continue;
+        const body = r.summary ?? (typeof r.output === 'string' ? r.output : '');
+        parts.push(`### ${node.label ?? node.id} — ${r.state}
+${(body ?? '').toString().slice(0, 2000)}`);
+      }
+      const finalText = parts.join('\n\n') || '(graph produced no output)';
+      emit({ type: 'assistant.delta', taskId, text: finalText });
+
+      const failed = Object.values(graphResult.nodes).filter((r) => r.state === 'failed').length;
+      if (graphResult.status === 'failed' && failed === planned.spec.nodes.length) {
+        emit({ type: 'turn.error', taskId, code: 'GRAPH_ALL_NODES_FAILED', message: `all ${failed} nodes failed` });
+        return;
+      }
+      emit({
+        type: 'turn.completed',
+        taskId,
+        artifacts,
+        noChangeReason:
+          artifacts === 0
+            ? failed > 0
+              ? `${failed} of ${planned.spec.nodes.length} graph nodes failed before any file changed.`
+              : 'The graph answered without needing to change files.'
+            : undefined,
+        assistantText: finalText,
+      });
+      return;
+    }
+  }
+
   const result = await loop.run(req.prompt, chat, RUNNER_SYSTEM_PROMPT);
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
   emit({
