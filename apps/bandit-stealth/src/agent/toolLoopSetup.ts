@@ -35,6 +35,7 @@ import {
 import {
   CheckpointStore,
   TodoStore,
+  buildPublishArtifactTool,
   buildReadMemoryTool,
   buildRememberTool,
   buildTestRunTool,
@@ -87,13 +88,16 @@ export interface BuildTurnRunContextOptions {
    *  message so on-mention MCP servers only register when their
    *  triggers appear. */
   conversation: ConversationEntry[];
+  /** Bandit cloud key (present only when provider = bandit + signed in).
+   *  Gates the cloud-only `publish_artifact` tool, matching the CLI. */
+  banditApiKey?: string;
 }
 
 export async function buildTurnRunContext(
   ctx: ProviderContext,
   options: BuildTurnRunContextOptions
 ): Promise<TurnRunContext> {
-  const { workspaceRoot, configuration, userGoal, conversation } = options;
+  const { workspaceRoot, configuration, userGoal, conversation, banditApiKey } = options;
 
   const toolCtx = new NodeToolExecutionContext(workspaceRoot, createDefaultLanguageAdapters(), {
     // ask_user → the webview question card, via the provider's gate service.
@@ -149,6 +153,17 @@ export async function buildTurnRunContext(
   // a tight pass/fail summary so fix-test-rerun loops close cleanly
   // without flooding context with raw test stdout.
   registry.register(buildTestRunTool());
+  // publish_artifact — cloud-only, so "write a README and publish it as an
+  // artifact" works in-editor the same as in the CLI. Registered only when a
+  // Bandit cloud key is present, so local-only turns stay fully offline.
+  // publishArtifact exchanges the bai_ key for a gateway JWT before S3Api.
+  if (banditApiKey) {
+    registry.register(buildPublishArtifactTool({
+      token: banditApiKey,
+      s3ApiBaseUrl: process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai',
+      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
+    }));
+  }
 
   // MCP tools — surface every connected server's tools as
   // `<server>.<tool>` entries in the per-turn registry. The pool is
