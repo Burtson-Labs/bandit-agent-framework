@@ -4402,6 +4402,30 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         return null;
       }
     },
+    // Publish a local file (e.g. the insights HTML) as a shareable Bandit
+    // Artifact, return its URL. Same path as /artifact: publishArtifact
+    // exchanges the bai_ key for a gateway JWT, then posts to S3Api. Present
+    // only when signed in to Bandit cloud, so `/insights --share` can fall back
+    // to a clear "cloud feature" message when the capability is absent.
+    shareArtifact: resolved.apiKey
+      ? async (absPath: string): Promise<string> => {
+          const token = resolved.apiKey as string;
+          const { publishArtifact, guessContentType } = await import('@burtson-labs/host-kit');
+          const bytes = await fs.promises.readFile(absPath);
+          const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+          const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
+          const filename = path.basename(absPath);
+          const artifact = await publishArtifact({
+            s3ApiBaseUrl: s3Base,
+            authBaseUrl: authBase,
+            token,
+            content: new Uint8Array(bytes),
+            filename,
+            contentType: guessContentType(filename)
+          });
+          return artifact.url;
+        }
+      : undefined,
     runMemoryMigrateWizard: async () => {
       // Lazy-import so test/harness paths that don't run the wizard
       // don't pay the module-load cost. The wizard owns its own

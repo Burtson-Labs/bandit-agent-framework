@@ -282,6 +282,12 @@ export interface SlashContext {
    * ProviderSettings. Returns null on any failure (no provider, network
    * error, parse failure) so callers can fall back to a static path. */
   oneShotChat?: (prompt: string, opts?: { systemPrompt?: string; timeoutMs?: number }) => Promise<string | null>;
+  /** Publish a local file as a shareable Bandit Artifact and return its URL.
+   * Used by `/insights --share`. cli.ts wires this with the resolved cloud
+   * token + S3Api/Auth base URLs (publishArtifact handles the bai_→JWT
+   * exchange). Absent when the user isn't signed in to Bandit cloud, so the
+   * slash command falls back to a clear "cloud feature" message. */
+  shareArtifact?: (absPath: string) => Promise<string>;
   /** Hand-off to the interactive memory-migrate wizard. The slash
    *  command's job is just to detect the right subcommand and queue
    *  the plan prompt or invoke this callback; cli.ts owns the actual
@@ -1523,11 +1529,12 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: 'insights',
-    description: 'Show how you use Bandit. Default: write an HTML report and open it in your browser. Pass --text for a quick CLI-only summary, or --no-ai to skip the LLM-generated summary section.',
+    description: 'Show how you use Bandit. Default: write an HTML report and open it in your browser. --share publishes it as a shareable Bandit Artifact link (cloud). --text for a quick CLI-only summary, --no-ai to skip the LLM-generated summary section.',
     async run(args, ctx) {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
       const noAi = tokens.includes('--no-ai');
       const textOnly = tokens.includes('--text') || tokens.includes('-t');
+      const share = tokens.includes('--share');
       const out = tokens.find((t) => !t.startsWith('--') && !t.startsWith('-'));
       try {
         // Lazy require so the slash-command module doesn't pull insights
@@ -1605,6 +1612,26 @@ export const slashCommands: SlashCommand[] = [
           process.stdout.write(c.dim(`  asking ${ctx.model.current} for a summary…\n`));
         }
         const written = await writeInsightsReport({ cwd: ctx.cwd, out, ai: aiCallback });
+
+        // --share: publish the report as a Bandit Artifact and hand back a link
+        // instead of opening it locally. The whole point is a URL to send, so a
+        // browser-open would be noise. Cloud-only — falls back to a clear hint
+        // (still leaving the file on disk) when not signed in or on failure.
+        if (share) {
+          if (!ctx.shareArtifact) {
+            return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
+              c.yellow('  --share needs Bandit cloud — sign in with /login <key>, then retry for a shareable link.');
+          }
+          process.stdout.write(c.dim('  publishing report as a shareable artifact…\n'));
+          try {
+            const url = await ctx.shareArtifact(written);
+            return c.green('✓ insights published — shareable link:\n') + '  ' + c.cyan(url);
+          } catch (err) {
+            return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
+              c.red(`  ${glyph.cross} share failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
         // Try to open in browser (cross-platform). Best-effort — if it
         // fails, the path is right above so the user can open manually.
         // eslint-disable-next-line @typescript-eslint/no-var-requires
