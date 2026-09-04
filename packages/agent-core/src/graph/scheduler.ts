@@ -22,7 +22,9 @@
  *    graph:node_failed, graph:node_skipped, graph:node_cancelled, graph:done.
  */
 import {
+  graphFingerprint,
   validateGraph,
+  type GraphCheckpoint,
   type GraphRunResult,
   type GraphSpec,
   type NodeExecutor,
@@ -37,6 +39,20 @@ export interface RunGraphOptions {
   signal?: AbortSignal;
   /** Progress events — same shape as the tool loop's emitEvent. */
   emitEvent?: (type: string, payload?: unknown) => void;
+  /**
+   * Durability hook (Phase 5): called with a fresh checkpoint after every
+   * node settles and once at the end. Best-effort like the loop's
+   * onMessagesSnapshot — not awaited, a throw is swallowed; persistence
+   * must never stall or kill a run.
+   */
+  onCheckpoint?: (checkpoint: GraphCheckpoint) => void;
+  /**
+   * Resume a prior run: nodes 'done' in the checkpoint are restored without
+   * re-running (outputs/evidence flow to dependents; emits graph:node_restored);
+   * every other state re-runs — failures included, retrying them is the point.
+   * Throws if the checkpoint's spec fingerprint doesn't match this spec.
+   */
+  resumeFrom?: GraphCheckpoint;
 }
 
 /** Executors per node id, or one executor shared by every node. */
@@ -66,10 +82,37 @@ export async function runGraph(
   // node starts, not halfway through.
   for (const node of spec.nodes) executorFor(node.id);
 
+  const fingerprint = graphFingerprint(spec);
+  if (opts.resumeFrom && opts.resumeFrom.specFingerprint !== fingerprint) {
+    throw new Error('resume checkpoint does not match this graph (node ids/dependencies differ)');
+  }
+
   const results: Record<string, NodeResult> = {};
   for (const node of spec.nodes) {
-    results[node.id] = { id: node.id, state: 'pending' };
+    const prior = opts.resumeFrom?.nodes[node.id];
+    if (prior && prior.state === 'done') {
+      // Restore completed work verbatim — the executor does NOT re-run, and
+      // dependents see the original output/evidence.
+      results[node.id] = { ...prior };
+    } else {
+      results[node.id] = { id: node.id, state: 'pending' };
+    }
   }
+
+  const checkpoint = (): GraphCheckpoint => ({
+    version: 1,
+    specFingerprint: fingerprint,
+    // Deep-ish copy so a persisted checkpoint can't be mutated by the
+    // still-running scheduler between write and flush.
+    nodes: Object.fromEntries(Object.entries(results).map(([id, r]) => [id, { ...r }])),
+  });
+  const fireCheckpoint = (): void => {
+    try {
+      opts.onCheckpoint?.(checkpoint());
+    } catch {
+      /* persistence must never stall or kill the run */
+    }
+  };
   const dependents = new Map<string, string[]>();
   for (const node of spec.nodes) {
     for (const dep of node.dependsOn ?? []) {
@@ -155,12 +198,20 @@ export async function runGraph(
         record.endedAt = Date.now();
         record.durationMs = record.endedAt - (record.startedAt ?? record.endedAt);
         running.delete(id);
+        // Durability: snapshot after every settle so a crash between nodes
+        // loses at most the in-flight node's work.
+        fireCheckpoint();
       }
     })();
     running.set(id, promise);
   };
 
-  emit('graph:start', { nodes: spec.nodes.length, maxConcurrency });
+  emit('graph:start', { nodes: spec.nodes.length, maxConcurrency, resumed: Boolean(opts.resumeFrom) });
+  for (const node of spec.nodes) {
+    if (results[node.id].state === 'done' && opts.resumeFrom) {
+      emit('graph:node_restored', { id: node.id, label: labelOf.get(node.id), summary: results[node.id].summary });
+    }
+  }
 
   // Main pump: launch every ready node up to the cap, wait for one running
   // node to settle, repeat. Skip-cascade runs each pass so a failure releases
@@ -185,6 +236,9 @@ export async function runGraph(
       emit('graph:node_cancelled', { id: node.id, label: labelOf.get(node.id) });
     }
   }
+  // Terminal snapshot — includes skips/cancels the per-settle checkpoints
+  // may not have seen.
+  fireCheckpoint();
 
   const status: GraphRunResult['status'] = signal?.aborted
     ? 'cancelled'
