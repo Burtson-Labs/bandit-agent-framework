@@ -29,7 +29,7 @@ import {
   type ChatFn,
   type ToolLoopMessage
 } from '@burtson-labs/agent-core';
-import { createProvider, type ProviderSettings, buildExtensionSystemPrompt } from '@burtson-labs/stealth-core-runtime';
+import { createProvider, getModelCapabilities, type ProviderSettings, buildExtensionSystemPrompt } from '@burtson-labs/stealth-core-runtime';
 import { CliToolExecutionContext } from '../cliToolContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
@@ -163,7 +163,16 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     };
 
     const maxIterations = fixture.maxIterations ?? 8;
-    const loop = new ToolUseLoop(registry, toolCtx, { maxIterations });
+    // Production tool channel per model (native when supported): benching
+    // bandit-core-2 on the text XML block it never sees in real turns made it
+    // answer "I don't have access to your file system"; qwen3-coder's Ollama
+    // template outright 500s (EOF) when XML markup streams through content.
+    const nativeTools = await resolveNativeTools(provider);
+    const loop = new ToolUseLoop(registry, toolCtx, {
+      maxIterations,
+      nativeTools,
+      nativeToolFailureFallback: true
+    });
 
     const toolCalls: ToolCallTrace[] = [];
     let order = 0;
@@ -293,18 +302,53 @@ async function listFilesGlob(pattern: string, cwd: string): Promise<string[]> {
 
 async function buildChat(provider: RunnerProvider): Promise<ChatFn> {
   const driver = await createProvider(provider.settings);
-  return async function* (messages: ToolLoopMessage[]) {
+  return async function* (messages: ToolLoopMessage[], tools) {
     for await (const chunk of driver.chat({
       model: provider.model,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true,
-      temperature: 0.2
+      temperature: 0.2,
+      // Native-tools mode: the loop passes schemas on every call; forward
+      // them so the provider routes to Ollama's native `tools` field and
+      // translates returned tool_calls back into inline markup — the same
+      // path the REPL uses (cliChatFn types this `unknown` for the same
+      // structural-compat reason).
+      tools: tools as never
     })) {
       const text = chunk.message?.content ?? '';
       if (text) yield text;
       if (chunk.done) break;
     }
   };
+}
+
+/**
+ * Decide the tool channel per model the way PRODUCTION does: native tools
+ * when the model supports them, text-tools XML otherwise. Benching a model
+ * on a channel it never uses in real turns measures the wrong thing — and
+ * some templates (qwen3-coder) hard-crash Ollama's response parser when our
+ * XML markup streams through the content channel (the #16398 EOF family).
+ *
+ * ollama: live /api/show capabilities probe (source of truth, mirrors the
+ * CLI's probeOllamaCapabilities). bandit/openai-compatible: the static
+ * capabilities table.
+ */
+async function resolveNativeTools(provider: RunnerProvider): Promise<boolean> {
+  if (provider.kind === 'ollama') {
+    try {
+      const base = (provider.settings.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '');
+      const res = await fetch(`${base}/api/show`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(provider.settings.ollamaHeaders ?? {}) },
+        body: JSON.stringify({ model: provider.model })
+      });
+      if (res.ok) {
+        const body = await res.json() as { capabilities?: string[] };
+        return Array.isArray(body.capabilities) && body.capabilities.includes('tools');
+      }
+    } catch { /* fall through to the static table */ }
+  }
+  return getModelCapabilities(provider.model).supportsToolCalling;
 }
 
 export interface RunFixturesOptions {

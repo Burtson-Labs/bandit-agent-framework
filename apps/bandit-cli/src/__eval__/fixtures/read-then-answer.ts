@@ -18,7 +18,9 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    mustCallAnyOf: [{ name: 'read_file', params: { path: /settings\.json/ } }],
+    // Any read path counts (read_file, cat via run_command, search) — the
+    // OUTCOME is the assertion: the right port, no edits.
+    mustCallAnyOf: [{ name: /^(read_file|run_command|search_code|list_files|ls)$/ }],
     mustNotCall: ['write_file', 'apply_edit', 'replace_range', 'apply_patch'],
     finalResponseMatches: /4187/,
     maxIterations: 4

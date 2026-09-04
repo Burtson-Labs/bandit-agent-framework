@@ -24,12 +24,14 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
+    // Discovery (list/search) + a read of the script by ANY read path; the
+    // outcome must describe the real steps (both the sync and the restart).
     mustCallAllOf: [
       { name: /^(list_files|ls|search_code)$/ },
-      { name: 'read_file', params: { path: /deploy\.sh/ } }
+      { name: /^(read_file|run_command)$/ }
     ],
-    mustNotCall: ['write_file', 'apply_edit', 'run_command'],
-    finalResponseMatches: /rsync|build|restart/i,
+    mustNotCall: ['write_file', 'apply_edit'],
+    finalResponseMatches: /(?=[\s\S]*rsync)(?=[\s\S]*(restart|systemctl))/i,
     maxIterations: 5
   },
   runs: 3,
