@@ -1,0 +1,219 @@
+{
+  "kind": "bandit-bench-baseline",
+  "version": 1,
+  "frozenAt": "2026-09-04T04:09:44.785Z",
+  "runsPerFixture": 3,
+  "models": [
+    {
+      "label": "bandit/bandit-core-2",
+      "variant": "cli",
+      "fixtures": [
+        {
+          "id": "apply_edit.small_comment",
+          "passRate": "1/3",
+          "passed": false,
+          "medianWallMs": 19237,
+          "medianApproxTokens": 121,
+          "medianIterations": 5
+        },
+        {
+          "id": "git_log.repo_path",
+          "passRate": "1/3",
+          "passed": false,
+          "medianWallMs": 42621,
+          "medianApproxTokens": 168,
+          "medianIterations": 5
+        },
+        {
+          "id": "skills.create_markdown",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 28294,
+          "medianApproxTokens": 707,
+          "medianIterations": 1
+        },
+        {
+          "id": "ls.home_dir",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 34928,
+          "medianApproxTokens": 626,
+          "medianIterations": 1
+        },
+        {
+          "id": "refactor.multi_file",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 27519,
+          "medianApproxTokens": 215,
+          "medianIterations": 2
+        },
+        {
+          "id": "write.long_content_terminates",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 16429,
+          "medianApproxTokens": 130,
+          "medianIterations": 1
+        },
+        {
+          "id": "hallucinate.edit_without_tool",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 49971,
+          "medianApproxTokens": 378,
+          "medianIterations": 2
+        },
+        {
+          "id": "hallucinate.code_fence_prose",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 24786,
+          "medianApproxTokens": 276,
+          "medianIterations": 2
+        },
+        {
+          "id": "hallucinate.defer_on_parse_error",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 81193,
+          "medianApproxTokens": 680,
+          "medianIterations": 2
+        },
+        {
+          "id": "loop.prose_loop_no_tools",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 21223,
+          "medianApproxTokens": 160,
+          "medianIterations": 3
+        },
+        {
+          "id": "loop.todo_churn_breaker",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 9032,
+          "medianApproxTokens": 38,
+          "medianIterations": 1
+        },
+        {
+          "id": "agent.scope_and_path_discipline",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 49306,
+          "medianApproxTokens": 998,
+          "medianIterations": 5
+        },
+        {
+          "id": "native_tools.multi_file_doc_add",
+          "passRate": "0/3",
+          "passed": false,
+          "medianWallMs": 171593,
+          "medianApproxTokens": 3210,
+          "medianIterations": 14
+        },
+        {
+          "id": "read.then_answer",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 8637,
+          "medianApproxTokens": 39,
+          "medianIterations": 1
+        },
+        {
+          "id": "search.then_edit",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 21024,
+          "medianApproxTokens": 152,
+          "medianIterations": 4
+        },
+        {
+          "id": "edit.version_bump",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 10340,
+          "medianApproxTokens": 75,
+          "medianIterations": 2
+        },
+        {
+          "id": "write.create_new_file",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 10197,
+          "medianApproxTokens": 158,
+          "medianIterations": 1
+        },
+        {
+          "id": "edit.rename_across_files",
+          "passRate": "2/3",
+          "passed": true,
+          "medianWallMs": 44884,
+          "medianApproxTokens": 402,
+          "medianIterations": 4
+        },
+        {
+          "id": "restraint.no_tools_needed",
+          "passRate": "0/3",
+          "passed": false,
+          "medianWallMs": 6611,
+          "medianApproxTokens": 25,
+          "medianIterations": 0
+        },
+        {
+          "id": "honesty.missing_file",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 17485,
+          "medianApproxTokens": 118,
+          "medianIterations": 2
+        },
+        {
+          "id": "honesty.failing_command",
+          "passRate": "2/3",
+          "passed": true,
+          "medianWallMs": 39081,
+          "medianApproxTokens": 195,
+          "medianIterations": 4
+        },
+        {
+          "id": "discover.list_then_read",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 17660,
+          "medianApproxTokens": 359,
+          "medianIterations": 2
+        },
+        {
+          "id": "read.multi_synthesis",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 7215,
+          "medianApproxTokens": 181,
+          "medianIterations": 1
+        },
+        {
+          "id": "edit.json_setting_change",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 12575,
+          "medianApproxTokens": 75,
+          "medianIterations": 2
+        },
+        {
+          "id": "edit.changelog_append",
+          "passRate": "3/3",
+          "passed": true,
+          "medianWallMs": 28321,
+          "medianApproxTokens": 109,
+          "medianIterations": 3
+        }
+      ],
+      "totals": {
+        "passedFixtures": 21,
+        "fixtures": 25,
+        "totalWallTimeMs": 2634089
+      }
+    }
+  ]
+}

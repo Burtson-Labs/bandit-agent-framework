@@ -15,7 +15,12 @@ export const fixture: Fixture = {
   description: 'Skill creation must write markdown with frontmatter, not legacy JSON',
   prompt: 'Create a skill called github for working with the gh CLI — listing PRs, creating PRs, checking issues.',
   assertions: {
+    // The purpose-built `create_skill` tool is the modern-correct path (it
+    // emits the frontmatter + .md itself); a manual write_file to
+    // .bandit/skills/*.md with id-frontmatter is the legacy-but-valid path.
+    // Accept either — demanding write_file penalizes the RIGHT tool choice.
     mustCallAnyOf: [
+      { name: 'create_skill' },
       {
         name: 'write_file',
         params: {

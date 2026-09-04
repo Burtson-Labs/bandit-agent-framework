@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.405
+
+- **Experimental: graph-run routing hint.** With `BANDIT_GRAPH=1`, when a prompt looks like it splits into independent parts (e.g. "survey X and Y separately, then compare"), Bandit mentions once per session that `graph plan` can run it as a parallel graph. Purely a heuristic hint — no extra model calls, and it never fires for a plain single-step task.
+
 ## 1.7.404
 
 - **Experimental: Bandit can now plan its own graphs.** `BANDIT_GRAPH=1 bandit graph plan "<task>"` asks the model to classify the task — run it directly, as a normal focused turn, or as a dependency graph — and for graph-shaped work it proposes the nodes and dependencies. You see the proposal first; add `--run` to execute it, with every node locked read-only in this preview. `bandit graph resume` continues any interrupted run (demo or planned), restoring finished nodes instantly, and `/graph` in the REPL inspects it (`status`, `inspect`, `why`, `retry`).
