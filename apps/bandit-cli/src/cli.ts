@@ -4600,27 +4600,59 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
 
   // `/artifact <path>` — publish a file as a shareable Bandit Artifact (cloud).
   const handleArtifactCommand = async (arg: string): Promise<string> => {
-    const target = arg.trim();
-    if (!target) return c.dim('usage: /artifact <path>   (publish a file, get a shareable link)');
+    const tokens = arg.trim().split(/\s+/).filter(Boolean);
+    const sub = (tokens[0] ?? '').toLowerCase();
+    if (!tokens.length) return c.dim('usage: /artifact <path> | ls | rm <url|key> | clear --yes');
     if (!resolved.apiKey) {
       return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
     }
-    const { publishArtifact, guessContentType } = await import('@burtson-labs/host-kit');
+    const hostKit = await import('@burtson-labs/host-kit');
+    const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+    const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
+    const base = { s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token: resolved.apiKey };
+    const fail = (err: unknown) => c.red(`${glyph.cross} ${err instanceof Error ? err.message : String(err)}`);
+
+    if (sub === 'ls' || sub === 'list') {
+      try {
+        const items = await hostKit.listArtifacts(base);
+        if (!items.length) return c.dim('no artifacts yet — /artifact <file> publishes one.');
+        const lines = items.map((it) => {
+          const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
+          const size = it.size < 1024 ? `${it.size} B` : `${(it.size / 1024).toFixed(1)} KB`;
+          return `  ${c.dim(size.padStart(8))}  ${c.dim(when)}  ${c.cyan(it.url)}`;
+        });
+        return c.bold(`your artifacts (${items.length}):\n`) + lines.join('\n');
+      } catch (err) { return fail(err); }
+    }
+
+    if (sub === 'rm' || sub === 'delete') {
+      if (!tokens[1]) return c.dim('usage: /artifact rm <url|key>');
+      try { await hostKit.deleteArtifact({ ...base, keyOrUrl: tokens[1] }); return c.green(`${glyph.check} deleted`); }
+      catch (err) { return fail(err); }
+    }
+
+    if (sub === 'clear') {
+      if (!tokens.includes('--yes') && !tokens.includes('-y')) {
+        let count = 0;
+        try { count = (await hostKit.listArtifacts(base)).length; } catch { /* show generic warning */ }
+        return c.yellow(`This deletes ALL ${count} of your artifacts (can't be undone). Re-run `) + c.cyan('/artifact clear --yes') + c.yellow(' to confirm.');
+      }
+      try { const n = await hostKit.clearArtifacts(base); return c.green(`${glyph.check} cleared ${n} artifact${n === 1 ? '' : 's'}`); }
+      catch (err) { return fail(err); }
+    }
+
+    // default: publish the file at tokens[0]
+    const target = tokens[0];
     const abs = path.isAbsolute(target) ? target : path.join(cwd, target);
     let bytes: Buffer;
     try { bytes = await fs.promises.readFile(abs); } catch { return c.red(`can't read ${target}`); }
     const filename = path.basename(abs);
-    const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
-    const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
     try {
-      const artifact = await publishArtifact({
-        s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token: resolved.apiKey, content: new Uint8Array(bytes),
-        filename, contentType: guessContentType(filename),
+      const artifact = await hostKit.publishArtifact({
+        ...base, content: new Uint8Array(bytes), filename, contentType: hostKit.guessContentType(filename),
       });
       return c.green(`${glyph.check} published ${filename} — shareable link:\n`) + '  ' + c.cyan(artifact.url);
-    } catch (err) {
-      return c.red(`${glyph.cross} ${err instanceof Error ? err.message : String(err)}`);
-    }
+    } catch (err) { return fail(err); }
   };
 
   // `/remote [on|off|status|help]` — toggle/inspect live-session remote control.

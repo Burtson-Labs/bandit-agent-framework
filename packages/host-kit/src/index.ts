@@ -31,9 +31,15 @@ export {
   publishArtifact,
   resolveGatewayToken,
   guessContentType,
+  listArtifacts,
+  deleteArtifact,
+  clearArtifacts,
+  artifactKeyFromUrl,
   DEFAULT_AUTH_BASE_URL,
   type PublishArtifactOptions,
-  type PublishedArtifact
+  type PublishedArtifact,
+  type ArtifactManageOptions,
+  type ArtifactListItem
 } from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 // Sandbox execution seam — swappable boundary for running commands (local host

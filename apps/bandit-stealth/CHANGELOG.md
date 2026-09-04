@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.417
+
+- **Manage your artifacts.** `bandit artifact ls` lists your shareable artifacts, `bandit artifact rm <url>` deletes one, and `bandit artifact clear` removes them all — same as `/artifact ls | rm | clear` in the terminal. Artifacts also now auto-expire after 90 days, so they stop piling up.
+
 ## 1.7.416
 
 - **The editor agent can publish artifacts now, too.** Ask Bandit in the VS Code chat to "write a README and publish it as an artifact" and it will — the same `publish_artifact` tool the terminal agent has, handing back a shareable link in one turn. Cloud feature; the tool only appears when you're signed in to Bandit cloud, so local/Ollama turns stay fully offline.

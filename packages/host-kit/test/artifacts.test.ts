@@ -5,7 +5,15 @@
  * failure — user-initiated sharing shouldn't fail silently.
  */
 import { describe, it, expect } from 'vitest';
-import { publishArtifact, guessContentType, resolveGatewayToken } from '../src/artifacts';
+import {
+  publishArtifact,
+  guessContentType,
+  resolveGatewayToken,
+  listArtifacts,
+  deleteArtifact,
+  clearArtifacts,
+  artifactKeyFromUrl
+} from '../src/artifacts';
 
 describe('guessContentType', () => {
   it('maps common artifact extensions', () => {
@@ -151,5 +159,56 @@ describe('resolveGatewayToken', () => {
       ok: true, status: 200, json: async () => ({ valid: false, reason: 'revoked' }),
     } as Response)) as unknown as typeof fetch;
     await expect(resolveGatewayToken('bai_dead', { fetchImpl })).rejects.toThrow(/rejected.*revoked/);
+  });
+});
+
+describe('artifactKeyFromUrl', () => {
+  it('extracts + decodes the key from a share URL', () => {
+    expect(artifactKeyFromUrl('https://s3.burtson.ai/api/artifact/team-1/abc.html')).toBe('team-1/abc.html');
+    expect(artifactKeyFromUrl('https://s3.burtson.ai/api/artifact/owner-x/a%20b.md')).toBe('owner-x/a b.md');
+  });
+  it('passes a bare key through unchanged', () => {
+    expect(artifactKeyFromUrl('team-1/abc.html')).toBe('team-1/abc.html');
+  });
+});
+
+describe('artifact management', () => {
+  it('listArtifacts GETs /mine with the bearer and returns the array', async () => {
+    const calls: Array<{ url: string; method?: string; auth?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; headers?: Record<string, string> }) => {
+      calls.push({ url, method: init?.method, auth: (init?.headers as Record<string, string>)?.authorization });
+      return { ok: true, status: 200, json: async () => ({ count: 1, artifacts: [{ key: 'k', url: 'u', size: 3, lastModified: 't' }] }) } as Response;
+    }) as unknown as typeof fetch;
+    const items = await listArtifacts({ s3ApiBaseUrl: 'https://s3.burtson.ai/', token: 'jwt', fetchImpl });
+    expect(items).toHaveLength(1);
+    expect(items[0].key).toBe('k');
+    expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/mine', auth: 'Bearer jwt' });
+  });
+
+  it('deleteArtifact DELETEs the per-segment-encoded key (accepts a URL)', async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      calls.push({ url, method: init?.method });
+      return { ok: true, status: 200, json: async () => ({ deleted: 'k' }) } as Response;
+    }) as unknown as typeof fetch;
+    await deleteArtifact({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', keyOrUrl: 'https://s3.burtson.ai/api/artifact/team-1/abc.html', fetchImpl });
+    expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/team-1/abc.html', method: 'DELETE' });
+  });
+
+  it('deleteArtifact surfaces a clear 404 (not found / not yours)', async () => {
+    const fetchImpl = (async () => ({ ok: false, status: 404, json: async () => ({}) } as Response)) as unknown as typeof fetch;
+    await expect(deleteArtifact({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', keyOrUrl: 'team-x/gone.html', fetchImpl }))
+      .rejects.toThrow(/no artifact found/);
+  });
+
+  it('clearArtifacts DELETEs /mine and returns the deleted count', async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      calls.push({ url, method: init?.method });
+      return { ok: true, status: 200, json: async () => ({ deleted: 7 }) } as Response;
+    }) as unknown as typeof fetch;
+    const n = await clearArtifacts({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', fetchImpl });
+    expect(n).toBe(7);
+    expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/mine', method: 'DELETE' });
   });
 });
