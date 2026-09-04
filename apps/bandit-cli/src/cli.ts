@@ -5611,6 +5611,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (rawArgs[0] === 'artifact') {
+    // Publish a local file as a shareable Bandit Artifact (cloud) → prints a URL.
+    const { runArtifactCommand } = await import('./artifactCommand');
+    await runArtifactCommand(rawArgs.slice(1), process.cwd());
+    return;
+  }
+
   if (rawArgs[0] === 'doctor' || rawArgs[0] === 'upgrade' || rawArgs[0] === 'self-update') {
     // Install management — `bandit doctor` finds/consolidates multiple installs,
     // `bandit upgrade` self-updates the standalone binary. Branch before
