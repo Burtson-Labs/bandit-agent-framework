@@ -4524,9 +4524,22 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         // A remote turn becomes the next prompt in THIS conversation. Tag it in
         // remoteTurnQueue so the mirror below doesn't re-echo the user message.
         onRemoteTurn: (prompt) => {
-          // Make the injection VISIBLE: without a banner a turn appearing in
-          // the scrollback out of nowhere reads as a ghost, not a feature.
-          process.stdout.write('\n' + c.accent(`  ${glyph.spark} remote turn from the web`) + '\n');
+          // Make the injection VISIBLE — banner + the question itself, echoed
+          // the way a typed line would be. Through ink's committed-scrollback
+          // (commitTurnLine) when ink is mounted: raw stdout writes while the
+          // input frame is live corrupt its layout (the field report was
+          // mangled styles AND an invisible question — typed lines echo via
+          // the frame's own submit path, which remote turns never touch).
+          const banner = c.dim(`  ${glyph.spark} remote turn from the web`);
+          const echo = c.accent(`› ${prompt}`);
+          const ink = rl as unknown as { commitTurnLine?: (text: string) => void };
+          if (typeof ink.commitTurnLine === 'function') {
+            ink.commitTurnLine('');
+            ink.commitTurnLine(banner);
+            ink.commitTurnLine(echo);
+          } else {
+            process.stdout.write('\n' + banner + '\n' + echo + '\n');
+          }
           remoteTurnQueue.push(prompt); lineQueue.push(prompt); void drainQueue();
         }
       });
