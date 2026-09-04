@@ -4458,6 +4458,8 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // skip re-echoing a remote user message the gateway already surfaced.
   let remoteSession: import('./runner/remoteSession').RemoteSession | null = null;
   const remoteTurnQueue: string[] = [];
+  // Experimental graph-routing nudge: shown at most once per session.
+  let graphNudgeShown = false;
 
   // Where a remote session can be reached. The /remote/:sessionId page ships
   // in bandit-stealth-web (2026-08-31), served at the Stealth Web production
@@ -4850,6 +4852,22 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           const isRemoteTurn = remoteTurnQueue.length > 0 && remoteTurnQueue[0] === line;
           if (isRemoteTurn) remoteTurnQueue.shift();
           if (remoteSession?.active && !isRemoteTurn) void remoteSession.mirrorUser(line);
+
+          // Experimental routing nudge (BANDIT_GRAPH=1): if the prompt looks
+          // decomposable, mention `graph plan` ONCE per session. Zero model
+          // calls — a pure lexical heuristic — and never for web-driven turns.
+          if (!graphNudgeShown && !isRemoteTurn && /^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
+            const { classifyGraphShaped } = await import('@burtson-labs/agent-core');
+            if (classifyGraphShaped(line).suggestsGraph) {
+              graphNudgeShown = true;
+              const escaped = line.replace(/"/g, '\\"').slice(0, 80);
+              process.stdout.write(
+                c.dim(`  ${glyph.spark} this looks decomposable — try `) +
+                c.cyan(`bandit graph plan "${escaped}${line.length > 80 ? '…' : ''}"`) +
+                c.dim(' to run it as a parallel graph\n')
+              );
+            }
+          }
 
           const response = await runPrompt({
             onTurnEvent: (evt) => { if (remoteSession?.active) void remoteSession.mirrorEvent(evt); },
