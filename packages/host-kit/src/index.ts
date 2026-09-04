@@ -26,6 +26,17 @@ export {
 export { buildReadMemoryTool } from './tools/readMemoryTool';
 // Learning memory — the .bandit/lessons.md store (distiller is in agent-core).
 export { lessonsPath, loadLessons, addLesson, clearLessons, type AddLessonResult } from './lessons';
+// Sandbox execution seam — swappable boundary for running commands (local host
+// today; Firecracker microVM via anton once its exec endpoint lands).
+export {
+  LocalSandboxExecutor,
+  createSandboxExecutor,
+  ANTON_EXEC_CONTRACT,
+  type SandboxExecutor,
+  type SandboxExecOptions,
+  type SandboxExecResult,
+  type SandboxConfig,
+} from './sandbox';
 // Remote control: the local-runner ↔ gateway transport + live-session driver.
 // Host-agnostic (only fetch + ReadableStream), so BOTH the CLI and the VS Code
 // extension import the SAME RemoteSession — one proven mechanism, not two copies.
