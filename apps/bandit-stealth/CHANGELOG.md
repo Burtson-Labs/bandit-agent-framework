@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.402
+
+- **Experimental graph runs can now survive interruption.** Every node's result checkpoints to `.bandit/graph-demo-checkpoint.json` as it finishes; `BANDIT_GRAPH=1 bandit graph demo --resume` restores finished nodes instantly (no re-running the model) and continues only what's left. Kill a run mid-way and pick it back up.
+
 ## 1.7.401
 
 - **Experimental: graph runs.** `BANDIT_GRAPH=1 bandit graph demo` runs a small dependency graph over your repo — two read-only scans in parallel, then a synthesized project brief — with per-node capability limits and a completion check, streaming node progress live. Early preview of multi-step parallel agent runs; off by default.

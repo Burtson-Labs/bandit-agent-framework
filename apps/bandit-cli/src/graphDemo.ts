@@ -16,6 +16,7 @@
  * Flag-gated (BANDIT_GRAPH=1): the graph runtime ships dark until it earns
  * its way into defaults via the bench.
  */
+import * as fs from 'fs';
 import * as path from 'path';
 import {
   createCoreToolRegistry,
@@ -24,6 +25,7 @@ import {
   wrapLoopAsNode,
   defaultNodePrompt,
   type ChatFn,
+  type GraphCheckpoint,
   type GraphSpec,
   type NodeExecutor,
 } from '@burtson-labs/agent-core';
@@ -102,14 +104,36 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
     ),
   };
 
+  // Durability (Phase 5): every settle snapshots to .bandit; `--resume`
+  // restores finished nodes and runs only the remainder. Kill the demo
+  // mid-run (Ctrl+C) and resume it to see restored nodes come back instantly.
+  const checkpointPath = path.join(cwd, '.bandit', 'graph-demo-checkpoint.json');
+  let resumeFrom: GraphCheckpoint | undefined;
+  if (argv.includes('--resume')) {
+    try {
+      resumeFrom = JSON.parse(await fs.promises.readFile(checkpointPath, 'utf8')) as GraphCheckpoint;
+    } catch {
+      process.stdout.write(c.dim(`  (no checkpoint at ${path.relative(cwd, checkpointPath)} — starting fresh)\n`));
+    }
+  }
+
   const startedAt = Date.now();
   const stamp = (): string => c.dim(`[${String(Date.now() - startedAt).padStart(5, ' ')}ms]`);
   process.stdout.write(
-    c.bold(`Graph demo`) + c.dim(` — ${path.basename(cwd)} · model ${model} · 2 parallel scans → synthesize\n\n`)
+    c.bold(`Graph demo`) + c.dim(` — ${path.basename(cwd)} · model ${model} · 2 parallel scans → synthesize`)
+    + (resumeFrom ? c.accent(' · resumed') : '') + '\n\n'
   );
 
   const result = await runGraph(spec, executors, {
     maxConcurrency: 2,
+    resumeFrom,
+    onCheckpoint: (cp) => {
+      // Best-effort persistence — never let disk trouble kill the run.
+      try {
+        fs.mkdirSync(path.dirname(checkpointPath), { recursive: true });
+        fs.writeFileSync(checkpointPath, JSON.stringify(cp, null, 2), 'utf8');
+      } catch { /* ignore */ }
+    },
     emitEvent: (type, payload) => {
       const p = (payload ?? {}) as { id?: string; label?: string; summary?: string; error?: string; violations?: string[]; status?: string; durationMs?: number };
       switch (type) {
@@ -128,6 +152,9 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
         case 'graph:node_skipped':
           process.stdout.write(`${stamp()} ${c.dim('↷ skipped ' + (p.label ?? ''))}\n`);
           break;
+        case 'graph:node_restored':
+          process.stdout.write(`${stamp()} ${c.accent('⟲')} restored ${p.label}${p.summary ? c.dim(' — ' + p.summary.split('\n')[0].slice(0, 60)) : ''}\n`);
+          break;
       }
     },
   });
@@ -141,5 +168,4 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
     (result.status === 'completed' ? c.green(`${glyph.check} graph completed`) : c.red(`${glyph.cross} graph ${result.status}`)) +
     c.dim(` · ${doneCount}/${spec.nodes.length} nodes · ${(result.durationMs / 1000).toFixed(1)}s\n`)
   );
-  void argv;
 }

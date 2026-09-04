@@ -102,6 +102,33 @@ export interface NodeResult {
 
 export type GraphRunStatus = 'completed' | 'failed' | 'cancelled';
 
+/**
+ * Durable snapshot of a graph run (Phase 5). Emitted after every node
+ * settles; feed it back as `resumeFrom` to continue a dead run — nodes that
+ * were 'done' are RESTORED (executor not re-run, output/evidence available to
+ * dependents), everything else re-runs, including failures (retrying them is
+ * the point of resuming). JSON-serializable as long as node outputs are —
+ * hosts persist it however they like (the graph module never touches disk).
+ */
+export interface GraphCheckpoint {
+  version: 1;
+  /** Structural identity of the spec (node ids + deps). Resume refuses a
+   *  checkpoint whose fingerprint doesn't match the current spec — resuming
+   *  a DIFFERENT graph silently would corrupt, loudly beats wrongly. */
+  specFingerprint: string;
+  nodes: Record<string, NodeResult>;
+}
+
+/** Canonical structural identity: sorted [id → sorted deps] pairs. Label,
+ *  contract, and envelope changes deliberately DON'T break resume — retrying
+ *  with a tightened contract or envelope is a legitimate fix-and-resume. */
+export function graphFingerprint(spec: GraphSpec): string {
+  const shape = [...spec.nodes]
+    .map((n) => [n.id, [...(n.dependsOn ?? [])].sort()] as const)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  return JSON.stringify(shape);
+}
+
 export interface GraphRunResult {
   status: GraphRunStatus;
   /** Terminal result per node id — every node in the spec appears. */
