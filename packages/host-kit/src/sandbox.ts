@@ -98,6 +98,53 @@ export class LocalSandboxExecutor implements SandboxExecutor {
   }
 }
 
+/**
+ * The microVM backend — a client for anton's exec API (ANTON_EXEC_CONTRACT).
+ * Each exec creates a fresh VM, runs the command, tears it down: one-command
+ * isolation, so nothing persists or leaks between calls. Built + tested here
+ * against the contract; it goes live the moment anton ships the endpoint (the
+ * anton side stages the command as the VM's run.sh, boots, returns output).
+ */
+export class AntonSandboxExecutor implements SandboxExecutor {
+  readonly kind = 'microvm' as const;
+  constructor(
+    private readonly opts: { baseUrl: string; token: string; fetchImpl?: typeof fetch }
+  ) {}
+
+  private get fetchImpl(): typeof fetch { return this.opts.fetchImpl ?? fetch; }
+  private headers(): Record<string, string> {
+    return { authorization: `Bearer ${this.opts.token}`, 'content-type': 'application/json' };
+  }
+
+  async exec(command: string, opts: SandboxExecOptions = {}): Promise<SandboxExecResult> {
+    const base = this.opts.baseUrl.replace(/\/$/, '');
+    // 1) create a fresh VM
+    const created = await this.fetchImpl(`${base}/sessions`, { method: 'POST', headers: this.headers() });
+    if (!created.ok) throw new Error(`sandbox create failed: HTTP ${created.status}`);
+    const { id } = (await created.json()) as { id: string };
+    try {
+      // 2) run the command in it
+      const res = await this.fetchImpl(`${base}/sessions/${encodeURIComponent(id)}/exec`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ command, cwd: opts.cwd, env: opts.env, timeoutMs: opts.timeoutMs }),
+      });
+      if (!res.ok) throw new Error(`sandbox exec failed: HTTP ${res.status}`);
+      const body = (await res.json()) as Partial<SandboxExecResult>;
+      return {
+        stdout: body.stdout ?? '',
+        stderr: body.stderr ?? '',
+        exitCode: typeof body.exitCode === 'number' ? body.exitCode : 1,
+        timedOut: body.timedOut,
+      };
+    } finally {
+      // 3) always tear the VM down (best-effort)
+      try { await this.fetchImpl(`${base}/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: this.headers() }); }
+      catch { /* reaper will collect it */ }
+    }
+  }
+}
+
 export interface SandboxConfig {
   /** 'local' (default) or 'microvm'. */
   mode?: 'local' | 'microvm';
@@ -119,8 +166,15 @@ export function createSandboxExecutor(
 ): SandboxExecutor {
   const mode = config.mode ?? 'local';
   if (mode === 'local') return localFactory();
-  throw new Error(
-    `sandbox mode "microvm" is not available yet: anton needs the exec endpoint (${ANTON_EXEC_CONTRACT}). ` +
-    `Falling back would run on the host without isolation, so this fails instead. Use mode "local" for now.`
-  );
+  // microvm: point at anton. Missing config throws rather than degrading to
+  // host execution — if you asked for isolation you get isolation or an error,
+  // never a silent host run. (When anton lacks the exec endpoint the client
+  // errors at exec time with a clear HTTP failure — also never a host run.)
+  if (!config.antonBaseUrl || !config.token) {
+    throw new Error(
+      `sandbox mode "microvm" requires antonBaseUrl + token (the anton node-agent exec API: ${ANTON_EXEC_CONTRACT}). ` +
+      `Refusing to fall back to host execution.`
+    );
+  }
+  return new AntonSandboxExecutor({ baseUrl: config.antonBaseUrl, token: config.token });
 }
