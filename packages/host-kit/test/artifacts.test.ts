@@ -70,6 +70,38 @@ describe('publishArtifact', () => {
     })).rejects.toThrow(/no URL was returned/);
   });
 
+  it('retries a transient 5xx and succeeds on a later attempt', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls < 3) return { ok: false, status: 500, json: async () => ({ message: 'Internal server error' }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ url: 'https://s3/api/artifact/k.html', key: 'k.html', size: 1 }) } as Response;
+    }) as unknown as typeof fetch;
+    const result = await publishArtifact({
+      s3ApiBaseUrl: 'https://s3', token: 'jwt', content: 'x', filename: 'a.html', fetchImpl, retryDelayMs: 0,
+    });
+    expect(result.url).toContain('/api/artifact/k.html');
+    expect(calls).toBe(3); // two 500s, then success
+  });
+
+  it('does NOT retry a 4xx (terminal client error)', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return { ok: false, status: 400, json: async () => ({ message: 'too big' }) } as Response; }) as unknown as typeof fetch;
+    await expect(publishArtifact({
+      s3ApiBaseUrl: 'https://s3', token: 'jwt', content: 'x', filename: 'a.html', fetchImpl, retryDelayMs: 0,
+    })).rejects.toThrow(/HTTP 400 — too big/);
+    expect(calls).toBe(1); // no retry on 4xx
+  });
+
+  it('gives up after maxAttempts on persistent 5xx', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return { ok: false, status: 500, json: async () => ({ message: 'boom' }) } as Response; }) as unknown as typeof fetch;
+    await expect(publishArtifact({
+      s3ApiBaseUrl: 'https://s3', token: 'jwt', content: 'x', filename: 'a.html', fetchImpl, retryDelayMs: 0, maxAttempts: 2,
+    })).rejects.toThrow(/HTTP 500 — boom/);
+    expect(calls).toBe(2);
+  });
+
   it('exchanges a bai_ key for a gateway JWT, then uploads with THAT JWT', async () => {
     // Two-leg fetch: AuthApi /keys/validate (returns gatewayToken), then S3Api /artifact.
     const calls: Array<{ url: string; auth?: string }> = [];
