@@ -50,6 +50,8 @@ export * from './tools';
 export * from './graph';
 // Next-prompt prediction (composer "what's next?" suggestions).
 export * from './suggestions';
+// Learning memory — distill durable repo lessons from turns (host stores them).
+export * from './lessons';
 
 // MCP — Model Context Protocol client (Phase 1: groundwork). See
 // docs/integration-playlist/mcp-roadmap.md. Off by default — hosts

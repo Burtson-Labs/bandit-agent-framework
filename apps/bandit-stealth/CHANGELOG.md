@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.408
+
+- **Learning memory (opt-in): Bandit gets better at your repo over time.** After each turn, it distills any durable, repo-specific fact — "this project uses pnpm", "tests for src/api live in test/api", "the build needs codegen first" — into `.bandit/lessons.md`, and reads those lessons back on future turns. Turn it on with `banditStealth.learnFromRuns` in the editor or `/lessons on` in the CLI; `/lessons` shows what it's learned, `/lessons clear` wipes it. The file is plain markdown you can review, edit, or commit. Off by default (one small extra model call per turn), and distillation is conservative — most turns learn nothing.
+
 ## 1.7.407
 
 - **Next-prompt suggestions (opt-in).** After a turn, Bandit can suggest your likely next prompts — clickable chips in the editor composer (click to fill, then edit or send), a dim `next?` hint line in the terminal. Turn it on with `banditStealth.suggestNextPrompt` in the editor or `/suggest on` in the CLI. It makes one small extra model call per turn using your active model, so it's off by default and fast local models feel best.

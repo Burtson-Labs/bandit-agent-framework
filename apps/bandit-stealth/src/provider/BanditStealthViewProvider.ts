@@ -44,7 +44,8 @@ import { buildBeforeToolExecute } from '../agent/beforeToolExecute';
 import { dispatchAgentEnvironmentMessage } from '../agent/agentEnvironmentBridge';
 import { runOcrFallback } from '../agent/ocrFallback';
 import { RemoteSession } from '@burtson-labs/host-kit';
-import { buildSuggestionsPrompt, parseSuggestions } from '@burtson-labs/agent-core';
+import { buildSuggestionsPrompt, parseSuggestions, buildLessonPrompt, parseLesson } from '@burtson-labs/agent-core';
+import { addLesson } from '@burtson-labs/host-kit';
 import { runLegacyDirectStream } from '../agent/legacyDirectStream';
 import { composeAgentSystemPrompt } from '../agent/agentSystemPrompt';
 import { buildFlushPendingEditDiffs } from '../agent/diffFlush';
@@ -979,6 +980,47 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     if (configuration.get<boolean>('suggestNextPrompt', false)) {
       void this.generateNextPromptSuggestions(configuration);
     }
+
+    // Learning memory (opt-in: banditStealth.learnFromRuns). Distill a durable
+    // repo lesson from this turn into .bandit/lessons.md; it's auto-injected on
+    // future turns. Fire-and-forget — future-facing, so it never blocks.
+    if (configuration.get<boolean>('learnFromRuns', false)) {
+      void this.distillLessonFromTurn(configuration, prompt);
+    }
+  }
+
+  /**
+   * Learning memory: distill a durable, repo-specific lesson from the turn
+   * just completed and store it in .bandit/lessons.md (read back on future
+   * turns via the memory bundle). Best-effort + deadline-bounded; most turns
+   * learn nothing. Shares agent-core's distiller with the CLI's `/lessons`.
+   */
+  private async distillLessonFromTurn(configuration: vscode.WorkspaceConfiguration, userPrompt: string): Promise<void> {
+    try {
+      const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!cwd) return;
+      const lastAssistant = [...this.conversation].reverse().find((e) => e.role === 'assistant');
+      if (!lastAssistant || lastAssistant.content.trim().length < 40) return;
+
+      const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
+      const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
+      const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+      const model = this.resolveChatModel(configuration, false);
+      const request = {
+        model,
+        messages: [{ role: 'user', content: buildLessonPrompt({ prompt: userPrompt, assistantResponse: lastAssistant.content }) }],
+        stream: true,
+        temperature: 0.2
+      };
+      let collected = '';
+      const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000));
+      const gather = (async () => {
+        for await (const chunk of provider.chat(request as never)) collected += chunk.message?.content ?? '';
+      })();
+      await Promise.race([gather, deadline]);
+      const lesson = parseLesson(collected);
+      if (lesson) addLesson(cwd, lesson);
+    } catch { /* learning is best-effort — never surface an error */ }
   }
 
   /**

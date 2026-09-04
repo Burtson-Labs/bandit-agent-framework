@@ -24,6 +24,8 @@ export {
   type MemoryWarnFn
 } from './memoryIndex';
 export { buildReadMemoryTool } from './tools/readMemoryTool';
+// Learning memory — the .bandit/lessons.md store (distiller is in agent-core).
+export { lessonsPath, loadLessons, addLesson, clearLessons, type AddLessonResult } from './lessons';
 // Remote control: the local-runner ↔ gateway transport + live-session driver.
 // Host-agnostic (only fetch + ReadableStream), so BOTH the CLI and the VS Code
 // extension import the SAME RemoteSession — one proven mechanism, not two copies.

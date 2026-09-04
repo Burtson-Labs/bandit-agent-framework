@@ -180,6 +180,9 @@ export interface SlashContext {
   /** Next-prompt suggestions after each turn. `/suggest` reads/sets it;
    *  default off (an extra small model call per turn). */
   suggest: { get(): boolean; set(next: boolean): void };
+  /** Learning memory — `/lessons on|off|view|clear`. Provided by the REPL
+   *  (owns the flag + the .bandit/lessons.md store). Returns markdown. */
+  lessons?: (arg: string) => Promise<string>;
   /** Reasoning-display mode ('full' | 'compact' | 'off'). `/reasoning` reads and
    *  sets it; the setter persists to config. Separate from thinkingMode, which
    *  controls whether the model thinks — this controls only how much is shown. */
@@ -2504,6 +2507,14 @@ export const slashCommands: SlashCommand[] = [
         return c.green('✓ next-prompt suggestions OFF');
       }
       return c.red(`Unknown argument "${arg}". Use: /suggest on, /suggest off.`);
+    }
+  },
+  {
+    name: 'lessons',
+    description: 'Learning memory: durable repo lessons Bandit distills from runs (/lessons, /lessons on, /lessons off, /lessons clear)',
+    async run(args, ctx) {
+      if (!ctx.lessons) { return c.dim('(learning memory is only available in the interactive REPL)'); }
+      return ctx.lessons(args.trim());
     }
   },
   {

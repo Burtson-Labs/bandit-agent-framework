@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.407",
+  "version": "1.7.408",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -410,6 +410,11 @@
             "type": "boolean",
             "default": false,
             "description": "After each turn, suggest your likely next prompts as clickable chips in the composer. Makes one small extra model call per turn using your active model, so it's off by default; fast local models feel best."
+          },
+          "banditStealth.learnFromRuns": {
+            "type": "boolean",
+            "default": false,
+            "description": "Learning memory: after each turn, Bandit distills any durable, repo-specific lesson (e.g. 'this project uses pnpm', 'tests for src/api live in test/api') into .bandit/lessons.md and reads it back on future turns. One small extra model call per turn; off by default. The file is plain markdown — review, edit, or delete it any time."
           },
           "banditStealth.voice.stt.provider": {
             "type": "string",
