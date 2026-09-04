@@ -23,7 +23,7 @@ import {
   type RemoteTask,
   type RunnerEvent,
   type RunnerGateway
-} from './contract';
+} from '@burtson-labs/host-kit';
 
 const RUNNER_VERSION = '1.0.0';
 

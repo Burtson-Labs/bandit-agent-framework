@@ -4456,7 +4456,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // the cloud and receives remote turns (from the web/phone) into lineQueue.
   // `remoteTurnQueue` (FIFO of the prompts injected remotely) lets the mirror
   // skip re-echoing a remote user message the gateway already surfaced.
-  let remoteSession: import('./runner/remoteSession').RemoteSession | null = null;
+  let remoteSession: import('@burtson-labs/host-kit').RemoteSession | null = null;
   const remoteTurnQueue: string[] = [];
   // Experimental graph-routing nudge: shown at most once per session.
   let graphNudgeShown = false;
@@ -4517,7 +4517,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const host = os.hostname() || 'device';
       const rawMode = modeOverride.current ?? resolvedMode.mode;
       const mode = (rawMode === 'auto' || rawMode === 'plan' ? rawMode : 'plan') as 'plan' | 'auto';
-      const { RemoteSession } = await import('./runner/remoteSession');
+      const { RemoteSession } = await import('@burtson-labs/host-kit');
       const session = new RemoteSession({
         gatewayBase, token, deviceId: `cli-${host}`, deviceLabel: host, webBase: remoteWebBase,
         title: conversationTabTitle(), mode,

@@ -43,6 +43,7 @@ import { buildChatFn } from '../agent/chatFn';
 import { buildBeforeToolExecute } from '../agent/beforeToolExecute';
 import { dispatchAgentEnvironmentMessage } from '../agent/agentEnvironmentBridge';
 import { runOcrFallback } from '../agent/ocrFallback';
+import { RemoteSession } from '@burtson-labs/host-kit';
 import { runLegacyDirectStream } from '../agent/legacyDirectStream';
 import { composeAgentSystemPrompt } from '../agent/agentSystemPrompt';
 import { buildFlushPendingEditDiffs } from '../agent/diffFlush';
@@ -191,6 +192,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
    *  effect without a reload. Turns are serial per provider, so one instance is
    *  safe. Tagged service.name=bandit-extension to separate IDE from CLI. */
   private telemetry: TelemetryExporter | null = null;
+  // Live-session remote control (/remote). When active, turns mirror to the
+  // gateway session stream and remote-sent prompts run in THIS conversation.
+  private remoteSession: RemoteSession | null = null;
+  // Set just before injecting a web-originated turn, so handlePrompt knows not
+  // to re-mirror the user message the web already displayed.
+  private remoteOriginPrompt: string | null = null;
   private statusText = 'Ready';
   private ollamaStatus: 'ready' | 'offline' | 'no-model' | 'unknown' = 'unknown';
   private ollamaModelMissing: string | undefined;
@@ -820,6 +827,14 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       return;
     }
 
+    // Remote-control mirror: echo the user's prompt to the live session UNLESS
+    // this turn came FROM the web (the web surface already shows it).
+    const isRemoteOriginTurn = this.remoteOriginPrompt === prompt;
+    this.remoteOriginPrompt = null;
+    if (this.remoteSession?.active && !isRemoteOriginTurn) {
+      void this.remoteSession.mirrorUser(prompt);
+    }
+
     const configuration = vscode.workspace.getConfiguration('banditStealth');
     const providerKind = this.getProviderKind(configuration);
     const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
@@ -948,6 +963,15 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     // Single execution path: always use the tool-use loop.
     // The model decides whether to use tools (for code tasks) or just answer (for questions).
     await this.performCompletion(apiKey ?? '', configuration);
+
+    // Mirror the assistant's final response out to the live session so remote
+    // viewers see the answer (tool anatomy is mirrored live via emitEvent).
+    if (this.remoteSession?.active) {
+      const lastAssistant = [...this.conversation].reverse().find((e) => e.role === 'assistant');
+      if (lastAssistant?.content?.trim()) {
+        void this.remoteSession.mirrorAssistant(lastAssistant.content);
+      }
+    }
   }
 
   private async handleContextFileRequest(): Promise<void> {
@@ -1790,6 +1814,74 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
    * emit a "use the CLI" pointer so the model never sees the slash
    * input and small models can't hallucinate a refusal.
    */
+  /**
+   * `/remote on|off|status` — live-session remote control. Registers this
+   * session with the gateway so it can be watched and driven from Bandit
+   * Stealth Web (the "continue on your phone" surface). Uses the SAME
+   * RemoteSession the CLI does (shared in host-kit). Remote-sent turns run in
+   * this conversation via handlePrompt; turns mirror out via the hooks in
+   * handlePrompt + emitEvent. Returns a markdown status string for the panel.
+   */
+  private async handleRemoteCommand(sub: string): Promise<string> {
+    const action = sub.trim().toLowerCase();
+
+    if (action === 'off') {
+      if (!this.remoteSession) return 'Remote control is not active.';
+      this.remoteSession.stop();
+      this.remoteSession = null;
+      return 'Remote control stopped. This session is no longer reachable from the web.';
+    }
+
+    if (action === '' || action === 'status' || action === 'help') {
+      if (this.remoteSession?.active) {
+        return `**Remote control is active.** Continue this session on your phone or the web:\n\n${this.remoteSession.continueUrl}\n\nRemote turns run in **plan mode** (read-only) by default. \`/remote off\` to stop.`;
+      }
+      return 'Live-session remote control lets you continue this conversation from Bandit Stealth Web — watch it live and send turns that run here, in this workspace.\n\n`/remote on` to start (requires Bandit cloud sign-in). `/remote off` to stop.';
+    }
+
+    if (action !== 'on') {
+      return `Unknown: \`/remote ${action}\`. Use \`/remote on | off | status\`.`;
+    }
+
+    if (this.remoteSession?.active) {
+      return `Already active — continue at ${this.remoteSession.continueUrl}`;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('banditStealth');
+    const token = await this.context.secrets.get(API_KEY_SECRET_KEY);
+    if (!token?.trim()) {
+      return 'Remote control needs a Bandit cloud sign-in — no API key found. Add your key in the Account tab, then `/remote on`.';
+    }
+    const apiUrl = configuration.get<string>('apiUrl', 'https://api.burtson.ai/completions');
+    let gatewayBase: string;
+    try { gatewayBase = new URL(apiUrl).origin; } catch { gatewayBase = 'https://api.burtson.ai'; }
+    const webBase = configuration.get<string>('remoteWebUrl', 'https://stealth.banditailabs.com');
+    const folder = vscode.workspace.workspaceFolders?.[0]?.name ?? 'Bandit session';
+
+    const session = new RemoteSession({
+      gatewayBase,
+      token,
+      deviceId: vscode.env.machineId,
+      deviceLabel: `Bandit Stealth (VS Code) — ${folder}`,
+      webBase,
+      title: folder,
+      mode: 'plan',
+      onRemoteTurn: (prompt) => {
+        // A turn arrived from the web — run it in THIS conversation as if the
+        // user typed it. Tag it so handlePrompt doesn't re-mirror the prompt.
+        this.remoteOriginPrompt = prompt;
+        void this.handlePrompt(prompt, undefined, 'agent');
+      }
+    });
+    try {
+      const url = await session.start();
+      this.remoteSession = session;
+      return `**Remote control is active.** Continue this session on your phone or the web:\n\n${url}\n\nRemote turns run in **plan mode** (read-only) by default. \`/remote off\` to stop.`;
+    } catch (err) {
+      return `Couldn't start remote control: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   private async handleSlashCommand(
     raw: string,
     configuration: vscode.WorkspaceConfiguration
@@ -1801,7 +1893,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       clearCurrentConversation: () => handleClearConversation(this, this.convMessageDeps),
       getProviderKind: (cfg) => this.getProviderKind(cfg),
       resolveOllamaBaseModel: (cfg) => this.resolveOllamaBaseModel(cfg),
-      hasBanditApiKey: async () => Boolean((await this.context.secrets.get(API_KEY_SECRET_KEY))?.trim())
+      hasBanditApiKey: async () => Boolean((await this.context.secrets.get(API_KEY_SECRET_KEY))?.trim()),
+      remote: (arg) => this.handleRemoteCommand(arg)
     });
   }
 
@@ -2206,6 +2299,19 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         emitEvent: (type, payload) => {
           // Telemetry tap (sync, no-op when disabled) — observes only.
           this.telemetry?.onEvent(type, payload);
+          // Remote-control mirror (observe-only, fire-and-forget so it never
+          // awaits inside this sync callback). Streams the turn's tool anatomy
+          // to the live session; the final assistant text is mirrored after
+          // the turn completes (see handlePrompt).
+          if (this.remoteSession?.active) {
+            if (type === 'tool_loop:tool_execute') {
+              const p = payload as { name?: string; params?: Record<string, string> };
+              if (p?.name) void this.remoteSession.mirrorEvent({ type: 'tool.call', tool: p.name, params: p.params ?? {} });
+            } else if (type === 'tool_loop:tool_result') {
+              const p = payload as { name?: string; isError?: boolean; outputSnippet?: string };
+              if (p?.name) void this.remoteSession.mirrorEvent({ type: 'tool.result', tool: p.name, ok: !p.isError, summary: p.outputSnippet ?? '' });
+            }
+          }
           // CRITICAL: this MUST be a sync callback (no awaits between
           // family dispatches). agent-core invokes emit() back-to-back
           // synchronously — `emit('tool_calls'); emit('tool_execute');`
