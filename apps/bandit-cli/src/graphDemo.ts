@@ -40,6 +40,30 @@ import { buildCliChatFn } from './agent/cliChatFn';
  *  permission prompts and zero side effects. */
 const READ_ONLY_TOOLS = ['read_file', 'list_files', 'ls', 'search_code', 'find_directory'];
 
+/** The demo's spec — exported so `/graph` (status/inspect/why/retry) can
+ *  rebuild the SAME structure and match it against the persisted checkpoint's
+ *  fingerprint. Keep node ids/deps stable: changing them orphans checkpoints. */
+export function demoGraphSpec(): GraphSpec {
+  return {
+    nodes: [
+      { id: 'scan-structure', label: 'scan structure', envelope: { allowTools: READ_ONLY_TOOLS } },
+      { id: 'scan-docs', label: 'scan docs', envelope: { allowTools: READ_ONLY_TOOLS } },
+      {
+        id: 'synthesize',
+        label: 'synthesize brief',
+        dependsOn: ['scan-structure', 'scan-docs'],
+        envelope: { allowTools: READ_ONLY_TOOLS },
+        contract: { outputNonEmpty: true },
+      },
+    ],
+  };
+}
+
+/** Where the demo persists its checkpoint for a given workspace. */
+export function demoCheckpointPath(cwd: string): string {
+  return path.join(cwd, '.bandit', 'graph-demo-checkpoint.json');
+}
+
 export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
   if (!/^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
     process.stdout.write(
@@ -71,27 +95,7 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
   const node = (prompt: string): NodeExecutor =>
     wrapLoopAsNode({ registry, ctx, chatFactory, loopOptions }, defaultNodePrompt(prompt));
 
-  const spec: GraphSpec = {
-    nodes: [
-      {
-        id: 'scan-structure',
-        label: 'scan structure',
-        envelope: { allowTools: READ_ONLY_TOOLS },
-      },
-      {
-        id: 'scan-docs',
-        label: 'scan docs',
-        envelope: { allowTools: READ_ONLY_TOOLS },
-      },
-      {
-        id: 'synthesize',
-        label: 'synthesize brief',
-        dependsOn: ['scan-structure', 'scan-docs'],
-        envelope: { allowTools: READ_ONLY_TOOLS },
-        contract: { outputNonEmpty: true },
-      },
-    ],
-  };
+  const spec: GraphSpec = demoGraphSpec();
   const executors: Record<string, NodeExecutor> = {
     'scan-structure': node(
       'List the top-level files and directories of this project (use list_files/ls) and say in 2-3 lines what kind of project this looks like. Do not modify anything.'
@@ -107,7 +111,7 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
   // Durability (Phase 5): every settle snapshots to .bandit; `--resume`
   // restores finished nodes and runs only the remainder. Kill the demo
   // mid-run (Ctrl+C) and resume it to see restored nodes come back instantly.
-  const checkpointPath = path.join(cwd, '.bandit', 'graph-demo-checkpoint.json');
+  const checkpointPath = demoCheckpointPath(cwd);
   let resumeFrom: GraphCheckpoint | undefined;
   if (argv.includes('--resume')) {
     try {
