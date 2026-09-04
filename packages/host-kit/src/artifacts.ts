@@ -35,6 +35,10 @@ export interface PublishArtifactOptions {
   contentType?: string;
   /** AuthApi base for the `bai_`→JWT exchange; defaults to auth.burtson.ai. */
   authBaseUrl?: string;
+  /** Total upload attempts before giving up on a transient 5xx. Default 3. */
+  maxAttempts?: number;
+  /** Base backoff between retries (ms), multiplied by attempt#. Default 300. */
+  retryDelayMs?: number;
   /** Injectable for tests / non-global-fetch runtimes. */
   fetchImpl?: typeof fetch;
 }
@@ -115,24 +119,55 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   // S3Api validates a gateway JWT, not the `bai_` device key — trade up first.
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
 
-  const form = new FormData();
-  // Field name must match S3Api's UploadRequest.File. Don't set a
-  // Content-Type header ourselves — fetch derives the multipart boundary.
-  // Cast: Uint8Array is a valid BlobPart at runtime; the cast only sidesteps
-  // TS 5.7's ArrayBufferLike/SharedArrayBuffer generic strictness.
-  form.append('File', new Blob([bytes as unknown as BlobPart], { type: contentType }), opts.filename);
+  // The S3Api→MinIO leg intermittently 500s with a SigV4 "signature does not
+  // match" (chunked-payload signing over distributed MinIO with a non-seekable
+  // stream). A fresh POST almost always succeeds, so retry 5xx + network errors
+  // with a short backoff. 4xx (auth, too-large) are terminal — retrying can't
+  // fix them, so surface those immediately.
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
+  const backoffMs = opts.retryDelayMs ?? 300;
+  let lastError: Error = new Error('artifact upload failed');
 
-  const res = await fetchImpl(`${base}/api/artifact`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${bearer}` },
-    body: form,
-  });
-  if (!res.ok) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // Rebuild the multipart body each attempt — a consumed stream/body can't be
+    // replayed. Field name must match S3Api's UploadRequest.File. Don't set a
+    // Content-Type header ourselves — fetch derives the multipart boundary.
+    // Cast: Uint8Array is a valid BlobPart at runtime; the cast only sidesteps
+    // TS 5.7's ArrayBufferLike/SharedArrayBuffer generic strictness.
+    const form = new FormData();
+    form.append('File', new Blob([bytes as unknown as BlobPart], { type: contentType }), opts.filename);
+
+    let res: Response;
+    try {
+      res = await fetchImpl(`${base}/api/artifact`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bearer}` },
+        body: form,
+      });
+    } catch (err) {
+      // Network-level failure — transient, worth a retry.
+      lastError = new Error(`artifact upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (attempt < maxAttempts) { await sleep(backoffMs * attempt); continue; }
+      throw lastError;
+    }
+
+    if (res.ok) {
+      const body = (await res.json()) as Partial<PublishedArtifact>;
+      if (!body.url) throw new Error('artifact upload succeeded but no URL was returned');
+      return { url: body.url, key: body.key ?? '', size: body.size ?? bytes.byteLength };
+    }
+
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    throw new Error(`artifact upload failed: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    lastError = new Error(`artifact upload failed: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    // Only 5xx is retryable; 4xx is a terminal client error.
+    if (res.status >= 500 && attempt < maxAttempts) { await sleep(backoffMs * attempt); continue; }
+    throw lastError;
   }
-  const body = (await res.json()) as Partial<PublishedArtifact>;
-  if (!body.url) throw new Error('artifact upload succeeded but no URL was returned');
-  return { url: body.url, key: body.key ?? '', size: body.size ?? bytes.byteLength };
+  throw lastError;
+}
+
+/** Injectable-free small delay; skipped when the backoff is 0 (tests). */
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
