@@ -5,7 +5,7 @@
  * the host — silent degrade would defeat the entire safety purpose.
  */
 import { describe, it, expect } from 'vitest';
-import { LocalSandboxExecutor, createSandboxExecutor, ANTON_EXEC_CONTRACT } from '../src/sandbox';
+import { LocalSandboxExecutor, AntonSandboxExecutor, createSandboxExecutor, ANTON_EXEC_CONTRACT } from '../src/sandbox';
 
 describe('LocalSandboxExecutor', () => {
   it('runs a command and captures stdout + exit code', async () => {
@@ -37,12 +37,56 @@ describe('createSandboxExecutor', () => {
     expect(createSandboxExecutor({ mode: 'local' }).kind).toBe('local');
   });
 
-  it('FAILS LOUDLY on microvm until anton exec exists (never silently local)', () => {
-    expect(() => createSandboxExecutor({ mode: 'microvm', antonBaseUrl: 'http://anton' }))
-      .toThrow(/not available yet|anton needs the exec endpoint/);
+  it('microvm WITHOUT anton config throws — never silently runs on the host', () => {
+    expect(() => createSandboxExecutor({ mode: 'microvm' }))
+      .toThrow(/requires antonBaseUrl \+ token|Refusing to fall back/);
+  });
+
+  it('microvm WITH config returns the anton client (isolation or a loud error, never host)', () => {
+    const ex = createSandboxExecutor({ mode: 'microvm', antonBaseUrl: 'http://anton', token: 't' });
+    expect(ex.kind).toBe('microvm');
+    expect(ex).toBeInstanceOf(AntonSandboxExecutor);
   });
 
   it('documents the anton contract so the two-repo work has one source of truth', () => {
     expect(ANTON_EXEC_CONTRACT).toMatch(/sessions\/\{id\}\/exec/);
+  });
+});
+
+describe('AntonSandboxExecutor (contract client)', () => {
+  it('creates a VM, execs, and always tears the VM down', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/sessions') && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ id: 'vm-1' }) } as Response;
+      }
+      if (url.endsWith('/sessions/vm-1/exec')) {
+        return { ok: true, json: async () => ({ stdout: 'ok', stderr: '', exitCode: 0 }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response; // DELETE
+    }) as unknown as typeof fetch;
+
+    const ex = new AntonSandboxExecutor({ baseUrl: 'http://anton', token: 't', fetchImpl });
+    const r = await ex.exec('echo ok', { cwd: '/work' });
+    expect(r).toMatchObject({ stdout: 'ok', exitCode: 0 });
+    expect(calls).toEqual([
+      'POST http://anton/sessions',
+      'POST http://anton/sessions/vm-1/exec',
+      'DELETE http://anton/sessions/vm-1',
+    ]);
+  });
+
+  it('tears the VM down even when exec fails', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/sessions') && init?.method === 'POST') return { ok: true, json: async () => ({ id: 'vm-2' }) } as Response;
+      if (url.endsWith('/exec')) return { ok: false, status: 500 } as Response;
+      return { ok: true, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+    const ex = new AntonSandboxExecutor({ baseUrl: 'http://anton', token: 't', fetchImpl });
+    await expect(ex.exec('boom')).rejects.toThrow(/exec failed/);
+    expect(calls).toContain('DELETE http://anton/sessions/vm-2'); // still torn down
   });
 });

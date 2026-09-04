@@ -30,6 +30,7 @@ export { lessonsPath, loadLessons, addLesson, clearLessons, type AddLessonResult
 // today; Firecracker microVM via anton once its exec endpoint lands).
 export {
   LocalSandboxExecutor,
+  AntonSandboxExecutor,
   createSandboxExecutor,
   ANTON_EXEC_CONTRACT,
   type SandboxExecutor,
