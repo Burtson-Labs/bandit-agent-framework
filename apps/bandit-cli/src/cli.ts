@@ -4869,7 +4869,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           // Experimental routing nudge (BANDIT_GRAPH=1): if the prompt looks
           // decomposable, mention `graph plan` ONCE per session. Zero model
           // calls — a pure lexical heuristic — and never for web-driven turns.
-          if (!graphNudgeShown && !isRemoteTurn && /^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
+          if (!graphNudgeShown && !isRemoteTurn && !/^(0|false)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
             const { classifyGraphShaped } = await import('@burtson-labs/agent-core');
             if (classifyGraphShaped(line).suggestsGraph) {
               graphNudgeShown = true;

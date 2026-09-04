@@ -95,13 +95,10 @@ export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeH
   return { deps, model };
 }
 
-export function graphFlagGate(command: string): boolean {
-  if (/^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) return true;
-  process.stdout.write(
-    c.yellow(`  ${glyph.warn} The graph runtime is experimental and ships behind a flag.\n`) +
-    c.dim(`     Run it with: ${c.cyan(`BANDIT_GRAPH=1 bandit ${command}`)}\n`)
-  );
-  return false;
+export function graphFlagGate(_usage: string): boolean {
+  // Graph execution is ON by default (2026-09-04 'make everything use
+  // graph' decision). BANDIT_GRAPH=0 is the kill switch.
+  return !/^(0|false)$/i.test(process.env.BANDIT_GRAPH ?? '');
 }
 
 export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
