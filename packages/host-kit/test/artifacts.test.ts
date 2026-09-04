@@ -5,7 +5,7 @@
  * failure — user-initiated sharing shouldn't fail silently.
  */
 import { describe, it, expect } from 'vitest';
-import { publishArtifact, guessContentType } from '../src/artifacts';
+import { publishArtifact, guessContentType, resolveGatewayToken } from '../src/artifacts';
 
 describe('guessContentType', () => {
   it('maps common artifact extensions', () => {
@@ -68,5 +68,56 @@ describe('publishArtifact', () => {
     await expect(publishArtifact({
       s3ApiBaseUrl: 'https://s3.burtson.ai', token: 't', content: 'x', filename: 'a.txt', fetchImpl,
     })).rejects.toThrow(/no URL was returned/);
+  });
+
+  it('exchanges a bai_ key for a gateway JWT, then uploads with THAT JWT', async () => {
+    // Two-leg fetch: AuthApi /keys/validate (returns gatewayToken), then S3Api /artifact.
+    const calls: Array<{ url: string; auth?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { headers?: Record<string, string> }) => {
+      calls.push({ url, auth: (init?.headers as Record<string, string>)?.authorization });
+      if (url.endsWith('/api/keys/validate')) {
+        return { ok: true, status: 200, json: async () => ({ valid: true, gatewayToken: 'gw-jwt-xyz' }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({ url: 'https://s3.burtson.ai/api/artifact/team-1/a.md', key: 'team-1/a.md', size: 3 }) } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await publishArtifact({
+      s3ApiBaseUrl: 'https://s3.burtson.ai',
+      authBaseUrl: 'https://auth.burtson.ai',
+      token: 'bai_secretkey',
+      content: 'hey',
+      filename: 'a.md',
+      fetchImpl,
+    });
+    expect(result.url).toContain('/api/artifact/team-1/a.md');
+    expect(calls[0].url).toBe('https://auth.burtson.ai/api/keys/validate');
+    // The S3Api call carries the exchanged JWT, never the raw bai_ key.
+    expect(calls[1].url).toBe('https://s3.burtson.ai/api/artifact');
+    expect(calls[1].auth).toBe('Bearer gw-jwt-xyz');
+  });
+});
+
+describe('resolveGatewayToken', () => {
+  it('passes a non-bai_ token (already a JWT) straight through, no network call', async () => {
+    let called = false;
+    const fetchImpl = (async () => { called = true; return {} as Response; }) as unknown as typeof fetch;
+    const out = await resolveGatewayToken('eyJ.header.sig', { fetchImpl });
+    expect(out).toBe('eyJ.header.sig');
+    expect(called).toBe(false);
+  });
+
+  it('exchanges a bai_ key via /api/keys/validate', async () => {
+    const fetchImpl = (async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => ({ valid: true, gatewayToken: 'gw-123' }),
+    } as Response)) as unknown as typeof fetch;
+    expect(await resolveGatewayToken('bai_abc', { authBaseUrl: 'https://auth.burtson.ai/', fetchImpl })).toBe('gw-123');
+  });
+
+  it('throws a clear error when the key is rejected', async () => {
+    const fetchImpl = (async () => ({
+      ok: true, status: 200, json: async () => ({ valid: false, reason: 'revoked' }),
+    } as Response)) as unknown as typeof fetch;
+    await expect(resolveGatewayToken('bai_dead', { fetchImpl })).rejects.toThrow(/rejected.*revoked/);
   });
 });

@@ -863,7 +863,8 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   // Registered only when a cloud token exists, so local-only runs stay offline.
   if (opts.settings.apiKey) {
     const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
-    registry.register(buildPublishArtifactTool({ token: opts.settings.apiKey, s3ApiBaseUrl: s3Base }));
+    const authBase = process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
+    registry.register(buildPublishArtifactTool({ token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase }));
   }
 
   // MCP tools — enumerated lazily on first turn after a server is
@@ -4547,9 +4548,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     try { bytes = await fs.promises.readFile(abs); } catch { return c.red(`can't read ${target}`); }
     const filename = path.basename(abs);
     const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+    const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
     try {
       const artifact = await publishArtifact({
-        s3ApiBaseUrl: s3Base, token: resolved.apiKey, content: new Uint8Array(bytes),
+        s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token: resolved.apiKey, content: new Uint8Array(bytes),
         filename, contentType: guessContentType(filename),
       });
       return c.green(`${glyph.check} published ${filename} — shareable link:\n`) + '  ' + c.cyan(artifact.url);

@@ -27,7 +27,14 @@ export { buildReadMemoryTool } from './tools/readMemoryTool';
 // Learning memory — the .bandit/lessons.md store (distiller is in agent-core).
 export { lessonsPath, loadLessons, addLesson, clearLessons, type AddLessonResult } from './lessons';
 // Bandit Artifacts (cloud) — publish a shareable artifact to S3Api, get a URL.
-export { publishArtifact, guessContentType, type PublishArtifactOptions, type PublishedArtifact } from './artifacts';
+export {
+  publishArtifact,
+  resolveGatewayToken,
+  guessContentType,
+  DEFAULT_AUTH_BASE_URL,
+  type PublishArtifactOptions,
+  type PublishedArtifact
+} from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 // Sandbox execution seam — swappable boundary for running commands (local host
 // today; Firecracker microVM via anton once its exec endpoint lands).
