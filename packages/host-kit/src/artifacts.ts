@@ -2,21 +2,30 @@
  * Bandit Artifacts (cloud) — publish a shareable artifact to S3Api and get back
  * a URL anyone with the link can open.
  *
- * Cloud users' Burtson JWT authenticates to every Burtson API (confirmed), so
- * this talks to S3Api directly — no gateway proxy, no service credential. The
- * upload is per-user scoped and quota-bounded server-side (see S3Api's
- * ArtifactController); this client just posts the bytes with the caller's token
- * and returns the shareable URL S3Api mints.
+ * Auth: S3Api (like every [BurtsonAuthorize] service) validates a gateway JWT,
+ * NOT the opaque `bai_` device key the CLI/extension hold. So a host with a
+ * `bai_` key must first exchange it for a short-lived gateway token via AuthApi
+ * — exactly what BLFlow's GatewayTokenResolver does for the same S3Api calls.
+ * publishArtifact does that exchange automatically (see resolveGatewayToken); a
+ * caller that already has a gateway JWT (a signed-in web/extension session)
+ * passes it straight through. The upload is per-user/team scoped and
+ * quota-bounded server-side (see S3Api's ArtifactController).
  *
  * Host-agnostic (fetch + FormData/Blob, standard in the Node the CLI and
  * extension run on), so both hosts share one implementation. Local-only users
  * never call this — it requires a cloud token, keeping the offline path offline.
  */
 
+/** AuthApi base URL used for the `bai_` → gateway-JWT exchange. */
+export const DEFAULT_AUTH_BASE_URL = 'https://auth.burtson.ai';
+
 export interface PublishArtifactOptions {
   /** S3Api base URL, e.g. https://s3.burtson.ai (no trailing slash needed). */
   s3ApiBaseUrl: string;
-  /** The user's Bandit cloud token (same JWT used for every Burtson API). */
+  /**
+   * The user's Bandit cloud credential — either a `bai_` device key (exchanged
+   * for a gateway JWT automatically) or an already-minted gateway JWT.
+   */
   token: string;
   /** Artifact bytes (a report, a file) or text. */
   content: Uint8Array | string;
@@ -24,6 +33,8 @@ export interface PublishArtifactOptions {
   filename: string;
   /** MIME type; defaults by extension, else application/octet-stream. */
   contentType?: string;
+  /** AuthApi base for the `bai_`→JWT exchange; defaults to auth.burtson.ai. */
+  authBaseUrl?: string;
   /** Injectable for tests / non-global-fetch runtimes. */
   fetchImpl?: typeof fetch;
 }
@@ -54,6 +65,42 @@ export function guessContentType(filename: string): string {
 }
 
 /**
+ * Exchange a Bandit `bai_` device key for a short-lived gateway JWT, so a host
+ * holding only the opaque device key can call a [BurtsonAuthorize] service that
+ * validates JWTs (S3Api, Ollama, …). POSTs the key to AuthApi `/api/keys/validate`
+ * and returns `gatewayToken`. A token that is not a `bai_` key (i.e. already a
+ * gateway JWT) passes straight through untouched — no network call.
+ *
+ * Mirrors BLFlow's GatewayTokenResolver; kept here so both the CLI and the VS
+ * Code extension share one exchange path.
+ */
+export async function resolveGatewayToken(
+  token: string,
+  opts: { authBaseUrl?: string; fetchImpl?: typeof fetch } = {}
+): Promise<string> {
+  if (!token.startsWith('bai_')) return token; // already a gateway JWT
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = (opts.authBaseUrl ?? DEFAULT_AUTH_BASE_URL).replace(/\/$/, '');
+
+  let res: Response;
+  try {
+    res = await fetchImpl(`${base}/api/keys/validate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: token }),
+    });
+  } catch (err) {
+    throw new Error(`could not reach the auth service to sign in: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!res.ok) throw new Error(`token exchange failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { valid?: boolean; gatewayToken?: string; reason?: string };
+  if (!body.valid || !body.gatewayToken) {
+    throw new Error(`your API key was rejected${body.reason ? ` (${body.reason})` : ''} — sign in again with \`bandit login\``);
+  }
+  return body.gatewayToken;
+}
+
+/**
  * Upload an artifact and return its shareable URL. Throws on a non-2xx (with
  * the status + server message) so callers can surface a clear failure — this
  * is user-initiated ("share this"), so silent failure would be worse than an
@@ -65,6 +112,9 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   const contentType = opts.contentType ?? guessContentType(opts.filename);
   const bytes = typeof opts.content === 'string' ? new TextEncoder().encode(opts.content) : opts.content;
 
+  // S3Api validates a gateway JWT, not the `bai_` device key — trade up first.
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+
   const form = new FormData();
   // Field name must match S3Api's UploadRequest.File. Don't set a
   // Content-Type header ourselves — fetch derives the multipart boundary.
@@ -74,7 +124,7 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
 
   const res = await fetchImpl(`${base}/api/artifact`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${opts.token}` },
+    headers: { authorization: `Bearer ${bearer}` },
     body: form,
   });
   if (!res.ok) {

@@ -1,8 +1,9 @@
 /**
  * `bandit artifact <path>` — publish a local file as a shareable Bandit
- * Artifact and print the URL. Cloud-only (needs a Bandit cloud token, the same
- * JWT that authenticates every Burtson API); local-only users get a clear
- * message instead of a broken call, keeping the offline path offline.
+ * Artifact and print the URL. Cloud-only (needs a Bandit `bai_` cloud key,
+ * which publishArtifact exchanges for a gateway JWT before calling S3Api);
+ * local-only users get a clear message instead of a broken call, keeping the
+ * offline path offline.
  *
  * Thin wrapper over host-kit's publishArtifact (which posts straight to S3Api).
  */
@@ -15,6 +16,11 @@ import { loadConfigFiles, resolveConfig } from './config';
 /** S3Api base — config `s3.baseUrl`, else BANDIT_S3_URL, else the prod host. */
 function resolveS3ApiBaseUrl(fileConfig: { s3?: { baseUrl?: string } }): string {
   return (fileConfig.s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai').replace(/\/$/, '');
+}
+
+/** AuthApi base (for the bai_→JWT exchange) — config `auth.baseUrl`, else env, else prod. */
+function resolveAuthBaseUrl(fileConfig: { auth?: { baseUrl?: string } }): string {
+  return (fileConfig.auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai').replace(/\/$/, '');
 }
 
 export async function runArtifactCommand(argv: string[], cwd: string): Promise<void> {
@@ -48,6 +54,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   try {
     const artifact = await publishArtifact({
       s3ApiBaseUrl: resolveS3ApiBaseUrl(fileConfig as { s3?: { baseUrl?: string } }),
+      authBaseUrl: resolveAuthBaseUrl(fileConfig as { auth?: { baseUrl?: string } }),
       token: resolved.apiKey,
       content: new Uint8Array(bytes),
       filename,

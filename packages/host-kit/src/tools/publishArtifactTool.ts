@@ -12,7 +12,7 @@ import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
 import { publishArtifact, guessContentType } from '../artifacts';
 
-export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: string }): AgentTool {
+export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: string; authBaseUrl?: string }): AgentTool {
   return {
     name: 'publish_artifact',
     description:
@@ -41,6 +41,7 @@ export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: st
       try {
         const artifact = await publishArtifact({
           s3ApiBaseUrl: opts.s3ApiBaseUrl,
+          authBaseUrl: opts.authBaseUrl,
           token: opts.token,
           content: new Uint8Array(bytes),
           filename: path.basename(abs),
