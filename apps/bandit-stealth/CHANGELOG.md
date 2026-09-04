@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.407
+
+- **Next-prompt suggestions (opt-in).** After a turn, Bandit can suggest your likely next prompts — clickable chips in the editor composer (click to fill, then edit or send), a dim `next?` hint line in the terminal. Turn it on with `banditStealth.suggestNextPrompt` in the editor or `/suggest on` in the CLI. It makes one small extra model call per turn using your active model, so it's off by default and fast local models feel best.
+
 ## 1.7.406
 
 - **Remote control now works in the editor too.** `/remote on` in the chat composer registers your VS Code session with Bandit cloud, so you can continue it from Bandit Stealth Web — watch the conversation live and send turns that run right here in your workspace (plan mode / read-only by default). `/remote off` stops it, `/remote status` shows the link. Same feature the terminal already had, same shared engine behind both.

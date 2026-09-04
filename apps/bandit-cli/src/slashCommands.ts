@@ -177,6 +177,9 @@ export interface SlashContext {
    * for every subsequent chat request in this session. Toggled via
    * the `/think` slash command. */
   thinkingMode: { get(): boolean | undefined; set(next: boolean | undefined): void };
+  /** Next-prompt suggestions after each turn. `/suggest` reads/sets it;
+   *  default off (an extra small model call per turn). */
+  suggest: { get(): boolean; set(next: boolean): void };
   /** Reasoning-display mode ('full' | 'compact' | 'off'). `/reasoning` reads and
    *  sets it; the setter persists to config. Separate from thinkingMode, which
    *  controls whether the model thinks — this controls only how much is shown. */
@@ -2477,6 +2480,30 @@ export const slashCommands: SlashCommand[] = [
         return c.green('✓ thinking mode AUTO — using the runtime default per model');
       }
       return c.red(`Unknown argument "${arg}". Use: /think on, /think off, /think auto.`);
+    }
+  },
+  {
+    name: 'suggest',
+    description: 'Suggest likely next prompts after each turn (/suggest on, /suggest off, /suggest)',
+    run(args, ctx) {
+      const arg = args.trim().toLowerCase();
+      if (!arg) {
+        const on = ctx.suggest.get();
+        return [
+          c.bold('Next-prompt suggestions: ') + (on ? c.green('on') : c.red('off')),
+          c.dim('  /suggest on    after each turn, suggest your likely next prompts (one small extra model call)'),
+          c.dim('  /suggest off   stop suggesting (default)')
+        ].join('\n');
+      }
+      if (arg === 'on' || arg === 'true' || arg === 'yes') {
+        ctx.suggest.set(true);
+        return c.green('✓ next-prompt suggestions ON — a dim "next?" line appears after each turn');
+      }
+      if (arg === 'off' || arg === 'false' || arg === 'no') {
+        ctx.suggest.set(false);
+        return c.green('✓ next-prompt suggestions OFF');
+      }
+      return c.red(`Unknown argument "${arg}". Use: /suggest on, /suggest off.`);
     }
   },
   {

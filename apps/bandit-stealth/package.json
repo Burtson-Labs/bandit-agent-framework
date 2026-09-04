@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.406",
+  "version": "1.7.407",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -405,6 +405,11 @@
             "type": "boolean",
             "default": false,
             "description": "Enable the microphone button in the composer for speech-to-text transcription. Provider is configurable independently of the chat provider — see banditStealth.voice.stt.provider."
+          },
+          "banditStealth.suggestNextPrompt": {
+            "type": "boolean",
+            "default": false,
+            "description": "After each turn, suggest your likely next prompts as clickable chips in the composer. Makes one small extra model call per turn using your active model, so it's off by default; fast local models feel best."
           },
           "banditStealth.voice.stt.provider": {
             "type": "string",

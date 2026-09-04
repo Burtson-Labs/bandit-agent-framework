@@ -44,6 +44,7 @@ import { buildBeforeToolExecute } from '../agent/beforeToolExecute';
 import { dispatchAgentEnvironmentMessage } from '../agent/agentEnvironmentBridge';
 import { runOcrFallback } from '../agent/ocrFallback';
 import { RemoteSession } from '@burtson-labs/host-kit';
+import { buildSuggestionsPrompt, parseSuggestions } from '@burtson-labs/agent-core';
 import { runLegacyDirectStream } from '../agent/legacyDirectStream';
 import { composeAgentSystemPrompt } from '../agent/agentSystemPrompt';
 import { buildFlushPendingEditDiffs } from '../agent/diffFlush';
@@ -972,6 +973,51 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         void this.remoteSession.mirrorAssistant(lastAssistant.content);
       }
     }
+
+    // Next-prompt prediction (opt-in: banditStealth.suggestNextPrompt). One
+    // small extra model call → likely next prompts, posted as composer chips.
+    if (configuration.get<boolean>('suggestNextPrompt', false)) {
+      void this.generateNextPromptSuggestions(configuration);
+    }
+  }
+
+  /**
+   * Predict the user's likely next prompts and post them to the composer as
+   * chips (next-prompt prediction). Best-effort + deadline-bounded: a slow or
+   * failed call stays silent and never affects the turn. Mirrors the CLI's
+   * `/suggest` behavior via the same shared agent-core core.
+   */
+  private async generateNextPromptSuggestions(configuration: vscode.WorkspaceConfiguration): Promise<void> {
+    try {
+      const convo = this.conversation
+        .filter((e) => e.role === 'user' || e.role === 'assistant')
+        .map((e) => ({ role: e.role as 'user' | 'assistant', content: e.content }));
+      if (convo.length === 0) return;
+      const lastAssistant = [...convo].reverse().find((e) => e.role === 'assistant');
+      if (!lastAssistant || lastAssistant.content.trim().length < 40) return;
+
+      const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
+      const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
+      const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+      const model = this.resolveChatModel(configuration, false);
+      const request = {
+        model,
+        messages: [{ role: 'user', content: buildSuggestionsPrompt(convo, { count: 3 }) }],
+        stream: true,
+        temperature: 0.5
+      };
+      let collected = '';
+      const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000));
+      const gather = (async () => {
+        for await (const chunk of provider.chat(request as never)) {
+          collected += chunk.message?.content ?? '';
+        }
+        return collected;
+      })();
+      await Promise.race([gather, deadline]);
+      const items = parseSuggestions(collected, 3);
+      if (items.length > 0) this.postMessage({ type: 'suggestions', items });
+    } catch { /* suggestions are a nicety — never surface an error */ }
   }
 
   private async handleContextFileRequest(): Promise<void> {

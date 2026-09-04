@@ -223,6 +223,8 @@ export function App(): JSX.Element {
     applyConversationStateSnapshot
   } = useConversationState();
   const [requireKey, setRequireKey] = useState(false);
+  // Next-prompt prediction: suggested next prompts shown as composer chips.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   // useProviderSettings owns providerKind, providerLabel, model names,
   // Ollama base-url/auth drafts, ollamaStatus, ollamaModelMissing +
   // all of their handlers + an applyStateSnapshot for the boot/state
@@ -1698,7 +1700,8 @@ export function App(): JSX.Element {
               pending.resolve(skills);
               skillListPromiseRef.current = null;
             }
-          }
+          },
+          setSuggestions
         })
       ) {return;}
       if (
@@ -1920,6 +1923,7 @@ export function App(): JSX.Element {
           autoContext: autoContextEnabled,
         }]);
         setComposerValue("");
+        setSuggestions([]);
         setContextFiles([]);
         setImageAttachments([]);
         return;
@@ -2709,6 +2713,25 @@ export function App(): JSX.Element {
                       reason. The composer's draft (`composerValue`) lives
                       in React state so unmounting the input doesn't drop
                       what the user was typing — it comes back on resolve. */}
+                  {/* Next-prompt prediction: clickable chips that FILL the
+                      composer (never auto-send). Hidden while streaming and
+                      when a permission/ask card is up. */}
+                  {suggestions.length > 0 && !isChatStreaming && approvalQueue.length === 0 && !askUserRequest && (
+                    <div className="suggestion-chips" role="list" aria-label="Suggested next prompts">
+                      {suggestions.map((s, i) => (
+                        <button
+                          key={`${i}-${s}`}
+                          type="button"
+                          className="suggestion-chip"
+                          role="listitem"
+                          title="Fill the composer with this"
+                          onClick={() => { setComposerValue(s); setSuggestions([]); }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {approvalQueue.length === 0 && !askUserRequest && (
                   <Composer
                     composerValue={composerValue}

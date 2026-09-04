@@ -131,6 +131,8 @@ export type OutgoingMessage =
   | { type: 'contextFilesAdded'; files: Array<{ path: string; preview?: string }> }
   | { type: 'imageAttachmentsAdded'; images: string[] }
   | { type: 'workspaceFileSuggestions'; entries: Array<{ path: string; isDir: boolean }> }
+  // Next-prompt prediction: likely next prompts, rendered as composer chips.
+  | { type: 'suggestions'; items: string[] }
   | { type: 'agentPlan'; plan?: Plan; history?: SerializedPlanRun[]; activeRunId?: string | null }
   | { type: 'agentPlanUpdate'; stepId: string; status?: string; meta?: { summary?: string; durationMs?: number; tokens?: number }; history?: SerializedPlanRun[]; activeRunId?: string | null }
   | { type: 'agentPlanHistory'; history: SerializedPlanRun[]; activeRunId?: string | null }
