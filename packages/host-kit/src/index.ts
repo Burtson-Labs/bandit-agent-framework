@@ -28,6 +28,7 @@ export { buildReadMemoryTool } from './tools/readMemoryTool';
 export { lessonsPath, loadLessons, addLesson, clearLessons, type AddLessonResult } from './lessons';
 // Bandit Artifacts (cloud) — publish a shareable artifact to S3Api, get a URL.
 export { publishArtifact, guessContentType, type PublishArtifactOptions, type PublishedArtifact } from './artifacts';
+export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 // Sandbox execution seam — swappable boundary for running commands (local host
 // today; Firecracker microVM via anton once its exec endpoint lands).
 export {

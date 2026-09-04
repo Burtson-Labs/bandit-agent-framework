@@ -104,6 +104,7 @@ import {
   buildWebSearchTool,
   buildRememberTool,
   buildReadMemoryTool,
+  buildPublishArtifactTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
   loadApprovedMcpFingerprints,
@@ -858,6 +859,12 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   registry.register(buildReadMemoryTool());
   registry.register(buildTestRunTool());
   registry.register(pdfReadTool);
+  // Cloud-only: the agent can publish a workspace file as a shareable link.
+  // Registered only when a cloud token exists, so local-only runs stay offline.
+  if (opts.settings.apiKey) {
+    const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+    registry.register(buildPublishArtifactTool({ token: opts.settings.apiKey, s3ApiBaseUrl: s3Base }));
+  }
 
   // MCP tools — enumerated lazily on first turn after a server is
   // configured. Each connected server contributes `<server>.<tool>`
