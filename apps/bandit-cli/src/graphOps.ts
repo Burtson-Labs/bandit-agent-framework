@@ -136,7 +136,7 @@ export function explainWhy(view: GraphView, nodeId: string): string {
   const cause = visit(nodeId);
   if (!cause) return `${c.dim('·')} ${nodeId} is ${r?.state ?? 'pending'} with all dependencies met — it will run on the next resume.`;
   const path = [nodeId, ...chain].join(' ← ');
-  return `${c.dim('↷')} ${nodeId} is blocked.\n  chain: ${path}\n  root cause: ${c.red(cause)}\n  fix and re-run: ${c.cyan('BANDIT_GRAPH=1 bandit graph demo --resume')}`;
+  return `${c.dim('↷')} ${nodeId} is blocked.\n  chain: ${path}\n  root cause: ${c.red(cause)}\n  fix and re-run: ${c.cyan('BANDIT_GRAPH=1 bandit graph resume')}`;
 }
 
 /**

@@ -76,7 +76,7 @@ describe('explainWhy', () => {
     expect(out).toContain('publish is blocked');
     expect(out).toContain('chain: publish ← join ← right');
     expect(out).toContain('right failed: contract: output is empty');
-    expect(out).toContain('--resume');
+    expect(out).toContain('graph resume');
   });
 
   it('answers directly for done / failed nodes', () => {
