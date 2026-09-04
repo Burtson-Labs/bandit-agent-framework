@@ -3077,6 +3077,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // Next-prompt suggestions after each turn. Default OFF — it's one extra
   // (small) model call per turn; opt in with `/suggest on`.
   let sessionSuggestEnabled = false;
+  // Learning memory: distill a durable repo lesson from each turn into
+  // .bandit/lessons.md (read back on future turns). Default OFF (extra call +
+  // the model writes to a persisted store); opt in with `/lessons on`.
+  let sessionLearnEnabled = false;
   // Reasoning display mode. Seeded from config (default 'compact'), changed via
   // /reasoning for the session and persisted. Read fresh each block so a
   // mid-session toggle applies immediately.
@@ -4103,6 +4107,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     // Live-session remote control. The closure defers to handleRemoteCommand,
     // which is declared later in this scope and only invoked when /remote runs.
     remote: (arg: string) => handleRemoteCommand(arg),
+    lessons: (arg: string) => handleLessonsCommand(arg),
     model: {
       get current() { return model; },
       set(next: string) {
@@ -4492,6 +4497,34 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     c.dim('  /remote status  ') + c.dim('show whether it\'s active + the session id'),
     remoteSession?.active ? '' : c.dim('  (needs a Bandit cloud account — /login first)')
   ].filter(Boolean).join('\n');
+
+  // `/lessons [on|off|view|clear]` — learning memory: durable repo lessons
+  // Bandit distills from runs into .bandit/lessons.md and reads back later.
+  const handleLessonsCommand = async (arg: string): Promise<string> => {
+    const a = arg.trim().toLowerCase();
+    const { loadLessons, clearLessons } = await import('@burtson-labs/host-kit');
+    if (a === 'on' || a === 'true' || a === 'yes') {
+      sessionLearnEnabled = true;
+      return c.green('✓ learning memory ON — Bandit distills a durable lesson from each turn into .bandit/lessons.md and reads it back on future turns');
+    }
+    if (a === 'off' || a === 'false' || a === 'no') {
+      sessionLearnEnabled = false;
+      return c.green('✓ learning memory OFF (existing lessons are kept and still read back)');
+    }
+    if (a === 'clear' || a === 'reset') {
+      clearLessons(cwd);
+      return c.green('✓ cleared .bandit/lessons.md');
+    }
+    // Bare `/lessons` or `/lessons view` → status + the current lessons.
+    const lessons = loadLessons(cwd);
+    const header = c.bold('Learning memory: ') + (sessionLearnEnabled ? c.green('on') : c.red('off'))
+      + c.dim(`  (${lessons.length} lesson${lessons.length === 1 ? '' : 's'} in .bandit/lessons.md)`);
+    const body = lessons.length
+      ? lessons.map((l) => c.dim('  • ') + l).join('\n')
+      : c.dim('  (none yet — turn on with /lessons on, then Bandit learns as you work)');
+    const help = c.dim('  /lessons on | off | clear');
+    return [header, body, help].join('\n');
+  };
 
   // `/remote [on|off|status|help]` — toggle/inspect live-session remote control.
   const handleRemoteCommand = async (arg: string): Promise<string> => {
@@ -5024,6 +5057,35 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
                 );
               }
             } catch { /* suggestions are a nicety — never break the turn flow */ }
+          }
+          // Learning memory (opt-in via /lessons on). Distill a durable repo
+          // lesson from this turn and store it for future turns. Fire-and-
+          // forget + silent — lessons are future-facing, so they must NOT
+          // block the next prompt; the user reviews them with /lessons.
+          if (sessionLearnEnabled && !cancelledByUser && response && response.trim().length > 40) {
+            const learnPrompt = line;
+            const learnResponse = response;
+            void (async () => {
+              try {
+                const { buildLessonPrompt, parseLesson } = await import('@burtson-labs/agent-core');
+                const { addLesson } = await import('@burtson-labs/host-kit');
+                const provider = await createProvider(settings);
+                const request = {
+                  model,
+                  messages: [{ role: 'user', content: buildLessonPrompt({ prompt: learnPrompt, assistantResponse: learnResponse }) }],
+                  stream: true,
+                  temperature: 0.2
+                };
+                let collected = '';
+                const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000));
+                const gather = (async () => {
+                  for await (const chunk of provider.chat(request as never)) collected += chunk.message?.content ?? '';
+                })();
+                await Promise.race([gather, deadline]);
+                const lesson = parseLesson(collected);
+                if (lesson) addLesson(cwd, lesson);
+              } catch { /* learning is best-effort — never surface an error */ }
+            })();
           }
           // Inline yes/no shortcut when the assistant ends with a clear
           // confirm-question. Saves the user from typing "yes" or "no"

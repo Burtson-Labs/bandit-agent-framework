@@ -33,7 +33,8 @@ const CANDIDATES = [
   'CLAUDE.md',
   'AGENTS.md', // OpenAI Codex / GitHub Copilot convention — load alongside BANDIT.md, don't pick one
   '.bandit/BANDIT.md',
-  '.bandit/memory.md'
+  '.bandit/memory.md',
+  '.bandit/lessons.md' // auto-learned repo lessons (see lessons.ts); labeled by source so the model knows they're machine-distilled
 ];
 const MAX_BYTES = 32 * 1024;
 
