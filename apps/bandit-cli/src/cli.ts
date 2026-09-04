@@ -5418,11 +5418,28 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (rawArgs[0] === 'graph' && rawArgs[1] === 'demo') {
-    // Experimental graph runtime (BANDIT_GRAPH=1): two parallel read-only
-    // scans → synthesize, rendered straight from graph:* events.
-    const { runGraphDemo } = await import('./graphDemo');
-    await runGraphDemo(rawArgs.slice(2), process.cwd());
+  if (rawArgs[0] === 'graph') {
+    // Experimental graph runtime (BANDIT_GRAPH=1).
+    //   graph demo             two parallel read-only scans → synthesize
+    //   graph plan "<task>"    model classifies direct|loop|graph + proposes a
+    //                          DAG; --run executes it (read-only envelopes)
+    //   graph resume           continue the last persisted run (demo or plan)
+    if (rawArgs[1] === 'demo') {
+      const { runGraphDemo } = await import('./graphDemo');
+      await runGraphDemo(rawArgs.slice(2), process.cwd());
+      return;
+    }
+    if (rawArgs[1] === 'plan') {
+      const { runGraphPlan } = await import('./graphPlan');
+      await runGraphPlan(rawArgs.slice(2), process.cwd());
+      return;
+    }
+    if (rawArgs[1] === 'resume') {
+      const { runGraphResume } = await import('./graphPlan');
+      await runGraphResume(process.cwd());
+      return;
+    }
+    process.stdout.write('usage: bandit graph <demo | plan "<task>" [--run] | resume>\n');
     return;
   }
 

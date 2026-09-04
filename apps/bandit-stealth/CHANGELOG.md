@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.404
+
+- **Experimental: Bandit can now plan its own graphs.** `BANDIT_GRAPH=1 bandit graph plan "<task>"` asks the model to classify the task — run it directly, as a normal focused turn, or as a dependency graph — and for graph-shaped work it proposes the nodes and dependencies. You see the proposal first; add `--run` to execute it, with every node locked read-only in this preview. `bandit graph resume` continues any interrupted run (demo or planned), restoring finished nodes instantly, and `/graph` in the REPL inspects it (`status`, `inspect`, `why`, `retry`).
+
 ## 1.7.403
 
 - **`/graph` — inspect graph runs from the REPL (experimental).** `/graph` shows the last run's nodes at a glance; `/graph inspect <node>` digs into one (evidence, contract, output); `/graph why <node>` walks the dependency chain to the actual root cause of a blocked node; `/graph retry <node>` invalidates that node plus everything downstream of it, so the next `bandit graph demo --resume` re-runs exactly that slice while finished work restores instantly.

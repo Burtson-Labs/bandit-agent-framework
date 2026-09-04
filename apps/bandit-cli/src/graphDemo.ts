@@ -9,40 +9,39 @@
  *
  * Every node is a wrapped ToolUseLoop turn (the same loop the REPL runs) with
  * a read-only capability envelope; synthesize carries a completion contract
- * (non-empty output). Progress renders straight from graph:* events — the
- * exact stream any host consumes — so what you see here is the protocol, not
- * a bespoke UI.
+ * (non-empty output). Progress renders straight from graph:* events via the
+ * shared runner (graphRun.ts) — the same path planned graphs use — and every
+ * settle persists to .bandit/graph-run.json so `bandit graph resume` (or
+ * `--resume` here) restores finished nodes instantly.
  *
  * Flag-gated (BANDIT_GRAPH=1): the graph runtime ships dark until it earns
  * its way into defaults via the bench.
  */
-import * as fs from 'fs';
 import * as path from 'path';
 import {
   createCoreToolRegistry,
   createDefaultLanguageAdapters,
-  runGraph,
-  wrapLoopAsNode,
-  defaultNodePrompt,
   type ChatFn,
-  type GraphCheckpoint,
   type GraphSpec,
-  type NodeExecutor,
 } from '@burtson-labs/agent-core';
 import { getModelCapabilities } from '@burtson-labs/stealth-core-runtime';
 import { c, glyph } from './ansi';
 import { loadConfigFiles, resolveConfig } from './config';
 import { CliToolExecutionContext } from './cliToolContext';
 import { buildCliChatFn } from './agent/cliChatFn';
+import {
+  READ_ONLY_TOOLS,
+  executorsFromPrompts,
+  resumeSpecLive,
+  runSpecLive,
+  type LoopNodeHostDeps,
+} from './graphRun';
 
-/** Read-only tool surface for scan/synthesize nodes. Names must match the
- *  core registry; run_command is deliberately absent — the demo needs zero
- *  permission prompts and zero side effects. */
-const READ_ONLY_TOOLS = ['read_file', 'list_files', 'ls', 'search_code', 'find_directory'];
+// Back-compat re-export: graphPlan and older imports reach READ_ONLY_TOOLS here.
+export { READ_ONLY_TOOLS } from './graphRun';
 
-/** The demo's spec — exported so `/graph` (status/inspect/why/retry) can
- *  rebuild the SAME structure and match it against the persisted checkpoint's
- *  fingerprint. Keep node ids/deps stable: changing them orphans checkpoints. */
+/** The demo's spec. Keep node ids/deps stable: changing them orphans
+ *  persisted run files. */
 export function demoGraphSpec(): GraphSpec {
   return {
     nodes: [
@@ -59,117 +58,71 @@ export function demoGraphSpec(): GraphSpec {
   };
 }
 
-/** Where the demo persists its checkpoint for a given workspace. */
-export function demoCheckpointPath(cwd: string): string {
-  return path.join(cwd, '.bandit', 'graph-demo-checkpoint.json');
+/** Per-node prompts — persisted in the run file so resume can rebuild
+ *  executors without re-deriving anything. */
+export function demoNodePrompts(): Record<string, string> {
+  return {
+    'scan-structure':
+      'List the top-level files and directories of this project (use list_files/ls) and say in 2-3 lines what kind of project this looks like. Do not modify anything.',
+    'scan-docs':
+      'Read the README (if present — check the root) and summarize in 2-3 lines what this project claims to do. Do not modify anything.',
+    synthesize:
+      'Write a crisp 5-line project brief for a new contributor. Base it ONLY on the upstream results below.',
+  };
 }
 
-export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
-  if (!/^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
-    process.stdout.write(
-      c.yellow(`  ${glyph.warn} The graph runtime is experimental and ships behind a flag.\n`) +
-      c.dim(`     Run it with: ${c.cyan('BANDIT_GRAPH=1 bandit graph demo')}\n`)
-    );
-    return;
-  }
-
+/** Resolve provider + tool deps the way the REPL does. Shared by demo, plan,
+ *  and resume so every graph surface runs identical loop wiring. */
+export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeHostDeps; model: string }> {
   const fileConfig = await loadConfigFiles(cwd);
   const resolved = resolveConfig(fileConfig, {});
   const { buildProviderSettings } = await import('./cli');
   const { settings, model } = buildProviderSettings(resolved);
   const modelCaps = getModelCapabilities(model);
-  const nativeTools = (settings.kind === 'ollama' || settings.kind === 'bandit' || settings.kind === 'openai-compatible')
-    && modelCaps.supportsToolCalling;
-
-  const registry = createCoreToolRegistry();
-  const ctx = new CliToolExecutionContext(cwd, createDefaultLanguageAdapters());
-  const chatFactory = (): Promise<ChatFn> =>
-    buildCliChatFn({ settings, model, pendingImages: undefined, getThink: () => undefined });
-
-  const loopOptions = {
-    maxIterations: 6,
-    nativeTools,
-    nativeToolFailureFallback: true,
-    compactToolBlock: modelCaps.tier === 'small',
+  const deps: LoopNodeHostDeps = {
+    registry: createCoreToolRegistry(),
+    ctx: new CliToolExecutionContext(cwd, createDefaultLanguageAdapters()),
+    chatFactory: (): Promise<ChatFn> =>
+      buildCliChatFn({ settings, model, pendingImages: undefined, getThink: () => undefined }),
+    loopOptions: {
+      maxIterations: 6,
+      nativeTools: (settings.kind === 'ollama' || settings.kind === 'bandit' || settings.kind === 'openai-compatible')
+        && modelCaps.supportsToolCalling,
+      nativeToolFailureFallback: true,
+      compactToolBlock: modelCaps.tier === 'small',
+    },
   };
-  const node = (prompt: string): NodeExecutor =>
-    wrapLoopAsNode({ registry, ctx, chatFactory, loopOptions }, defaultNodePrompt(prompt));
+  return { deps, model };
+}
 
-  const spec: GraphSpec = demoGraphSpec();
-  const executors: Record<string, NodeExecutor> = {
-    'scan-structure': node(
-      'List the top-level files and directories of this project (use list_files/ls) and say in 2-3 lines what kind of project this looks like. Do not modify anything.'
-    ),
-    'scan-docs': node(
-      'Read the README (if present — check the root) and summarize in 2-3 lines what this project claims to do. Do not modify anything.'
-    ),
-    synthesize: node(
-      'Write a crisp 5-line project brief for a new contributor. Base it ONLY on the upstream results below.'
-    ),
-  };
+export function graphFlagGate(command: string): boolean {
+  if (/^(1|true)$/i.test(process.env.BANDIT_GRAPH ?? '')) return true;
+  process.stdout.write(
+    c.yellow(`  ${glyph.warn} The graph runtime is experimental and ships behind a flag.\n`) +
+    c.dim(`     Run it with: ${c.cyan(`BANDIT_GRAPH=1 bandit ${command}`)}\n`)
+  );
+  return false;
+}
 
-  // Durability (Phase 5): every settle snapshots to .bandit; `--resume`
-  // restores finished nodes and runs only the remainder. Kill the demo
-  // mid-run (Ctrl+C) and resume it to see restored nodes come back instantly.
-  const checkpointPath = demoCheckpointPath(cwd);
-  let resumeFrom: GraphCheckpoint | undefined;
+export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
+  if (!graphFlagGate('graph demo')) return;
+  const { deps, model } = await buildGraphHostDeps(cwd);
+
   if (argv.includes('--resume')) {
-    try {
-      resumeFrom = JSON.parse(await fs.promises.readFile(checkpointPath, 'utf8')) as GraphCheckpoint;
-    } catch {
-      process.stdout.write(c.dim(`  (no checkpoint at ${path.relative(cwd, checkpointPath)} — starting fresh)\n`));
-    }
+    process.stdout.write(c.bold('Graph demo') + c.dim(` — ${path.basename(cwd)} · model ${model} · resumed\n\n`));
+    await resumeSpecLive(cwd, deps);
+    return;
   }
 
-  const startedAt = Date.now();
-  const stamp = (): string => c.dim(`[${String(Date.now() - startedAt).padStart(5, ' ')}ms]`);
+  const spec = demoGraphSpec();
+  const nodePrompts = demoNodePrompts();
+  const executors = executorsFromPrompts(nodePrompts, deps);
+
   process.stdout.write(
-    c.bold(`Graph demo`) + c.dim(` — ${path.basename(cwd)} · model ${model} · 2 parallel scans → synthesize`)
-    + (resumeFrom ? c.accent(' · resumed') : '') + '\n\n'
+    c.bold('Graph demo') + c.dim(` — ${path.basename(cwd)} · model ${model} · 2 parallel scans → synthesize\n\n`)
   );
-
-  const result = await runGraph(spec, executors, {
-    maxConcurrency: 2,
-    resumeFrom,
-    onCheckpoint: (cp) => {
-      // Best-effort persistence — never let disk trouble kill the run.
-      try {
-        fs.mkdirSync(path.dirname(checkpointPath), { recursive: true });
-        fs.writeFileSync(checkpointPath, JSON.stringify(cp, null, 2), 'utf8');
-      } catch { /* ignore */ }
-    },
-    emitEvent: (type, payload) => {
-      const p = (payload ?? {}) as { id?: string; label?: string; summary?: string; error?: string; violations?: string[]; status?: string; durationMs?: number };
-      switch (type) {
-        case 'graph:node_start':
-          process.stdout.write(`${stamp()} ${c.accent('▶')} ${p.label}\n`);
-          break;
-        case 'graph:node_done':
-          process.stdout.write(`${stamp()} ${c.green(glyph.check)} ${p.label}${p.summary ? c.dim(' — ' + p.summary.split('\n')[0].slice(0, 80)) : ''}\n`);
-          break;
-        case 'graph:node_failed':
-          process.stdout.write(`${stamp()} ${c.red(glyph.cross)} ${p.label} — ${p.error}\n`);
-          break;
-        case 'graph:node_contract_violation':
-          process.stdout.write(`${stamp()} ${c.red('◆')} contract violation on ${p.label}: ${(p.violations ?? []).join('; ')}\n`);
-          break;
-        case 'graph:node_skipped':
-          process.stdout.write(`${stamp()} ${c.dim('↷ skipped ' + (p.label ?? ''))}\n`);
-          break;
-        case 'graph:node_restored':
-          process.stdout.write(`${stamp()} ${c.accent('⟲')} restored ${p.label}${p.summary ? c.dim(' — ' + p.summary.split('\n')[0].slice(0, 60)) : ''}\n`);
-          break;
-      }
-    },
-  });
-
-  process.stdout.write('\n');
+  const result = await runSpecLive({ cwd, spec, executors, nodePrompts });
   if (result.status === 'completed') {
-    process.stdout.write(String(result.nodes.synthesize.output ?? '') + '\n\n');
+    process.stdout.write('\n' + String(result.nodes.synthesize.output ?? '') + '\n');
   }
-  const doneCount = Object.values(result.nodes).filter((n) => n.state === 'done').length;
-  process.stdout.write(
-    (result.status === 'completed' ? c.green(`${glyph.check} graph completed`) : c.red(`${glyph.cross} graph ${result.status}`)) +
-    c.dim(` · ${doneCount}/${spec.nodes.length} nodes · ${(result.durationMs / 1000).toFixed(1)}s\n`)
-  );
 }

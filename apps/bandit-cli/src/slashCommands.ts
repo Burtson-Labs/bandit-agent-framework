@@ -2287,21 +2287,17 @@ export const slashCommands: SlashCommand[] = [
     description: 'Inspect the last graph run (experimental): /graph, /graph inspect <node>, /graph why <node>, /graph retry <node>.',
     async run(args, ctx) {
       const [sub = '', nodeId = ''] = args.trim().split(/\s+/);
-      const { demoGraphSpec, demoCheckpointPath } = await import('./graphDemo');
       const ops = await import('./graphOps');
-      const fs = await import('fs');
-      const spec = demoGraphSpec();
-      const cpPath = demoCheckpointPath(ctx.cwd);
+      const { loadRunFile, saveRunFile } = await import('./graphRun');
 
-      let raw: string;
-      try {
-        raw = await fs.promises.readFile(cpPath, 'utf8');
-      } catch {
-        return c.dim('No graph run recorded yet. Run one with: ') + c.cyan('BANDIT_GRAPH=1 bandit graph demo');
+      const loaded = loadRunFile(ctx.cwd);
+      if (loaded === null) {
+        return c.dim('No graph run recorded yet. Run one with: ')
+          + c.cyan('BANDIT_GRAPH=1 bandit graph demo')
+          + c.dim(' or ') + c.cyan('bandit graph plan "…" --run');
       }
-      const parsed = ops.parseCheckpoint(spec, raw);
-      if (!parsed.ok) return c.red(`Can't read the last run: ${parsed.error}`);
-      const view = parsed.view;
+      if (!loaded.ok) return c.red(`Can't read the last run: ${loaded.error}`);
+      const view = { spec: loaded.file.spec, checkpoint: loaded.file.checkpoint };
 
       switch (sub) {
         case '':
@@ -2317,11 +2313,11 @@ export const slashCommands: SlashCommand[] = [
           if (!nodeId) return c.red('usage: /graph retry <node>');
           const result = ops.invalidateForRetry(view, nodeId);
           if ('error' in result) return c.red(result.error);
-          await fs.promises.writeFile(cpPath, JSON.stringify(result.checkpoint, null, 2), 'utf8');
+          saveRunFile(ctx.cwd, loaded.file.spec, result.checkpoint, loaded.file.nodePrompts);
           return [
             c.green(`${glyph.check} invalidated ${result.invalidated.length} node(s): ${result.invalidated.join(', ')}`),
             c.dim('  They will re-run (finished work elsewhere restores instantly):'),
-            '  ' + c.cyan('BANDIT_GRAPH=1 bandit graph demo --resume')
+            '  ' + c.cyan('BANDIT_GRAPH=1 bandit graph resume')
           ].join('\n');
         }
         default:
