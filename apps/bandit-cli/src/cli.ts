@@ -149,8 +149,10 @@ import {
 } from '@burtson-labs/host-kit';
 import {
   findSlashCommand,
+  slashCommands,
   type SlashContext
 } from './slashCommands';
+import { openSlashPicker } from './slashPicker';
 import { writeInsightsReport } from '@burtson-labs/host-kit';
 
 interface CliArgs {
@@ -3779,6 +3781,43 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     void key;
   };
   if (!useInk) process.stdin.on('keypress', atMentionHandler);
+
+  // Slash-command picker. Typing `/` as the FIRST character of an empty prompt
+  // opens a live, filterable command list (arrow keys + descriptions) — the
+  // discoverability layer people expect after hitting `/`. Mirrors the
+  // @-mention flow: readline commits the `/` first, then one tick later we
+  // check the line is exactly `/` (a fresh command, not a path like `src/`)
+  // and hand off to the picker. On commit we strip the `/` and write `/name `.
+  const slashPickerCommands = slashCommands.map((cmd) => ({ name: cmd.name, description: cmd.description }));
+  let slashPickerActive = false;
+  const slashPickerHandler = (str: string | undefined, key: readline.Key | undefined) => {
+    if (slashPickerActive || atMentionPickerActive) return;
+    if (!str || str !== '/') return;
+    setImmediate(async () => {
+      const line = (rl as unknown as { line?: string }).line ?? '';
+      if (line !== '/') return; // only when `/` is the sole char — a fresh command
+      slashPickerActive = true;
+      try {
+        rl.pause();
+        const result = await openSlashPicker(slashPickerCommands, '');
+        const rlMut = rl as unknown as { line: string; cursor: number };
+        if (rlMut.line.endsWith('/')) {
+          rlMut.line = rlMut.line.slice(0, -1);
+          rlMut.cursor = rlMut.line.length;
+        }
+        if (result.insertion || result.trailingChar) {
+          rl.write(result.insertion + (result.trailingChar ?? ''));
+        }
+      } finally {
+        rl.resume();
+        process.stdout.write('\x1b[2K\r');
+        rl.prompt(true);
+        slashPickerActive = false;
+      }
+    });
+    void key;
+  };
+  if (!useInk) process.stdin.on('keypress', slashPickerHandler);
 
   // Bottom-right footer hint — rewritten every time we redraw the
   // prompt. Uses dim styling and right-aligns the text so it sits at
