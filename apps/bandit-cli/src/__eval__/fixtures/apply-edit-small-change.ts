@@ -25,8 +25,11 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
+    // Any SURGICAL edit is correct — apply_edit or replace_range both target
+    // the line without rewriting the file. The failure being caught is a full
+    // write_file rewrite, so accept the whole targeted-edit family.
     mustCallAnyOf: [
-      { name: 'apply_edit', params: { path: /sample\.ts/ } }
+      { name: /^(apply_edit|replace_range)$/, params: { path: /sample\.ts/ } }
     ],
     mustNotCall: ['write_file'],
     maxIterations: 4
