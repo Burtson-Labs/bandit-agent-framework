@@ -13,6 +13,7 @@ Bandit reads your codebase, writes changes, runs commands, and stays out of your
 
 - **Your choice of model.** Runs locally on any Ollama model — Gemma 4, Qwen 3.6, Devstral, your custom fine-tune. Or point at Bandit's hosted gateway for managed inference with thinking mode and zero local setup.
 - **Works alongside you.** Bandit autonomously explores your code, reads and writes files, runs shell commands — every write gated by a unified-diff approval so you're never surprised.
+- **Permission modes with a floor you can trust.** Read-only **plan** mode, prompt-everything **ask**, and **auto** for routine work — cycled with shift+tab and always visible on screen. Destructive calls (deletes, force-push, credential files, egress) ask every time, in every mode, and that's not configurable.
 - **Integrated with the editor.** Auto-context attaches the right files without you picking them. `@`-mention any file (or folder — drill in until you find it). Inline diffs stream into the editor as the agent works.
 - **Powerful agentic features.** Skills the agent can author itself, plan preview with go/no-go confirmation, session checkpoints with `/rewind`, hooks for CI guardrails, and a tool-use loop with pre-write language validation (TypeScript / Python / JSON / C#).
 - **Voice that's actually pluggable.** Speech-to-text and text-to-speech are independent of the chat provider. Use Bandit cloud, OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.
@@ -138,6 +139,24 @@ Small affordances we ship in both the CLI and the side-panel composer:
 
 Custom model behavior overrides use the same workspace file in both hosts: `.bandit/model-profiles.json`. Set `match` prefixes plus protocol, context, prompting, and reliability fields when a local model needs a different harness path than the built-in defaults; the extension watches the file and reloads it when it changes. The loop uses those profile values for native-vs-text selection, native fallback policy, output-budget serialization, and max parallel tool calls.
 
+## Permission modes — plan, ask, auto
+
+One shared permission engine gates every tool call in both hosts, and the active mode is **always on screen**: a colored chip on the CLI's input frame (and on the mid-turn composer while Bandit works), a status-bar item and composer pill in the editor.
+
+- **`plan` — read-only.** Bandit reads, searches, and runs read-only shell (`git diff`, `ls`, `grep`); every edit, write, state-changing command, delete, and network-write is refused, so it *presents a plan* instead of acting. Great for "tell me what you'd do first."
+- **`ask` (default).** Every non-allowlisted call prompts with a risk-tiered permission card.
+- **`auto`.** Routine work (reads, in-project edits, builds/tests) runs unprompted. **Destructive calls always ask** — deletes, writes outside the project, force-push, global installs, credential files, network egress. That floor is not configurable, on purpose.
+- **`dangerous`** exists for CI/sandboxes only and cannot be enabled from chat — env var or settings file, deliberately.
+
+**shift+tab** cycles ask → auto → plan in the CLI; click the status-bar item or composer pill in the editor. `/permissions` shows the mode, session grants, and an audit of everything auto mode approved without asking.
+
+## Experimental previews
+
+Shipping dark, behind flags, while they earn their defaults:
+
+- **Live-session remote control (`/remote on`).** Registers your running CLI session with Bandit cloud so it can be watched and driven from another surface: your turns mirror up, input sent from the web runs *in the same conversation* on your machine (read-only plan mode by default). `/remote off` stops it; `bandit runner` is the headless sibling that accepts one-shot dispatched tasks.
+- **Graph runs (`BANDIT_GRAPH=1`).** A dependency-graph runtime over the same tool loop: `bandit graph demo` (two parallel read-only scans → a synthesized brief), `bandit graph plan "<task>"` (the model classifies direct / loop / graph and proposes a DAG — you see it before anything runs; `--run` executes with every node read-only), `bandit graph resume` (checkpointed runs restore finished nodes instantly), and `/graph` in the REPL (`status` · `inspect <node>` · `why <node>` · `retry <node>`). Per-node capability envelopes and completion contracts are enforced by the host, never the model.
+
 ## MCP — Model Context Protocol, both directions
 
 Bandit speaks MCP as both a **client** and a **server**. Any MCP server you can spawn plugs into the same tool-use loop the IDE uses for `read_file` / `apply_edit`. Conversely, any MCP-speaking client (Claude Desktop, Cursor, Cline, Continue, etc.) can drive Bandit's native tools through the standard JSON-RPC envelope.
@@ -222,6 +241,10 @@ Install once with `curl -fsSL https://burtson.ai/bandit-stealth-cli/install.sh |
 | Command | What it does |
 |---|---|
 | `/doctor` | Check setup, provider, workspace context, permissions, active profile, and next best actions. |
+| `/auto on \| plan \| off` | Permission mode: auto (routine runs unprompted), plan (read-only), ask. **shift+tab** cycles without typing. |
+| `/permissions` | Current mode + session grants + an audit of everything auto mode approved without asking. |
+| `/remote on \| off \| status` | Live-session remote control — mirror this session to the cloud and drive it from another surface (plan-mode default). |
+| `/graph [inspect\|why\|retry <node>]` | Inspect the last graph run: per-node state, evidence, root-cause of blocked nodes, targeted retry (experimental, `BANDIT_GRAPH=1`). |
 | `/plan <goal>` | Heuristic plan for the goal, then **y/N to run it** — queues the goal for the tool loop. |
 | `/plan-preview on` | Every prompt gets a plan preview + y/N before the model runs. |
 | `/insights` | Generate a self-contained HTML report — cross-repo wins, activity, tool stats, top-touched files, languages, streak, peak day, errors, optional AI summary, mailto share. |
