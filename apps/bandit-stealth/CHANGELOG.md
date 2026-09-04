@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.413
+
+- **Share your insights report as a link.** `/insights --share` publishes the HTML report as a Bandit Artifact and hands back a URL anyone can open — it renders right in the browser, no download. Cloud feature; plain `/insights` still writes and opens the report locally.
+
 ## 1.7.411
 
 - **Bandit can now publish artifacts itself.** Ask it to "write a README and publish it as an artifact" and it will — it writes the file, then uses the new `publish_artifact` tool to upload it and hand back a shareable link, all in one turn. (Cloud feature; the tool only appears when you're signed in.) Complements the `/artifact <path>` command for publishing an existing file by hand.
