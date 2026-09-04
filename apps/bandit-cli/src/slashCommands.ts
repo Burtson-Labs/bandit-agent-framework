@@ -2283,6 +2283,53 @@ export const slashCommands: SlashCommand[] = [
     }
   },
   {
+    name: 'graph',
+    description: 'Inspect the last graph run (experimental): /graph, /graph inspect <node>, /graph why <node>, /graph retry <node>.',
+    async run(args, ctx) {
+      const [sub = '', nodeId = ''] = args.trim().split(/\s+/);
+      const { demoGraphSpec, demoCheckpointPath } = await import('./graphDemo');
+      const ops = await import('./graphOps');
+      const fs = await import('fs');
+      const spec = demoGraphSpec();
+      const cpPath = demoCheckpointPath(ctx.cwd);
+
+      let raw: string;
+      try {
+        raw = await fs.promises.readFile(cpPath, 'utf8');
+      } catch {
+        return c.dim('No graph run recorded yet. Run one with: ') + c.cyan('BANDIT_GRAPH=1 bandit graph demo');
+      }
+      const parsed = ops.parseCheckpoint(spec, raw);
+      if (!parsed.ok) return c.red(`Can't read the last run: ${parsed.error}`);
+      const view = parsed.view;
+
+      switch (sub) {
+        case '':
+        case 'status':
+          return ops.renderStatus(view);
+        case 'inspect':
+          if (!nodeId) return c.red('usage: /graph inspect <node>');
+          return ops.renderInspect(view, nodeId);
+        case 'why':
+          if (!nodeId) return c.red('usage: /graph why <node>');
+          return ops.explainWhy(view, nodeId);
+        case 'retry': {
+          if (!nodeId) return c.red('usage: /graph retry <node>');
+          const result = ops.invalidateForRetry(view, nodeId);
+          if ('error' in result) return c.red(result.error);
+          await fs.promises.writeFile(cpPath, JSON.stringify(result.checkpoint, null, 2), 'utf8');
+          return [
+            c.green(`${glyph.check} invalidated ${result.invalidated.length} node(s): ${result.invalidated.join(', ')}`),
+            c.dim('  They will re-run (finished work elsewhere restores instantly):'),
+            '  ' + c.cyan('BANDIT_GRAPH=1 bandit graph demo --resume')
+          ].join('\n');
+        }
+        default:
+          return c.red(`Unknown: /graph ${sub}. Use /graph [status | inspect <node> | why <node> | retry <node>].`);
+      }
+    }
+  },
+  {
     name: 'auto',
     description: 'Permission mode: /auto on (routine runs), /auto plan (read-only), /auto off (ask). shift+tab cycles.',
     run(args, ctx) {

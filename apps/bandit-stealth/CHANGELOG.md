@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.403
+
+- **`/graph` — inspect graph runs from the REPL (experimental).** `/graph` shows the last run's nodes at a glance; `/graph inspect <node>` digs into one (evidence, contract, output); `/graph why <node>` walks the dependency chain to the actual root cause of a blocked node; `/graph retry <node>` invalidates that node plus everything downstream of it, so the next `bandit graph demo --resume` re-runs exactly that slice while finished work restores instantly.
+
 ## 1.7.402
 
 - **Experimental graph runs can now survive interruption.** Every node's result checkpoints to `.bandit/graph-demo-checkpoint.json` as it finishes; `BANDIT_GRAPH=1 bandit graph demo --resume` restores finished nodes instantly (no re-running the model) and continues only what's left. Kill a run mid-way and pick it back up.
