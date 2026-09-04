@@ -183,6 +183,8 @@ export interface SlashContext {
   /** Learning memory — `/lessons on|off|view|clear`. Provided by the REPL
    *  (owns the flag + the .bandit/lessons.md store). Returns markdown. */
   lessons?: (arg: string) => Promise<string>;
+  /** `/artifact <path>` — publish a file as a shareable Bandit Artifact (cloud). */
+  artifact?: (arg: string) => Promise<string>;
   /** Reasoning-display mode ('full' | 'compact' | 'off'). `/reasoning` reads and
    *  sets it; the setter persists to config. Separate from thinkingMode, which
    *  controls whether the model thinks — this controls only how much is shown. */
@@ -2515,6 +2517,14 @@ export const slashCommands: SlashCommand[] = [
     async run(args, ctx) {
       if (!ctx.lessons) { return c.dim('(learning memory is only available in the interactive REPL)'); }
       return ctx.lessons(args.trim());
+    }
+  },
+  {
+    name: 'artifact',
+    description: 'Publish a file as a shareable link (cloud): /artifact <path>',
+    async run(args, ctx) {
+      if (!ctx.artifact) { return c.dim('(artifacts are only available in the interactive REPL)'); }
+      return ctx.artifact(args.trim());
     }
   },
   {

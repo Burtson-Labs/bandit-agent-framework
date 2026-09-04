@@ -4108,6 +4108,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     // which is declared later in this scope and only invoked when /remote runs.
     remote: (arg: string) => handleRemoteCommand(arg),
     lessons: (arg: string) => handleLessonsCommand(arg),
+    artifact: (arg: string) => handleArtifactCommand(arg),
     model: {
       get current() { return model; },
       set(next: string) {
@@ -4524,6 +4525,30 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       : c.dim('  (none yet — turn on with /lessons on, then Bandit learns as you work)');
     const help = c.dim('  /lessons on | off | clear');
     return [header, body, help].join('\n');
+  };
+
+  // `/artifact <path>` — publish a file as a shareable Bandit Artifact (cloud).
+  const handleArtifactCommand = async (arg: string): Promise<string> => {
+    const target = arg.trim();
+    if (!target) return c.dim('usage: /artifact <path>   (publish a file, get a shareable link)');
+    if (!resolved.apiKey) {
+      return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
+    }
+    const { publishArtifact, guessContentType } = await import('@burtson-labs/host-kit');
+    const abs = path.isAbsolute(target) ? target : path.join(cwd, target);
+    let bytes: Buffer;
+    try { bytes = await fs.promises.readFile(abs); } catch { return c.red(`can't read ${target}`); }
+    const filename = path.basename(abs);
+    const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+    try {
+      const artifact = await publishArtifact({
+        s3ApiBaseUrl: s3Base, token: resolved.apiKey, content: new Uint8Array(bytes),
+        filename, contentType: guessContentType(filename),
+      });
+      return c.green(`${glyph.check} published ${filename} — shareable link:\n`) + '  ' + c.cyan(artifact.url);
+    } catch (err) {
+      return c.red(`${glyph.cross} ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   // `/remote [on|off|status|help]` — toggle/inspect live-session remote control.
