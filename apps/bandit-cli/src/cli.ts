@@ -4906,19 +4906,39 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           if (isRemoteTurn) remoteTurnQueue.shift();
           if (remoteSession?.active && !isRemoteTurn) void remoteSession.mirrorUser(line);
 
-          // Experimental routing nudge (BANDIT_GRAPH=1): if the prompt looks
-          // decomposable, mention `graph plan` ONCE per session. Zero model
-          // calls — a pure lexical heuristic — and never for web-driven turns.
-          if (!graphNudgeShown && !isRemoteTurn && !/^(0|false)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
+          // Graph auto-routing ('everything uses graph', CLI half): a
+          // read-shaped decomposable prompt runs as a DAG right here — no
+          // explicit command. Guards, in order: not a remote turn (the
+          // runner handles those); BANDIT_GRAPH=0 kill switch; fresh-ish
+          // conversation (graph nodes get fresh prompts, so a long prior
+          // thread would be silently ignored — worse than no routing); and
+          // no edit intent (v1 node envelopes are read-only — routing an
+          // edit request would produce nodes that CAN'T edit). Edit-shaped
+          // prompts get the one-time nudge instead.
+          if (!isRemoteTurn && !/^(0|false)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
             const { classifyGraphShaped } = await import('@burtson-labs/agent-core');
             if (classifyGraphShaped(line).suggestsGraph) {
-              graphNudgeShown = true;
-              const escaped = line.replace(/"/g, '\\"').slice(0, 80);
-              process.stdout.write(
-                c.dim(`  ${glyph.spark} this looks decomposable — try `) +
-                c.cyan(`bandit graph plan "${escaped}${line.length > 80 ? '…' : ''}"`) +
-                c.dim(' to run it as a parallel graph\n')
-              );
+              const editShaped = /\b(fix|refactor|implement|add|update|change|create|edit|bump|delete|rename|install|deploy|migrate)\b/i.test(line);
+              if (!editShaped && conversation.length <= 2) {
+                const { tryAutoGraphTurn } = await import('./graphPlan');
+                if (remoteSession?.active) void remoteSession.mirrorUser(line);
+                const g = await tryAutoGraphTurn(line, cwd);
+                if (g.ran) {
+                  conversation.push({ role: 'user', content: line }, { role: 'assistant', content: g.answer });
+                  void session.snapshot(conversation);
+                  if (remoteSession?.active) void remoteSession.mirrorAssistant(g.answer);
+                  rl.prompt();
+                  continue;
+                }
+              } else if (!graphNudgeShown) {
+                graphNudgeShown = true;
+                const escaped = line.replace(/"/g, '\\"').slice(0, 80);
+                process.stdout.write(
+                  c.dim(`  ${glyph.spark} this looks decomposable — try `) +
+                  c.cyan(`bandit graph plan "${escaped}${line.length > 80 ? '…' : ''}"`) +
+                  c.dim(' to run it as a parallel graph\n')
+                );
+              }
             }
           }
 
@@ -5580,6 +5600,14 @@ async function main(): Promise<void> {
       return;
     }
     process.stdout.write('usage: bandit graph <demo | plan "<task>" [--run] | resume>\n');
+    return;
+  }
+
+  if (rawArgs[0] === 'spec') {
+    // Spec-driven development (BANDIT_GRAPH=1): spec markdown → graph plan whose
+    // final node verifies every acceptance criterion. `spec new <name>` scaffolds.
+    const { runSpecCommand } = await import('./graphPlan');
+    await runSpecCommand(rawArgs.slice(1), process.cwd());
     return;
   }
 
