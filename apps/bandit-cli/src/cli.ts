@@ -3074,6 +3074,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // for non-reasoning). Toggled via the `/think on|off|auto` slash
   // command. Read on every chat request via buildChat's getThink().
   let sessionThinkingOverride: boolean | undefined = undefined;
+  // Next-prompt suggestions after each turn. Default OFF — it's one extra
+  // (small) model call per turn; opt in with `/suggest on`.
+  let sessionSuggestEnabled = false;
   // Reasoning display mode. Seeded from config (default 'compact'), changed via
   // /reasoning for the session and persisted. Read fresh each block so a
   // mid-session toggle applies immediately.
@@ -4170,6 +4173,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       get: () => sessionThinkingOverride,
       set: (next) => { sessionThinkingOverride = next; }
     },
+    suggest: {
+      get: () => sessionSuggestEnabled,
+      set: (next) => { sessionSuggestEnabled = next; }
+    },
     reasoningDisplay: {
       get: () => sessionReasoningDisplay,
       set: (next) => {
@@ -4978,6 +4985,46 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           // prompt verb + tools fired this turn + first sentence of
           // response. Suppressed for very short turns to stay quiet.
           renderRecap(line, response);
+          // Next-prompt prediction (opt-in via /suggest on). ONE small extra
+          // model call: given the recent exchange, suggest the likely next
+          // prompts as a dim hint line. Best-effort — a failure or empty
+          // result stays silent and never blocks the prompt. Skipped for
+          // cancelled or trivial turns.
+          if (sessionSuggestEnabled && !cancelledByUser && response && response.trim().length > 40) {
+            try {
+              const { buildSuggestionsPrompt, parseSuggestions } = await import('@burtson-labs/agent-core');
+              const convoTail = conversation
+                .filter((m) => m.role === 'user' || m.role === 'assistant')
+                .map((m) => ({ role: m.role as 'user' | 'assistant', content: typeof m.content === 'string' ? m.content : '' }));
+              const provider = await createProvider(settings);
+              const request = {
+                model,
+                messages: [{ role: 'user', content: buildSuggestionsPrompt(convoTail, { count: 3 }) }],
+                stream: true,
+                temperature: 0.5
+              };
+              let collected = '';
+              // Short deadline: a "next?" hint that shows up 10s later is
+              // useless (the user has already typed). Bound the input-block to
+              // ~6s — fast local models land inside it, slow ones stay silent.
+              const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000));
+              const gather = (async () => {
+                for await (const chunk of provider.chat(request as never)) {
+                  collected += chunk.message?.content ?? '';
+                }
+                return collected;
+              })();
+              await Promise.race([gather, deadline]);
+              const suggestions = parseSuggestions(collected, 3);
+              if (suggestions.length > 0) {
+                process.stdout.write(
+                  c.dim('  next? ') +
+                  suggestions.map((s) => c.cyan('› ' + s)).join(c.dim('   ')) +
+                  '\n'
+                );
+              }
+            } catch { /* suggestions are a nicety — never break the turn flow */ }
+          }
           // Inline yes/no shortcut when the assistant ends with a clear
           // confirm-question. Saves the user from typing "yes" or "no"
           // four keystrokes at a time. If the pattern doesn't match,

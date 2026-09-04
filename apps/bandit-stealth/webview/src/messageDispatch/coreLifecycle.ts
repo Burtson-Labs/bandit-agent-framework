@@ -11,6 +11,8 @@ export interface CoreLifecycleDeps {
    * autocomplete is awaiting. Set to null afterwards.
    */
   resolveSkillListPromise: (skills: ComposerSkillOption[]) => void;
+  /** Next-prompt prediction: set the suggested next prompts for the composer. */
+  setSuggestions: (items: string[]) => void;
 }
 
 /**
@@ -38,6 +40,9 @@ export function dispatchCoreLifecycleMessage(
       return true;
     case "skillList":
       deps.resolveSkillListPromise(Array.isArray(message.skills) ? message.skills : []);
+      return true;
+    case "suggestions":
+      deps.setSuggestions(Array.isArray(message.items) ? message.items : []);
       return true;
     default:
       return false;
