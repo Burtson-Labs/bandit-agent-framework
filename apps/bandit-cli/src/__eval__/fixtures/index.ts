@@ -18,6 +18,19 @@ import { fixture as proseLoopNoTools } from './prose-loop-no-tools';
 import { fixture as todoChurnBreaker } from './todo-churn-breaker';
 import { fixture as scopeAndPathDiscipline } from './scope-and-path-discipline';
 import { fixture as nativeToolsMultiFileDoc } from './native-tools-multi-file-doc';
+// BanditBench curation (Phase 0 → 25 real-task shapes, 2026-09):
+import { fixture as readThenAnswer } from './read-then-answer';
+import { fixture as searchThenEdit } from './search-then-edit';
+import { fixture as versionBump } from './version-bump';
+import { fixture as createNewFile } from './create-new-file';
+import { fixture as renameAcrossFiles } from './rename-across-files';
+import { fixture as noToolsRestraint } from './no-tools-restraint';
+import { fixture as missingFileHonesty } from './missing-file-honesty';
+import { fixture as failingCommandHonesty } from './failing-command-honesty';
+import { fixture as listThenRead } from './list-then-read';
+import { fixture as multiReadSynthesis } from './multi-read-synthesis';
+import { fixture as jsonSettingChange } from './json-setting-change';
+import { fixture as changelogAppend } from './changelog-append';
 import type { Fixture } from '../types';
 
 export const allFixtures: Fixture[] = [
@@ -33,5 +46,17 @@ export const allFixtures: Fixture[] = [
   proseLoopNoTools,
   todoChurnBreaker,
   scopeAndPathDiscipline,
-  nativeToolsMultiFileDoc
+  nativeToolsMultiFileDoc,
+  readThenAnswer,
+  searchThenEdit,
+  versionBump,
+  createNewFile,
+  renameAcrossFiles,
+  noToolsRestraint,
+  missingFileHonesty,
+  failingCommandHonesty,
+  listThenRead,
+  multiReadSynthesis,
+  jsonSettingChange,
+  changelogAppend
 ];
