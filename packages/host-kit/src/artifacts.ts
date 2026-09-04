@@ -171,3 +171,76 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
+
+/** Common options for the artifact-management calls (list / delete / clear). */
+export interface ArtifactManageOptions {
+  s3ApiBaseUrl: string;
+  /** `bai_` device key (exchanged for a gateway JWT) or an existing gateway JWT. */
+  token: string;
+  authBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+}
+
+export interface ArtifactListItem {
+  key: string;
+  url: string;
+  size: number;
+  lastModified: string;
+}
+
+/**
+ * Extract the object key from a share URL (everything after `/api/artifact/`),
+ * decoding per-segment percent-encoding. Returns the input unchanged when it's
+ * already a key (no marker), so callers can pass either a URL or a raw key.
+ */
+export function artifactKeyFromUrl(urlOrKey: string): string {
+  const marker = '/api/artifact/';
+  const i = urlOrKey.indexOf(marker);
+  const raw = i >= 0 ? urlOrKey.slice(i + marker.length) : urlOrKey;
+  return raw
+    .split('/')
+    .map((seg) => { try { return decodeURIComponent(seg); } catch { return seg; } })
+    .join('/');
+}
+
+/** List the caller's own artifacts (server returns them most-recent first). */
+export async function listArtifacts(opts: ArtifactManageOptions): Promise<ArtifactListItem[]> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/mine`, { headers: { authorization: `Bearer ${bearer}` } });
+  if (!res.ok) throw new Error(`could not list artifacts: HTTP ${res.status}`);
+  const body = (await res.json()) as { artifacts?: ArtifactListItem[] };
+  return body.artifacts ?? [];
+}
+
+/** Delete one artifact by its share URL or object key (owner-scoped server-side). */
+export async function deleteArtifact(opts: ArtifactManageOptions & { keyOrUrl: string }): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const encoded = key.split('/').map(encodeURIComponent).join('/');
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/${encoded}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(`no artifact found for "${opts.keyOrUrl}" (or it isn't yours)`);
+    throw new Error(`could not delete artifact: HTTP ${res.status}`);
+  }
+}
+
+/** Delete ALL of the caller's artifacts. Returns how many were removed. */
+export async function clearArtifacts(opts: ArtifactManageOptions): Promise<number> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/mine`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) throw new Error(`could not clear artifacts: HTTP ${res.status}`);
+  const body = (await res.json()) as { deleted?: number };
+  return body.deleted ?? 0;
+}
