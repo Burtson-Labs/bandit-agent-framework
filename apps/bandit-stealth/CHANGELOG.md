@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.411
+
+- **Bandit can now publish artifacts itself.** Ask it to "write a README and publish it as an artifact" and it will — it writes the file, then uses the new `publish_artifact` tool to upload it and hand back a shareable link, all in one turn. (Cloud feature; the tool only appears when you're signed in.) Complements the `/artifact <path>` command for publishing an existing file by hand.
+
 ## 1.7.410
 
 - **Bandit Artifacts (cloud): publish a file, get a shareable link.** `/artifact <path>` in the terminal (or `bandit artifact <path>` from the shell) uploads a file to your Bandit cloud storage and prints a URL anyone can open. Cloud-only; local-only stays fully offline.
