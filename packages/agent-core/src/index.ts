@@ -52,6 +52,8 @@ export * from './graph';
 export * from './suggestions';
 // Learning memory — distill durable repo lessons from turns (host stores them).
 export * from './lessons';
+// Spec-driven development — spec markdown → graph plan (criteria = contracts).
+export * from './spec';
 
 // MCP — Model Context Protocol client (Phase 1: groundwork). See
 // docs/integration-playlist/mcp-roadmap.md. Off by default — hosts
