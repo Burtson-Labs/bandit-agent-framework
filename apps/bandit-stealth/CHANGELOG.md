@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.415
+
+- **Type `/` and see the commands.** Hitting `/` at the start of a prompt in the terminal now opens a live, filterable command menu — arrow keys to move, a one-line description on each, Enter or Tab to fill it in. No more guessing what's available after the slash; keep typing to narrow the list, Esc to dismiss.
+
 ## 1.7.413
 
 - **Share your insights report as a link.** `/insights --share` publishes the HTML report as a Bandit Artifact and hands back a URL anyone can open — it renders right in the browser, no download. Cloud feature; plain `/insights` still writes and opens the report locally.
