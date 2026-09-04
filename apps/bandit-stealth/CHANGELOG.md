@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.416
+
+- **The editor agent can publish artifacts now, too.** Ask Bandit in the VS Code chat to "write a README and publish it as an artifact" and it will — the same `publish_artifact` tool the terminal agent has, handing back a shareable link in one turn. Cloud feature; the tool only appears when you're signed in to Bandit cloud, so local/Ollama turns stay fully offline.
+
 ## 1.7.415
 
 - **Type `/` and see the commands.** Hitting `/` at the start of a prompt in the terminal now opens a live, filterable command menu — arrow keys to move, a one-line description on each, Enter or Tab to fill it in. No more guessing what's available after the slash; keep typing to narrow the list, Esc to dismiss.

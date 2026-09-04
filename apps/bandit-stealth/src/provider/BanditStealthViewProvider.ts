@@ -2061,7 +2061,10 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         workspaceRoot: workspaceRootCheck,
         configuration,
         userGoal,
-        conversation: this.conversation
+        conversation: this.conversation,
+        // Cloud-only publish_artifact — pass the key only when signed in to
+        // Bandit cloud, so local/Ollama turns never register the tool.
+        banditApiKey: providerKind === 'bandit' && apiKey ? apiKey : undefined
       });
       const {
         workspaceRoot,
