@@ -48,3 +48,6 @@
 - Lazy-loaded topic memory: `MEMORY.md` at the workspace root is an index of `[Title](memory/<slug>.md) — hook` entries. Agent reads the index every turn and calls `read_memory(name="<slug>")` on demand.
 - `/remember <fact>` appends to `BANDIT.md`. `/init` scaffolds a fresh BANDIT.md in the shape above.
 - Latest agent-run output: `.bandit/agent-report.json`.
+
+### Product ideas (parked)
+- **Bandit Stealth Airgap** — offline/zero-network Bandit for orgs that can't touch the internet (defense/SCIFs, regulated finance, healthcare, critical infra). Bandit already runs fully offline on local Ollama, so "airgap" is packaging + verification, not a rewrite. **Pursue the direction, NOT the source briefing's over-scope** (FedRAMP/CMMC certs, P2P swarm, defense channel partners = a small-shop trap). Smallest real version: (1) verified offline bundle, (2) security-posture artifacts — SBOM + reproducible build + a **zero-egress proof** (network-egress test), (3) land ONE regulated design partner before building heavy. The microVM sandbox (anton) is the "hard isolation" airgap buyers want. GTM into defense/regulated is a founder call. The x.ai competitive numbers in the briefing need re-verification before external use.

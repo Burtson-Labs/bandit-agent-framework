@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.410
+
+- **Bandit Artifacts (cloud): publish a file, get a shareable link.** `/artifact <path>` in the terminal (or `bandit artifact <path>` from the shell) uploads a file to your Bandit cloud storage and prints a URL anyone can open. Cloud-only; local-only stays fully offline.
+
 ## 1.7.409
 
 - **Graph runs from a normal prompt (experimental).** When you open a conversation with a research-shaped, multi-part ask — "research X, separately get the latest on Y, then combine them" — the terminal now plans and runs it as a parallel graph automatically instead of grinding through it serially, and shows the synthesized result. It only kicks in on a fresh conversation for read-only, decomposable prompts (edit requests get a one-time suggestion instead); set `BANDIT_GRAPH=0` to turn it off.
