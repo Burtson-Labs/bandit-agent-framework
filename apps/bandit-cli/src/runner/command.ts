@@ -21,8 +21,8 @@ import { loadConfigFiles, resolveConfig } from '../config';
 import { CliToolExecutionContext } from '../cliToolContext';
 import { buildCliChatFn } from '../agent/cliChatFn';
 import { RemoteRunner } from './engine';
-import { HttpRunnerGateway } from './httpGateway';
-import { RUNNER_PROTOCOL_VERSION, type RemoteRunMode, type RunnerEvent, type RunnerGateway } from './contract';
+import { HttpRunnerGateway } from '@burtson-labs/host-kit';
+import { RUNNER_PROTOCOL_VERSION, type RemoteRunMode, type RunnerEvent, type RunnerGateway } from '@burtson-labs/host-kit';
 
 const DEFAULT_GATEWAY = 'https://api.burtson.ai';
 const VALID_MODES: RemoteRunMode[] = ['plan', 'ask', 'auto'];

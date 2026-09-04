@@ -22,7 +22,7 @@
  * and extension, so remote control can't drift from local enforcement.
  */
 import { classifyRisk, decidePermission } from '@burtson-labs/host-kit';
-import type { RemoteRunMode } from './contract';
+import type { RemoteRunMode } from '@burtson-labs/host-kit';
 
 export type BeforeToolExecute = (call: { name: string; params: Record<string, string> }) =>
   { allow: boolean; reason?: string };

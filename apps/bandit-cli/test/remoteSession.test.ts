@@ -5,7 +5,7 @@
  * becomes a host prompt, and mirrored turns POST to the session's event stream.
  */
 import { describe, it, expect } from 'vitest';
-import { RemoteSession } from '../src/runner/remoteSession';
+import { RemoteSession } from '@burtson-labs/host-kit';
 
 interface Call { url: string; method: string; body?: unknown }
 

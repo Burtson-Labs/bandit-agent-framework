@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { RemoteRunner } from '../src/runner/engine';
-import type { RemoteTask, RunnerEvent, RunnerGateway } from '../src/runner/contract';
+import type { RemoteTask, RunnerEvent, RunnerGateway } from '@burtson-labs/host-kit';
 import type { ChatFn, ToolExecutionContext } from '@burtson-labs/agent-core';
 
 /** Records every published event; can also feed tasks through the inbox. */

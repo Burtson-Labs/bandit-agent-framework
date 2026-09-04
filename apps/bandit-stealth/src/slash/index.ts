@@ -38,6 +38,10 @@ export interface SlashCommandContext {
   getProviderKind(config: vscode.WorkspaceConfiguration): ProviderKind;
   resolveOllamaBaseModel(config: vscode.WorkspaceConfiguration): string;
   hasBanditApiKey?(): Promise<boolean>;
+  /** `/remote on|off|status` — live-session remote control. Provided by the
+   *  view provider (owns the RemoteSession + turn injection). Returns a
+   *  markdown status string to render. */
+  remote?(sub: string): Promise<string>;
 }
 
 const HELP_BODY = [
@@ -56,6 +60,7 @@ const HELP_BODY = [
   '| `/ollama default` | Reset Ollama endpoint to `http://localhost:11434` |',
   '| `/ollama <url>` | Set the Ollama endpoint |',
   '| `/think on \\| off \\| auto` | Override per-model thinking mode |',
+  '| `/remote on \\| off \\| status` | Continue this session from Bandit Stealth Web (watch + drive it remotely) |',
   '| `/rewind [id]` | Restore a file from a checkpoint |',
   '| `/trace`, `/trace list`, `/trace failed`, `/trace <id>` | Inspect turn traces from workspace/global `.bandit/turns` |',
   '| `/profile [model]` | Show Bandit\'s behavior profile for a model |',
@@ -495,6 +500,15 @@ export async function handleSlashCommand(
       '',
       '_Workspace overrides load from `.bandit/model-profiles.json`._'
     ].join('\n'));
+    return true;
+  }
+
+  if (cmd === 'remote') {
+    if (!ctx.remote) {
+      await renderSystem('_Remote control is unavailable in this build._');
+      return true;
+    }
+    await renderSystem(await ctx.remote(arg));
     return true;
   }
 

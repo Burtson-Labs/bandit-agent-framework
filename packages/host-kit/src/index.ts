@@ -24,6 +24,18 @@ export {
   type MemoryWarnFn
 } from './memoryIndex';
 export { buildReadMemoryTool } from './tools/readMemoryTool';
+// Remote control: the local-runner ↔ gateway transport + live-session driver.
+// Host-agnostic (only fetch + ReadableStream), so BOTH the CLI and the VS Code
+// extension import the SAME RemoteSession — one proven mechanism, not two copies.
+export {
+  RUNNER_PROTOCOL_VERSION,
+  type RemoteRunMode,
+  type RemoteTask,
+  type RunnerEvent,
+  type RunnerGateway
+} from './runner/contract';
+export { HttpRunnerGateway, type HttpGatewayOptions } from './runner/httpGateway';
+export { RemoteSession, type RemoteSessionOptions } from './runner/remoteSession';
 export {
   loadMcpServersConfig,
   registerMcpServersFromDisk,
