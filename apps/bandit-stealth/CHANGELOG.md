@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.409
+
+- **Graph runs from a normal prompt (experimental).** When you open a conversation with a research-shaped, multi-part ask — "research X, separately get the latest on Y, then combine them" — the terminal now plans and runs it as a parallel graph automatically instead of grinding through it serially, and shows the synthesized result. It only kicks in on a fresh conversation for read-only, decomposable prompts (edit requests get a one-time suggestion instead); set `BANDIT_GRAPH=0` to turn it off.
+- **Experimental: spec-driven runs.** Write a spec — a goal plus checkable acceptance criteria — and Bandit turns it into a dependency graph that plans the work and verifies each criterion. `BANDIT_GRAPH=1 bandit spec new <name>` scaffolds a spec; `bandit spec run <file>` plans it and reports, per criterion, what's already met vs. missing (read-only in this preview — no edits). Composes the graph runtime: spec → plan → acceptance-criteria-as-checks.
+
 ## 1.7.408
 
 - **Learning memory (opt-in): Bandit gets better at your repo over time.** After each turn, it distills any durable, repo-specific fact — "this project uses pnpm", "tests for src/api live in test/api", "the build needs codegen first" — into `.bandit/lessons.md`, and reads those lessons back on future turns. Turn it on with `banditStealth.learnFromRuns` in the editor or `/lessons on` in the CLI; `/lessons` shows what it's learned, `/lessons clear` wipes it. The file is plain markdown you can review, edit, or commit. Off by default (one small extra model call per turn), and distillation is conservative — most turns learn nothing.
