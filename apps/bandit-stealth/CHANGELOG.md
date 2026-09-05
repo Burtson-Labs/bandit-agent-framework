@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.418
+
+- **Fixed: sharing artifacts from the standalone CLI binary.** `/insights --share`, `bandit artifact <file>`, and the agent's publish-artifact tool were failing with a 500 on the standalone build — its upload request didn't carry a clean content length, which the storage backend rejected. Uploads now build the request in a runtime-agnostic way, so the standalone binary and the Node install behave identically.
+
 ## 1.7.417
 
 - **Manage your artifacts.** `bandit artifact ls` lists your shareable artifacts, `bandit artifact rm <url>` deletes one, and `bandit artifact clear` removes them all — same as `/artifact ls | rm | clear` in the terminal. Artifacts also now auto-expire after 90 days, so they stop piling up.
