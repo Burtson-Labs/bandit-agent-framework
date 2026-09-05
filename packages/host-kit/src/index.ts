@@ -34,12 +34,17 @@ export {
   listArtifacts,
   deleteArtifact,
   clearArtifacts,
+  createShareLink,
+  revokeShareLink,
+  listShareLinks,
   artifactKeyFromUrl,
   DEFAULT_AUTH_BASE_URL,
   type PublishArtifactOptions,
   type PublishedArtifact,
   type ArtifactManageOptions,
-  type ArtifactListItem
+  type ArtifactListItem,
+  type ArtifactShareLink,
+  type ArtifactShareInfo
 } from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 // Sandbox execution seam — swappable boundary for running commands (local host
