@@ -304,6 +304,40 @@ export async function createShareLink(
   return { url: body.url, token: body.token ?? '', expiresAt: body.expiresAt ?? '' };
 }
 
+export interface EmailedShareLink extends ArtifactShareLink {
+  /** True if Postmark accepted the message; false when mail isn't configured or delivery failed
+   *  (the link is still valid — email is best-effort). */
+  emailed: boolean;
+}
+
+/**
+ * Create an external share link AND email it to a recipient. The link is a normal
+ * external token (expiring + revocable); this just adds delivery via S3Api's
+ * Postmark sender. Email is best-effort — `emailed:false` means the link is good
+ * but the message didn't go out (mail unconfigured / delivery failed).
+ */
+export async function emailShareLink(
+  opts: ArtifactManageOptions & { keyOrUrl: string; to: string; expiryMinutes?: number; message?: string }
+): Promise<EmailedShareLink> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/share/email`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ key, to: opts.to, expiryMinutes: opts.expiryMinutes, message: opts.message }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not email share link: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const body = (await res.json()) as { url?: string; token?: string; expiresAt?: string; emailed?: boolean };
+  if (!body.url) throw new Error('share link created but no URL was returned');
+  return { url: body.url, token: body.token ?? '', expiresAt: body.expiresAt ?? '', emailed: body.emailed ?? false };
+}
+
 /** Revoke an external share link by its token (kills it immediately). */
 export async function revokeShareLink(opts: ArtifactManageOptions & { shareToken: string }): Promise<void> {
   const fetchImpl = opts.fetchImpl ?? fetch;

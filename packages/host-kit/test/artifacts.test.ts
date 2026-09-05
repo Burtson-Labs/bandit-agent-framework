@@ -13,6 +13,7 @@ import {
   deleteArtifact,
   clearArtifacts,
   createShareLink,
+  emailShareLink,
   revokeShareLink,
   listShareLinks,
   artifactKeyFromUrl
@@ -230,6 +231,25 @@ describe('artifact management', () => {
     expect(link).toMatchObject({ token: 'tok', url: 'https://s3/api/artifact/shared/tok' });
     expect(calls[0]).toMatchObject({ url: 'https://s3/api/artifact/share', method: 'POST' });
     expect(JSON.parse(calls[0].body!)).toEqual({ key: 'team-1/a.html', expiryMinutes: 120 });
+  });
+
+  it('emailShareLink POSTs {key,to,expiryMinutes,message} and returns url/token/emailed', async () => {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method, body: init?.body });
+      return { ok: true, status: 200, json: async () => ({ url: 'https://s3/api/artifact/shared/tok', token: 'tok', expiresAt: '2026-09-12T00:00:00Z', emailed: true }) } as Response;
+    }) as unknown as typeof fetch;
+    const res = await emailShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'https://s3/api/artifact/team-1/a.html', to: 'client@acme.com', expiryMinutes: 10080, message: 'here you go', fetchImpl });
+    expect(res).toMatchObject({ token: 'tok', url: 'https://s3/api/artifact/shared/tok', emailed: true });
+    expect(calls[0]).toMatchObject({ url: 'https://s3/api/artifact/share/email', method: 'POST' });
+    expect(JSON.parse(calls[0].body!)).toEqual({ key: 'team-1/a.html', to: 'client@acme.com', expiryMinutes: 10080, message: 'here you go' });
+  });
+
+  it('emailShareLink surfaces emailed:false when mail is best-effort/unconfigured', async () => {
+    const fetchImpl = (async () => ({ ok: true, status: 200, json: async () => ({ url: 'https://s3/api/artifact/shared/t2', token: 't2', expiresAt: 'e', emailed: false }) } as Response)) as unknown as typeof fetch;
+    const res = await emailShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'k', to: 'a@b.com', fetchImpl });
+    expect(res.emailed).toBe(false);
+    expect(res.url).toContain('/shared/t2');
   });
 
   it('revokeShareLink DELETEs the token; 404 → clear error', async () => {
