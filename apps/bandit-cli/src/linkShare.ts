@@ -42,12 +42,18 @@ export function openInBrowser(url: string): void {
  * clipboard, and optionally open the browser — with a dim hint noting what
  * happened. Returns the string to print.
  */
-export function renderPublishedLink(url: string, opts: { label?: string; open?: boolean } = {}): string {
+export function renderPublishedLink(
+  url: string,
+  opts: { label?: string; open?: boolean; manageUrl?: string } = {}
+): string {
   const copied = copyToClipboard(url);
   if (opts.open) openInBrowser(url);
   const label = opts.label ?? 'shareable link';
   const hint = [copied ? 'copied' : null, 'click to open', opts.open ? 'opening in browser' : null]
     .filter(Boolean)
     .join(' · ');
-  return c.green(`${glyph.check} ${label}:\n`) + '  ' + linkify(url) + c.dim(`\n  (${hint})`);
+  const manage = opts.manageUrl
+    ? c.dim(`\n  manage & share externally: `) + linkify(opts.manageUrl)
+    : '';
+  return c.green(`${glyph.check} ${label}:\n`) + '  ' + linkify(url) + c.dim(`\n  (${hint})`) + manage;
 }

@@ -4681,7 +4681,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const artifact = await hostKit.publishArtifact({
         ...base, scope: team ? 'team' : undefined, content: new Uint8Array(bytes), filename, contentType: hostKit.guessContentType(filename),
       });
-      return renderPublishedLink(artifact.url, { label: team ? `published ${filename} to your team` : `published ${filename} (private)` });
+      return renderPublishedLink(artifact.url, {
+        label: team ? `published ${filename} to your team` : `published ${filename} (private)`,
+        manageUrl: `${remoteWebBase}/artifacts`,
+      });
     } catch (err) { return fail(err); }
   };
 
