@@ -4627,7 +4627,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   const handleArtifactCommand = async (arg: string): Promise<string> => {
     const tokens = arg.trim().split(/\s+/).filter(Boolean);
     const sub = (tokens[0] ?? '').toLowerCase();
-    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | rm <url|key> | clear [--team] --yes');
+    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | scope <url> <private|team> | rm <url|key> | clear [--team] --yes');
     if (!resolved.apiKey) {
       return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
     }
@@ -4706,6 +4706,16 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       if (!t) return c.dim('usage: /artifact unshare <token>');
       try { await hostKit.revokeShareLink({ ...base, shareToken: t }); return c.green(`${glyph.check} revoked`); }
       catch (err) { return fail(err); }
+    }
+
+    if (sub === 'scope') {
+      const t = posArgs[1];
+      const next = (posArgs[2] ?? '').toLowerCase();
+      if (!t || (next !== 'private' && next !== 'team')) return c.dim('usage: /artifact scope <url|key> <private|team>');
+      try {
+        const moved = await hostKit.setArtifactScope({ ...base, keyOrUrl: t, scope: next as 'private' | 'team' });
+        return c.green(`${glyph.check} now ${next === 'team' ? 'shared with your team' : 'private'}: `) + c.cyan(moved.url);
+      } catch (err) { return fail(err); }
     }
 
     if (sub === 'clear') {

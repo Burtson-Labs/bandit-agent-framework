@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.427
+
+- **Switch an artifact between private and team anytime.** Toggle it from the Artifacts dashboard ("Make team" / "Make private") or the CLI (`bandit artifact scope <url> team|private`) — no need to re-publish. Any live share links you've handed out keep working across the switch. (Also: the Artifacts button now appears in the desktop app, not just the browser.)
+
 ## 1.7.426
 
 - **Private artifacts are now truly private.** An artifact's own URL requires you to be signed in — outside viewers can only open a **share link** you create, which stays expiring and revocable. Publishing says so plainly and points you to `bandit artifact share`/`email`; `/insights --share` now hands back a real openable share link. Added `/artifact share | email | shares | unshare` inside the CLI too. (A dead or revoked link now shows a friendly page instead of a raw error.)

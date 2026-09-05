@@ -16,6 +16,7 @@ import {
   emailShareLink,
   revokeShareLink,
   listShareLinks,
+  setArtifactScope,
   artifactKeyFromUrl
 } from '../src/artifacts';
 
@@ -250,6 +251,18 @@ describe('artifact management', () => {
     const res = await emailShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'k', to: 'a@b.com', fetchImpl });
     expect(res.emailed).toBe(false);
     expect(res.url).toContain('/shared/t2');
+  });
+
+  it('setArtifactScope POSTs {key,scope} to /scope and returns the new key/url', async () => {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method, body: init?.body });
+      return { ok: true, status: 200, json: async () => ({ key: 'team-9/g-a.html', url: 'https://s3/api/artifact/team-9/g-a.html', scope: 'team' }) } as Response;
+    }) as unknown as typeof fetch;
+    const res = await setArtifactScope({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'https://s3/api/artifact/owner-1/g-a.html', scope: 'team', fetchImpl });
+    expect(res).toMatchObject({ key: 'team-9/g-a.html', scope: 'team' });
+    expect(calls[0]).toMatchObject({ url: 'https://s3/api/artifact/scope', method: 'POST' });
+    expect(JSON.parse(calls[0].body!)).toEqual({ key: 'owner-1/g-a.html', scope: 'team' });
   });
 
   it('revokeShareLink DELETEs the token; 404 → clear error', async () => {
