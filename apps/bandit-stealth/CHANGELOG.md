@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.424
+
+- **Bandit can share externally for you.** Ask Bandit to "publish this and give me a link I can send a client" and it now mints an **expiring, revocable external link** itself — no separate command. The link works for anyone (no Bandit account), auto-expires, and you can revoke it from the dashboard or `bandit artifact unshare <token>`.
+
 ## 1.7.423
 
 - **Manage & share right where you publish.** Publishing an artifact now prints a link to your **Artifacts dashboard** so you can jump straight to it to create external share links, revoke them, or delete the file — from the browser. The dashboard's new **Share externally** panel lets you mint an expiring link (1/7/30 days), copy it, see view counts, and revoke — no CLI needed.

@@ -47,6 +47,7 @@ export {
   type ArtifactShareInfo
 } from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';
+export { buildShareArtifactTool } from './tools/shareArtifactTool';
 // Sandbox execution seam — swappable boundary for running commands (local host
 // today; Firecracker microVM via anton once its exec endpoint lands).
 export {
