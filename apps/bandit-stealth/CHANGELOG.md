@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.429
+
+- **Published artifacts give you a link that actually opens.** Publishing (from the agent or the CLI) now hands back a **Stealth dashboard link** that signs you in and shows the artifact — instead of the raw storage URL, which (being private) returned an "Authorization header missing" error when opened in a browser. Click it → you're in the dashboard viewing it, where you can also share or delete it.
+
 ## 1.7.428
 
 - **Bandit can see and tidy up your artifacts.** Ask "what have I published?" and Bandit lists your artifacts; ask it to "delete that draft" and it removes the right one (deleting also revokes the artifact's share links). Two new tools — `list_artifacts` and `delete_artifact` — round out publish/share so the whole artifact lifecycle works in a turn. The dashboard also gains an **All / Private / Team filter** so team artifacts are easy to browse.

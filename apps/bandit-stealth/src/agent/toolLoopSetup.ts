@@ -164,7 +164,8 @@ export async function buildTurnRunContext(
     const artifactToolOpts = {
       token: banditApiKey,
       s3ApiBaseUrl: process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai',
-      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
+      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai',
+      webBaseUrl: process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com'
     };
     registry.register(buildPublishArtifactTool(artifactToolOpts));
     // share_artifact — mint an external, revocable link for an already-published

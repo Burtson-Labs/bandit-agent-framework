@@ -10,9 +10,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
-import { publishArtifact, guessContentType } from '../artifacts';
+import { publishArtifact, guessContentType, artifactKeyFromUrl } from '../artifacts';
 
-export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: string; authBaseUrl?: string }): AgentTool {
+export function buildPublishArtifactTool(opts: {
+  token: string;
+  s3ApiBaseUrl: string;
+  authBaseUrl?: string;
+  /** Stealth dashboard base (e.g. https://stealth.banditailabs.com). When set, the tool returns a
+   *  dashboard deep-link to VIEW the artifact instead of the raw owner-only S3 URL (which 401s in a browser). */
+  webBaseUrl?: string;
+}): AgentTool {
   return {
     name: 'publish_artifact',
     description:
@@ -54,7 +61,22 @@ export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: st
           filename: path.basename(abs),
           contentType: guessContentType(path.basename(abs))
         });
-        return { output: `Published "${path.basename(abs)}"${scope === 'team' ? ' (shared with your team)' : ''} — shareable link: ${artifact.url}` };
+        // The raw S3 URL is owner-only (401 in a browser), so hand the user a dashboard deep-link to
+        // VIEW it (the dashboard signs them in and renders it). Keep the raw URL in the output only so
+        // the model can chain to share_artifact when the user wants an external link.
+        const name = path.basename(abs);
+        const key = artifactKeyFromUrl(artifact.url);
+        const dashUrl = opts.webBaseUrl
+          ? `${opts.webBaseUrl.replace(/\/$/, '')}/artifacts?a=${encodeURIComponent(key)}`
+          : null;
+        const viewLine = dashUrl
+          ? ` The user can open and manage it here (signs them in if needed): ${dashUrl}`
+          : '';
+        return {
+          output:
+            `Published "${name}"${scope === 'team' ? ' to the team' : ' (private)'}.` + viewLine +
+            ` To create an external link anyone can open without signing in, call share_artifact with url "${artifact.url}".`
+        };
       } catch (err) {
         return { output: `Error publishing artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
