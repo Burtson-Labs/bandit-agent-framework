@@ -70,6 +70,7 @@ vi.mock('@burtson-labs/host-kit', () => {
     buildRememberTool: makeBuilder('remember'),
     buildReadMemoryTool: makeBuilder('read_memory'),
     buildTestRunTool: makeBuilder('test_run'),
+    buildFetchImageTool: makeBuilder('fetch_image'),
     loadCombinedMemory: vi.fn(async () => ({ content: 'memo', sources: ['BANDIT.md'] })),
     loadHookSettings: vi.fn(async () => ({ hooks: {} })),
     openTurnLog: vi.fn(async () => ({
@@ -148,7 +149,7 @@ describe('buildTurnRunContext', () => {
     expect(result.todoStore).toBeDefined();
   });
 
-  it('registers the six built-in tools on the returned registry (drop one = silent behavior change)', async () => {
+  it('registers the seven built-in tools on the returned registry (drop one = silent behavior change)', async () => {
     await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), baseOptions);
 
     const names = agentCoreMock.registeredTools.map((t) => t.name);
@@ -158,7 +159,8 @@ describe('buildTurnRunContext', () => {
       'web_search',
       'remember',
       'read_memory',
-      'test_run'
+      'test_run',
+      'fetch_image'
     ]);
   });
 
