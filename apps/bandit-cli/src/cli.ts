@@ -4470,7 +4470,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     shareArtifact: resolved.apiKey
       ? async (absPath: string, scope?: 'private' | 'team'): Promise<string> => {
           const token = resolved.apiKey as string;
-          const { publishArtifact, guessContentType } = await import('@burtson-labs/host-kit');
+          const { publishArtifact, createShareLink, guessContentType } = await import('@burtson-labs/host-kit');
           const bytes = await fs.promises.readFile(absPath);
           const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
           const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
@@ -4484,7 +4484,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             filename,
             contentType: guessContentType(filename)
           });
-          return artifact.url;
+          // The raw artifact URL is owner-only now, so /insights --share hands back an
+          // actual external share link (openable, expiring, revocable) — that's the point of --share.
+          const link = await createShareLink({ s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token, keyOrUrl: artifact.url });
+          return link.url;
         }
       : undefined,
     runMemoryMigrateWizard: async () => {
@@ -4624,7 +4627,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   const handleArtifactCommand = async (arg: string): Promise<string> => {
     const tokens = arg.trim().split(/\s+/).filter(Boolean);
     const sub = (tokens[0] ?? '').toLowerCase();
-    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | rm <url|key> | clear [--team] --yes');
+    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | rm <url|key> | clear [--team] --yes');
     if (!resolved.apiKey) {
       return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
     }
@@ -4634,6 +4637,15 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     const base = { s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token: resolved.apiKey };
     const team = tokens.includes('--team'); // default is private (only you)
     const fail = (err: unknown) => c.red(`${glyph.cross} ${err instanceof Error ? err.message : String(err)}`);
+    const posArgs = tokens.filter((x) => !x.startsWith('-'));
+    const parseDur = (raw?: string): number | undefined => {
+      if (!raw) return undefined;
+      const m = /^(\d+)\s*(d|h|m)?$/i.exec(raw.trim());
+      if (!m) return undefined;
+      const n = parseInt(m[1], 10); const u = (m[2] ?? 'm').toLowerCase();
+      return u === 'd' ? n * 24 * 60 : u === 'h' ? n * 60 : n;
+    };
+    const expiryArg = () => { const i = tokens.findIndex((x) => x === '--expires' || x === '--expiry'); return i >= 0 ? parseDur(tokens[i + 1]) : undefined; };
 
     if (sub === 'ls' || sub === 'list') {
       try {
@@ -4653,6 +4665,46 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const t = tokens.slice(1).find((x) => !x.startsWith('-'));
       if (!t) return c.dim('usage: /artifact rm <url|key>');
       try { await hostKit.deleteArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} deleted`); }
+      catch (err) { return fail(err); }
+    }
+
+    if (sub === 'share') {
+      const t = posArgs[1];
+      if (!t) return c.dim('usage: /artifact share <url|key> [--expires 7d]');
+      try {
+        const link = await hostKit.createShareLink({ ...base, keyOrUrl: t, expiryMinutes: expiryArg() });
+        const when = (link.expiresAt || '').replace('T', ' ').slice(0, 16);
+        return c.green(`${glyph.check} external link${when ? ` (expires ${when} UTC)` : ''}: `) + c.cyan(link.url) + c.dim(`\n  revoke: /artifact unshare ${link.token}`);
+      } catch (err) { return fail(err); }
+    }
+
+    if (sub === 'email') {
+      const t = posArgs[1];
+      const to = posArgs[2];
+      if (!t || !to) return c.dim('usage: /artifact email <url|key> <recipient> [--expires 7d]');
+      try {
+        const link = await hostKit.emailShareLink({ ...base, keyOrUrl: t, to, expiryMinutes: expiryArg() });
+        return link.emailed
+          ? c.green(`${glyph.check} emailed ${to}: `) + c.cyan(link.url)
+          : c.yellow(`link created but email is off — share directly: `) + c.cyan(link.url);
+      } catch (err) { return fail(err); }
+    }
+
+    if (sub === 'shares') {
+      const t = posArgs[1];
+      if (!t) return c.dim('usage: /artifact shares <url|key>');
+      try {
+        const links = await hostKit.listShareLinks({ ...base, keyOrUrl: t });
+        if (!links.length) return c.dim('no active external links for that artifact.');
+        return c.bold(`active links (${links.length}):\n`) + links.map((l) =>
+          `  ${c.dim(`exp ${(l.expiresAt || '').replace('T', ' ').slice(0, 16)}`)}  ${c.dim(`${l.views}v`)}  ${c.cyan(l.url)}`).join('\n');
+      } catch (err) { return fail(err); }
+    }
+
+    if (sub === 'unshare' || sub === 'revoke') {
+      const t = posArgs[1];
+      if (!t) return c.dim('usage: /artifact unshare <token>');
+      try { await hostKit.revokeShareLink({ ...base, shareToken: t }); return c.green(`${glyph.check} revoked`); }
       catch (err) { return fail(err); }
     }
 
@@ -4686,7 +4738,8 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       return renderPublishedLink(artifact.url, {
         label: team ? `published ${filename} to your team` : `published ${filename} (private)`,
         manageUrl: `${remoteWebBase}/artifacts`,
-      });
+        ownerOnly: true,
+      }) + c.dim(`\n  share it: `) + c.cyan('/artifact share <url>') + c.dim(' or ') + c.cyan('bandit artifact email <url> <to>');
     } catch (err) { return fail(err); }
   };
 
