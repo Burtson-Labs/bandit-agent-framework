@@ -29,7 +29,14 @@ import { c, glyph } from './ansi';
 /** Read-only tool surface for graph nodes. Names must match the core
  *  registry; run_command is deliberately absent — graph runs need zero
  *  permission prompts and zero side effects in v1. */
-export const READ_ONLY_TOOLS = ['read_file', 'list_files', 'ls', 'search_code', 'find_directory'];
+// Read-only tool allowlist for graph nodes (v1 runs every node read-only). Includes
+// FILESYSTEM reads AND the read-only RESEARCH tools — web_fetch/web_search especially,
+// so a "research X" node can actually fetch/search (it can't use run_command, which
+// executes). Missing the web tools made research nodes fall back to training data.
+export const READ_ONLY_TOOLS = [
+  'read_file', 'list_files', 'ls', 'search_code', 'find_directory', 'glob',
+  'web_fetch', 'web_search', 'read_pdf', 'read_memory', 'list_artifacts', 'fetch_image'
+];
 
 export interface GraphRunFile {
   version: 1;
