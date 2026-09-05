@@ -216,4 +216,22 @@ describe('artifact management', () => {
     expect(n).toBe(7);
     expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/mine', method: 'DELETE' });
   });
+
+  it('scope=team adds ?scope=team on publish and clear; default (private) does not', async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(url);
+      if (url.includes('/mine')) return { ok: true, status: 200, json: async () => ({ deleted: 0 }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ url: 'u', key: 'k', size: 1 }) } as Response;
+    }) as unknown as typeof fetch;
+    const commonPub = { s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', content: 'x', filename: 'a.md', fetchImpl } as const;
+    await publishArtifact({ ...commonPub, scope: 'team' });
+    await publishArtifact({ ...commonPub }); // default private
+    await clearArtifacts({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', scope: 'team', fetchImpl });
+    await clearArtifacts({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', fetchImpl });
+    expect(urls[0]).toBe('https://s3.burtson.ai/api/artifact?scope=team');
+    expect(urls[1]).toBe('https://s3.burtson.ai/api/artifact'); // private → no query
+    expect(urls[2]).toBe('https://s3.burtson.ai/api/artifact/mine?scope=team');
+    expect(urls[3]).toBe('https://s3.burtson.ai/api/artifact/mine');
+  });
 });

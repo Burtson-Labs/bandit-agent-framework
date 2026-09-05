@@ -286,9 +286,10 @@ export interface SlashContext {
   /** Publish a local file as a shareable Bandit Artifact and return its URL.
    * Used by `/insights --share`. cli.ts wires this with the resolved cloud
    * token + S3Api/Auth base URLs (publishArtifact handles the bai_→JWT
-   * exchange). Absent when the user isn't signed in to Bandit cloud, so the
-   * slash command falls back to a clear "cloud feature" message. */
-  shareArtifact?: (absPath: string) => Promise<string>;
+   * exchange). `scope` defaults to 'private'; 'team' shares with the team.
+   * Absent when the user isn't signed in to Bandit cloud, so the slash command
+   * falls back to a clear "cloud feature" message. */
+  shareArtifact?: (absPath: string, scope?: 'private' | 'team') => Promise<string>;
   /** Hand-off to the interactive memory-migrate wizard. The slash
    *  command's job is just to detect the right subcommand and queue
    *  the plan prompt or invoke this callback; cli.ts owns the actual
@@ -1536,6 +1537,7 @@ export const slashCommands: SlashCommand[] = [
       const noAi = tokens.includes('--no-ai');
       const textOnly = tokens.includes('--text') || tokens.includes('-t');
       const share = tokens.includes('--share');
+      const shareTeam = tokens.includes('--team'); // /insights --share --team
       const out = tokens.find((t) => !t.startsWith('--') && !t.startsWith('-'));
       try {
         // Lazy require so the slash-command module doesn't pull insights
@@ -1625,10 +1627,10 @@ export const slashCommands: SlashCommand[] = [
           }
           process.stdout.write(c.dim('  publishing report as a shareable artifact…\n'));
           try {
-            const url = await ctx.shareArtifact(written);
+            const url = await ctx.shareArtifact(written, shareTeam ? 'team' : undefined);
             // Clickable + copied to clipboard, and pop the shared report open in
             // the browser (this is the "see it" flow, like plain /insights does).
-            return renderPublishedLink(url, { label: 'insights published', open: true });
+            return renderPublishedLink(url, { label: shareTeam ? 'insights published to your team' : 'insights published', open: true });
           } catch (err) {
             return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
               c.red(`  ${glyph.cross} share failed: ${err instanceof Error ? err.message : String(err)}`);

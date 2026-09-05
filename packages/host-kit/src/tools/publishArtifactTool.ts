@@ -23,6 +23,11 @@ export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: st
         name: 'path',
         description: 'Workspace-relative (or absolute) path to the file to publish, e.g. "README.md".',
         required: true
+      },
+      {
+        name: 'scope',
+        description: 'Visibility: "private" (default, only the user) or "team" (shared with their team). The link works for anyone either way.',
+        required: false
       }
     ],
     async execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult> {
@@ -39,15 +44,17 @@ export function buildPublishArtifactTool(opts: { token: string; s3ApiBaseUrl: st
       }
 
       try {
+        const scope = (params.scope ?? '').trim().toLowerCase() === 'team' ? 'team' : undefined;
         const artifact = await publishArtifact({
           s3ApiBaseUrl: opts.s3ApiBaseUrl,
           authBaseUrl: opts.authBaseUrl,
           token: opts.token,
+          scope,
           content: new Uint8Array(bytes),
           filename: path.basename(abs),
           contentType: guessContentType(path.basename(abs))
         });
-        return { output: `Published "${path.basename(abs)}" — shareable link: ${artifact.url}` };
+        return { output: `Published "${path.basename(abs)}"${scope === 'team' ? ' (shared with your team)' : ''} — shareable link: ${artifact.url}` };
       } catch (err) {
         return { output: `Error publishing artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }

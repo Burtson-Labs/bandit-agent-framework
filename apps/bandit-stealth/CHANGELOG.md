@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.420
+
+- **Private or team artifacts, your choice.** Artifacts are now **private to you by default** — teammates no longer see them in `bandit artifact ls`. Add `--team` to publish into your team's shared space: `bandit artifact <file> --team`, `/insights --share --team`, or `scope: "team"` on the agent's publish tool. `ls` tags each artifact `private`/`team`, and `clear` only removes your private ones unless you pass `--team`. (The shareable link still opens for anyone you send it to, whatever the scope.)
+
 ## 1.7.419
 
 - **Share links are clickable, copied, and open in your browser.** Publishing an artifact (`/insights --share`, `bandit artifact`, `/artifact`) now prints a clickable terminal link and copies the URL to your clipboard automatically. `/insights --share` also opens the published report in your browser so you can see it right away. Your artifact list (`ls`) links are clickable too.
