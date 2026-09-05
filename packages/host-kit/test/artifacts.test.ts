@@ -26,13 +26,16 @@ describe('guessContentType', () => {
 
 describe('publishArtifact', () => {
   function capturingFetch(response: { ok: boolean; status?: number; body: unknown }) {
-    const calls: Array<{ url: string; method?: string; auth?: string; hasForm: boolean }> = [];
+    const calls: Array<{ url: string; method?: string; auth?: string; contentType?: string; bodyIsBytes: boolean }> = [];
     const fetchImpl = (async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown }) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
       calls.push({
         url,
         method: init?.method,
-        auth: (init?.headers as Record<string, string>)?.authorization,
-        hasForm: typeof FormData !== 'undefined' && init?.body instanceof FormData,
+        auth: headers.authorization,
+        contentType: headers['content-type'],
+        // Body is a hand-built Uint8Array now (runtime-agnostic), NOT FormData.
+        bodyIsBytes: init?.body instanceof Uint8Array,
       });
       return {
         ok: response.ok,
@@ -43,7 +46,7 @@ describe('publishArtifact', () => {
     return { calls, fetchImpl };
   }
 
-  it('uploads with the bearer token and returns the shareable URL', async () => {
+  it('uploads a hand-built multipart body with the bearer token, returns the URL', async () => {
     const { calls, fetchImpl } = capturingFetch({
       ok: true,
       body: { url: 'https://s3.burtson.ai/api/artifact/owner-abc/deadbeef.html', key: 'owner-abc/deadbeef.html', size: 42 },
@@ -60,8 +63,10 @@ describe('publishArtifact', () => {
       url: 'https://s3.burtson.ai/api/artifact', // trailing slash trimmed
       method: 'POST',
       auth: 'Bearer jwt-123',
-      hasForm: true,
+      bodyIsBytes: true, // NOT FormData — the Bun-compat fix
     });
+    // We set the multipart content-type ourselves (with the boundary).
+    expect(calls[0].contentType).toMatch(/^multipart\/form-data; boundary=----banditartifact/);
   });
 
   it('throws with the server message on failure (no silent fail)', async () => {

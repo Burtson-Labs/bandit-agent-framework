@@ -105,6 +105,38 @@ export async function resolveGatewayToken(
 }
 
 /**
+ * Build a multipart/form-data body by hand. We deliberately do NOT use
+ * FormData + Blob: Bun's fetch encodes those WITHOUT a clean Content-Length
+ * (it streams chunked), which makes S3Api's forwarded SigV4 upload signature
+ * mismatch on MinIO (`SignatureDoesNotMatch` → 500). That's reproducible on the
+ * Bun-compiled standalone CLI and INVISIBLE on Node (which is why it looked
+ * intermittent). A hand-built body over a single Uint8Array is byte-identical
+ * on Bun and Node, carries a real Content-Length, and is replayable across
+ * retries. Field name must match S3Api's `UploadRequest.File`.
+ */
+function buildMultipartBody(
+  fieldName: string,
+  filename: string,
+  contentType: string,
+  bytes: Uint8Array
+): { body: Uint8Array; contentType: string } {
+  const boundary = '----banditartifact' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+  const enc = new TextEncoder();
+  const safeName = filename.replace(/["\\\r\n]/g, '_'); // keep the header well-formed
+  const head = enc.encode(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="${fieldName}"; filename="${safeName}"\r\n` +
+    `Content-Type: ${contentType}\r\n\r\n`
+  );
+  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+  const body = new Uint8Array(head.length + bytes.length + tail.length);
+  body.set(head, 0);
+  body.set(bytes, head.length);
+  body.set(tail, head.length + bytes.length);
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+/**
  * Upload an artifact and return its shareable URL. Throws on a non-2xx (with
  * the status + server message) so callers can surface a clear failure — this
  * is user-initiated ("share this"), so silent failure would be worse than an
@@ -119,30 +151,24 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   // S3Api validates a gateway JWT, not the `bai_` device key — trade up first.
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
 
-  // The S3Api→MinIO leg intermittently 500s with a SigV4 "signature does not
-  // match" (chunked-payload signing over distributed MinIO with a non-seekable
-  // stream). A fresh POST almost always succeeds, so retry 5xx + network errors
-  // with a short backoff. 4xx (auth, too-large) are terminal — retrying can't
-  // fix them, so surface those immediately.
+  // Hand-built multipart body (see buildMultipartBody) — runtime-agnostic, so the
+  // Bun-compiled CLI uploads identically to Node. Built once; a Uint8Array is
+  // replayable across retries.
+  const { body, contentType: multipartContentType } = buildMultipartBody('File', opts.filename, contentType, bytes);
+
+  // Retry 5xx + network errors with a short backoff (the S3Api→MinIO leg can
+  // still transiently flake). 4xx (auth, too-large) are terminal — surface those.
   const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
   const backoffMs = opts.retryDelayMs ?? 300;
   let lastError: Error = new Error('artifact upload failed');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // Rebuild the multipart body each attempt — a consumed stream/body can't be
-    // replayed. Field name must match S3Api's UploadRequest.File. Don't set a
-    // Content-Type header ourselves — fetch derives the multipart boundary.
-    // Cast: Uint8Array is a valid BlobPart at runtime; the cast only sidesteps
-    // TS 5.7's ArrayBufferLike/SharedArrayBuffer generic strictness.
-    const form = new FormData();
-    form.append('File', new Blob([bytes as unknown as BlobPart], { type: contentType }), opts.filename);
-
     let res: Response;
     try {
       res = await fetchImpl(`${base}/api/artifact`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${bearer}` },
-        body: form,
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': multipartContentType },
+        body: body as unknown as BodyInit,
       });
     } catch (err) {
       // Network-level failure — transient, worth a retry.
