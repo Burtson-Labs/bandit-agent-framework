@@ -37,6 +37,8 @@ import {
   TodoStore,
   buildPublishArtifactTool,
   buildShareArtifactTool,
+  buildListArtifactsTool,
+  buildDeleteArtifactTool,
   buildReadMemoryTool,
   buildRememberTool,
   buildTestRunTool,
@@ -168,6 +170,10 @@ export async function buildTurnRunContext(
     // share_artifact — mint an external, revocable link for an already-published
     // artifact, so "publish this and give me a link to send out" works in-editor.
     registry.register(buildShareArtifactTool(artifactToolOpts));
+    // list_artifacts / delete_artifact — round out the agent's artifact management
+    // (see what's published, clean one up) without leaving the editor.
+    registry.register(buildListArtifactsTool(artifactToolOpts));
+    registry.register(buildDeleteArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — surface every connected server's tools as
