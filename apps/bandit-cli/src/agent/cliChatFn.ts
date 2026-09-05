@@ -275,7 +275,12 @@ export async function buildCliChatFn(deps: CliChatFnDeps): Promise<ChatFn> {
           const tail = verbose
             ? ` [${diag}]`
             : '';
-          const friendly = `The model server didn't respond within ${elapsed}s. Most often this is a cold-load or a transient gateway blip — retrying usually works. To extend the watchdog: export BANDIT_NO_TOKEN_WATCHDOG_MS=120000 (2m) or =0 to disable. For diagnostics: BANDIT_VERBOSE=1.${tail}`;
+          // Friendly + no plumbing: a first-token watchdog fire is almost always
+          // a cold start (the model wasn't warm and took a moment to spin up).
+          // We don't dangle watchdog env-vars at the user — "try again" is the
+          // real advice, and BANDIT_VERBOSE=1 still attaches the diagnostic tail
+          // for anyone who wants it.
+          const friendly = `The model took a moment to warm up and didn't answer in ${elapsed}s — this is usually a cold start after a break. Give it another go; it's almost always ready on the next try.${tail}`;
           // tag the error so the REPL queue-worker can detect
           // a string of dead-server calls and stop draining the queue
           // instead of grinding every queued message through the same
