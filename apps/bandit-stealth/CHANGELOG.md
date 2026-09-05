@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.419
+
+- **Share links are clickable, copied, and open in your browser.** Publishing an artifact (`/insights --share`, `bandit artifact`, `/artifact`) now prints a clickable terminal link and copies the URL to your clipboard automatically. `/insights --share` also opens the published report in your browser so you can see it right away. Your artifact list (`ls`) links are clickable too.
+
 ## 1.7.418
 
 - **Fixed: sharing artifacts from the standalone CLI binary.** `/insights --share`, `bandit artifact <file>`, and the agent's publish-artifact tool were failing with a 500 on the standalone build — its upload request didn't carry a clean content length, which the storage backend rejected. Uploads now build the request in a runtime-agnostic way, so the standalone binary and the Node install behave identically.

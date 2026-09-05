@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { c, glyph, linkify, setActiveTheme, THEME_NAMES } from './ansi';
+import { renderPublishedLink } from './linkShare';
 import { saveTheme, saveCoauthor, saveWatchdogMs, saveNotifications } from './config';
 import { connectGoogleViaCli, listGoogleConnections, disconnectGoogle } from './mcpGoogleConnect';
 import { readClipboardImage } from './clipboardImage';
@@ -1625,7 +1626,9 @@ export const slashCommands: SlashCommand[] = [
           process.stdout.write(c.dim('  publishing report as a shareable artifact…\n'));
           try {
             const url = await ctx.shareArtifact(written);
-            return c.green('✓ insights published — shareable link:\n') + '  ' + c.cyan(url);
+            // Clickable + copied to clipboard, and pop the shared report open in
+            // the browser (this is the "see it" flow, like plain /insights does).
+            return renderPublishedLink(url, { label: 'insights published', open: true });
           } catch (err) {
             return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
               c.red(`  ${glyph.cross} share failed: ${err instanceof Error ? err.message : String(err)}`);
