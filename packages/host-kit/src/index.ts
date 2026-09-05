@@ -35,6 +35,7 @@ export {
   deleteArtifact,
   clearArtifacts,
   createShareLink,
+  emailShareLink,
   revokeShareLink,
   listShareLinks,
   artifactKeyFromUrl,
@@ -44,6 +45,7 @@ export {
   type ArtifactManageOptions,
   type ArtifactListItem,
   type ArtifactShareLink,
+  type EmailedShareLink,
   type ArtifactShareInfo
 } from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';

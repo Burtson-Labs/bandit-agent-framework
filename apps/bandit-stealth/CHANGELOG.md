@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.425
+
+- **Email a share link.** `bandit artifact email <url> <recipient> [--expires 7d] [--message "note"]` creates an external link and emails it — the recipient gets a clean message with a "View artifact" button, no Bandit account needed. You can also email a link straight from the Artifacts dashboard's Share panel. Links still expire and revoke like any other.
+
 ## 1.7.424
 
 - **Bandit can share externally for you.** Ask Bandit to "publish this and give me a link I can send a client" and it now mints an **expiring, revocable external link** itself — no separate command. The link works for anyone (no Bandit account), auto-expires, and you can revoke it from the dashboard or `bandit artifact unshare <token>`.

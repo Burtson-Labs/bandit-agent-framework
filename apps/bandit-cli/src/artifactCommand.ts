@@ -21,6 +21,7 @@ import {
   deleteArtifact,
   clearArtifacts,
   createShareLink,
+  emailShareLink,
   revokeShareLink,
   listShareLinks,
   guessContentType
@@ -150,6 +151,39 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
+  // ── email <url|key> <recipient> [--expires 7d] [--message "..."] ──────────
+  if (sub === 'email') {
+    const target = positional[1];
+    const to = positional[2];
+    if (!target || !to) {
+      process.stdout.write('usage: bandit artifact email <url|key> <recipient> [--expires 7d] [--message "note"]\n');
+      return;
+    }
+    const mi = argv.findIndex((a) => a === '--message' || a === '-m');
+    const message = mi >= 0 ? argv[mi + 1] : undefined;
+    try {
+      const link = await emailShareLink({ ...base, keyOrUrl: target, to, expiryMinutes: parseDurationMinutes(argv), message });
+      const when = (link.expiresAt || '').replace('T', ' ').slice(0, 16);
+      if (link.emailed) {
+        process.stdout.write(
+          c.green(`  ${glyph.check} emailed ${to} an external link${when ? ` (expires ${when} UTC)` : ''}:\n`) +
+          `  ${c.cyan(link.url)}\n` +
+          c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+        );
+      } else {
+        // Link is valid; only delivery was best-effort (mail not configured yet).
+        process.stdout.write(
+          c.yellow(`  ${glyph.warn} link created but the email didn't send (mail not configured). Share it directly:\n`) +
+          `  ${c.cyan(link.url)}\n` +
+          c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+        );
+      }
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
   // ── unshare <token> ───────────────────────────────────────────────────────
   if (sub === 'unshare' || sub === 'revoke') {
     const shareToken = positional[1];
@@ -227,6 +261,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       '  bandit artifact rm <url|key>            delete one\n' +
       '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n' +
       '  bandit artifact share <url> [--expires 7d]  external link anyone can open (expires; revocable)\n' +
+      '  bandit artifact email <url> <to> [--expires 7d]  email someone an external link\n' +
       '  bandit artifact shares <url>            list active external links for an artifact\n' +
       '  bandit artifact unshare <token>         revoke an external link\n'
     );
