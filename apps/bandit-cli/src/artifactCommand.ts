@@ -287,9 +287,10 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       filename,
       contentType: guessContentType(filename),
     });
-    const label = team ? 'published to your team — shareable link' : 'published (private) — shareable link';
+    const label = team ? 'published to your team' : 'published (private)';
     const dash = resolveDashboardUrl(fileConfig as { dashboard?: { baseUrl?: string } });
-    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label, manageUrl: `${dash}/artifacts` }) + '\n');
+    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label, manageUrl: `${dash}/artifacts`, ownerOnly: true }) + '\n');
+    process.stdout.write(c.dim(`  share it: `) + c.cyan(`bandit artifact share <url>`) + c.dim(` (or `) + c.cyan(`email <url> <to>`) + c.dim(`)\n`));
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
   }

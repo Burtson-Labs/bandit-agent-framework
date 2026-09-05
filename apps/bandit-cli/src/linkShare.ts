@@ -44,14 +44,16 @@ export function openInBrowser(url: string): void {
  */
 export function renderPublishedLink(
   url: string,
-  opts: { label?: string; open?: boolean; manageUrl?: string } = {}
+  opts: { label?: string; open?: boolean; manageUrl?: string; ownerOnly?: boolean } = {}
 ): string {
   const copied = copyToClipboard(url);
   if (opts.open) openInBrowser(url);
   const label = opts.label ?? 'shareable link';
-  const hint = [copied ? 'copied' : null, 'click to open', opts.open ? 'opening in browser' : null]
-    .filter(Boolean)
-    .join(' · ');
+  // ownerOnly: the raw artifact URL is private (sign-in required), so don't
+  // imply it opens for anyone — point them to the share/manage flow instead.
+  const hint = opts.ownerOnly
+    ? [copied ? 'copied' : null, 'private — sign-in required'].filter(Boolean).join(' · ')
+    : [copied ? 'copied' : null, 'click to open', opts.open ? 'opening in browser' : null].filter(Boolean).join(' · ');
   const manage = opts.manageUrl
     ? c.dim(`\n  manage & share externally: `) + linkify(opts.manageUrl)
     : '';

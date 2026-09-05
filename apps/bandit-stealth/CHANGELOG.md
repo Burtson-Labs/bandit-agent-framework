@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.426
+
+- **Private artifacts are now truly private.** An artifact's own URL requires you to be signed in — outside viewers can only open a **share link** you create, which stays expiring and revocable. Publishing says so plainly and points you to `bandit artifact share`/`email`; `/insights --share` now hands back a real openable share link. Added `/artifact share | email | shares | unshare` inside the CLI too. (A dead or revoked link now shows a friendly page instead of a raw error.)
+
 ## 1.7.425
 
 - **Email a share link.** `bandit artifact email <url> <recipient> [--expires 7d] [--message "note"]` creates an external link and emails it — the recipient gets a clean message with a "View artifact" button, no Bandit account needed. You can also email a link straight from the Artifacts dashboard's Share panel. Links still expire and revoke like any other.
