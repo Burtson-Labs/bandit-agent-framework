@@ -109,6 +109,7 @@ import {
   buildShareArtifactTool,
   buildListArtifactsTool,
   buildDeleteArtifactTool,
+  buildFetchImageTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
   loadApprovedMcpFingerprints,
@@ -865,6 +866,9 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   registry.register(buildReadMemoryTool());
   registry.register(buildTestRunTool());
   registry.register(pdfReadTool);
+  // fetch_image — verify an image URL is usable before embedding it in an artifact
+  // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
+  registry.register(buildFetchImageTool());
   // Cloud-only: the agent can publish a workspace file as a shareable link.
   // Registered only when a cloud token exists, so local-only runs stay offline.
   if (opts.settings.apiKey) {
@@ -4748,8 +4752,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     try { bytes = await fs.promises.readFile(abs); } catch { return c.red(`can't read ${target}`); }
     const filename = path.basename(abs);
     try {
+      const contentType = hostKit.guessContentType(filename);
+      let content = new Uint8Array(bytes);
+      if (contentType === 'text/html') {
+        const r = await hostKit.inlineHtmlImages(bytes.toString('utf8'), { baseDir: path.dirname(abs) });
+        content = new Uint8Array(Buffer.from(r.html, 'utf8'));
+      }
       const artifact = await hostKit.publishArtifact({
-        ...base, scope: team ? 'team' : undefined, content: new Uint8Array(bytes), filename, contentType: hostKit.guessContentType(filename),
+        ...base, scope: team ? 'team' : undefined, content, filename, contentType,
       });
       // Dashboard deep-link (signs you in + renders) rather than the raw owner-only S3 URL.
       const viewUrl = `${remoteWebBase}/artifacts?a=${encodeURIComponent(hostKit.artifactKeyFromUrl(artifact.url))}`;
