@@ -1630,7 +1630,12 @@ export const slashCommands: SlashCommand[] = [
             const url = await ctx.shareArtifact(written, shareTeam ? 'team' : undefined);
             // Clickable + copied to clipboard, and pop the shared report open in
             // the browser (this is the "see it" flow, like plain /insights does).
-            return renderPublishedLink(url, { label: shareTeam ? 'insights published to your team' : 'insights published', open: true });
+            const dash = (process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com').replace(/\/$/, '');
+            return renderPublishedLink(url, {
+              label: shareTeam ? 'insights published to your team' : 'insights published',
+              open: true,
+              manageUrl: `${dash}/artifacts`,
+            });
           } catch (err) {
             return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
               c.red(`  ${glyph.cross} share failed: ${err instanceof Error ? err.message : String(err)}`);

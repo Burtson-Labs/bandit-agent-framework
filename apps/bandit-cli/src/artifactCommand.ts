@@ -39,6 +39,11 @@ function resolveAuthBaseUrl(fileConfig: { auth?: { baseUrl?: string } }): string
   return (fileConfig.auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai').replace(/\/$/, '');
 }
 
+/** Stealth dashboard base (where the manage/share UI lives) — config `dashboard.baseUrl`, else env, else prod. */
+function resolveDashboardUrl(fileConfig: { dashboard?: { baseUrl?: string } }): string {
+  return (fileConfig.dashboard?.baseUrl ?? process.env.BANDIT_DASHBOARD_URL ?? 'https://stealth.banditailabs.com').replace(/\/$/, '');
+}
+
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -248,7 +253,8 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       contentType: guessContentType(filename),
     });
     const label = team ? 'published to your team — shareable link' : 'published (private) — shareable link';
-    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label }) + '\n');
+    const dash = resolveDashboardUrl(fileConfig as { dashboard?: { baseUrl?: string } });
+    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label, manageUrl: `${dash}/artifacts` }) + '\n');
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
   }
