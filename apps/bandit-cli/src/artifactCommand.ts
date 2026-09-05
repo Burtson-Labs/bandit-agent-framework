@@ -68,6 +68,8 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     authBaseUrl: resolveAuthBaseUrl(fileConfig as { auth?: { baseUrl?: string } }),
     token: resolved.apiKey
   };
+  // --team shares with the team's space; default is private (only you).
+  const team = argv.includes('--team');
 
   // ── list ────────────────────────────────────────────────────────────────
   if (sub === 'ls' || sub === 'list') {
@@ -80,8 +82,9 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       process.stdout.write(c.bold(`  your artifacts (${items.length}):\n`));
       for (const it of items) {
         const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
+        const tag = it.scope === 'team' ? c.cyan('team   ') : c.dim('private');
         process.stdout.write(
-          `  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}\n`
+          `  ${tag}  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}\n`
         );
       }
     } catch (err) {
@@ -106,21 +109,27 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
-  // ── clear [--yes] ─────────────────────────────────────────────────────────
+  // ── clear [--team] [--yes] ────────────────────────────────────────────────
   if (sub === 'clear') {
     const skipPrompt = argv.includes('--yes') || argv.includes('-y');
     if (!skipPrompt) {
       let count = 0;
-      try { count = (await listArtifacts(base)).length; } catch { /* fall through to prompt */ }
-      const ok = await confirm(c.yellow(`  Delete ALL ${count} of your artifacts? This can't be undone. [y/N] `));
+      try {
+        const items = await listArtifacts(base);
+        count = items.filter((a) => (team ? a.scope === 'team' : a.scope !== 'team')).length;
+      } catch { /* fall through to prompt */ }
+      const what = team
+        ? `ALL ${count} of your TEAM's shared artifacts (this affects your teammates)`
+        : `ALL ${count} of your private artifacts`;
+      const ok = await confirm(c.yellow(`  Delete ${what}? This can't be undone. [y/N] `));
       if (!ok) {
         process.stdout.write(c.dim('  cancelled (use --yes to skip this prompt).\n'));
         return;
       }
     }
     try {
-      const deleted = await clearArtifacts(base);
-      process.stdout.write(c.green(`  ${glyph.check} cleared ${deleted} artifact${deleted === 1 ? '' : 's'}\n`));
+      const deleted = await clearArtifacts({ ...base, scope: team ? 'team' : undefined });
+      process.stdout.write(c.green(`  ${glyph.check} cleared ${deleted} ${team ? 'team ' : ''}artifact${deleted === 1 ? '' : 's'}\n`));
     } catch (err) {
       process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
     }
@@ -132,10 +141,10 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (!target) {
     process.stdout.write(
       'usage:\n' +
-      '  bandit artifact <path>        publish a file, get a shareable link\n' +
-      '  bandit artifact ls            list your artifacts\n' +
-      '  bandit artifact rm <url|key>  delete one\n' +
-      '  bandit artifact clear [--yes] delete all of yours\n'
+      '  bandit artifact <path> [--team]      publish a file (private by default; --team shares with your team)\n' +
+      '  bandit artifact ls                   list your + your team\'s artifacts\n' +
+      '  bandit artifact rm <url|key>         delete one\n' +
+      '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n'
     );
     return;
   }
@@ -154,11 +163,13 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   try {
     const artifact = await publishArtifact({
       ...base,
+      scope: team ? 'team' : undefined,
       content: new Uint8Array(bytes),
       filename,
       contentType: guessContentType(filename),
     });
-    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label: 'published — shareable link' }) + '\n');
+    const label = team ? 'published to your team — shareable link' : 'published (private) — shareable link';
+    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label }) + '\n');
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
   }

@@ -33,6 +33,9 @@ export interface PublishArtifactOptions {
   filename: string;
   /** MIME type; defaults by extension, else application/octet-stream. */
   contentType?: string;
+  /** Visibility: 'private' (default, only you list/manage) or 'team' (shared with
+   *  your team's artifact space). The shareable link works for anyone either way. */
+  scope?: 'private' | 'team';
   /** AuthApi base for the `bai_`→JWT exchange; defaults to auth.burtson.ai. */
   authBaseUrl?: string;
   /** Total upload attempts before giving up on a transient 5xx. Default 3. */
@@ -155,6 +158,7 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   // Bun-compiled CLI uploads identically to Node. Built once; a Uint8Array is
   // replayable across retries.
   const { body, contentType: multipartContentType } = buildMultipartBody('File', opts.filename, contentType, bytes);
+  const scopeQuery = opts.scope === 'team' ? '?scope=team' : ''; // default private
 
   // Retry 5xx + network errors with a short backoff (the S3Api→MinIO leg can
   // still transiently flake). 4xx (auth, too-large) are terminal — surface those.
@@ -165,7 +169,7 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res: Response;
     try {
-      res = await fetchImpl(`${base}/api/artifact`, {
+      res = await fetchImpl(`${base}/api/artifact${scopeQuery}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${bearer}`, 'content-type': multipartContentType },
         body: body as unknown as BodyInit,
@@ -212,6 +216,8 @@ export interface ArtifactListItem {
   url: string;
   size: number;
   lastModified: string;
+  /** 'private' (only you) or 'team' (shared with your team). */
+  scope?: string;
 }
 
 /**
@@ -257,12 +263,17 @@ export async function deleteArtifact(opts: ArtifactManageOptions & { keyOrUrl: s
   }
 }
 
-/** Delete ALL of the caller's artifacts. Returns how many were removed. */
-export async function clearArtifacts(opts: ArtifactManageOptions): Promise<number> {
+/**
+ * Delete the caller's artifacts. Default clears their PRIVATE ones; pass
+ * scope:'team' to clear the team's shared space (affects teammates). Returns how
+ * many were removed.
+ */
+export async function clearArtifacts(opts: ArtifactManageOptions & { scope?: 'private' | 'team' }): Promise<number> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const scopeQuery = opts.scope === 'team' ? '?scope=team' : '';
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
-  const res = await fetchImpl(`${base}/api/artifact/mine`, {
+  const res = await fetchImpl(`${base}/api/artifact/mine${scopeQuery}`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${bearer}` },
   });
