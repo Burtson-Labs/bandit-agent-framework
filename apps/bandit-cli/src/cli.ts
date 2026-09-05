@@ -870,7 +870,8 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   if (opts.settings.apiKey) {
     const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
     const authBase = process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
-    const artifactToolOpts = { token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase };
+    const webBase = process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com';
+    const artifactToolOpts = { token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase, webBaseUrl: webBase };
     registry.register(buildPublishArtifactTool(artifactToolOpts));
     registry.register(buildShareArtifactTool(artifactToolOpts));
     registry.register(buildListArtifactsTool(artifactToolOpts));
@@ -4750,11 +4751,11 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const artifact = await hostKit.publishArtifact({
         ...base, scope: team ? 'team' : undefined, content: new Uint8Array(bytes), filename, contentType: hostKit.guessContentType(filename),
       });
-      return renderPublishedLink(artifact.url, {
-        label: team ? `published ${filename} to your team` : `published ${filename} (private)`,
-        manageUrl: `${remoteWebBase}/artifacts`,
-        ownerOnly: true,
-      }) + c.dim(`\n  share it: `) + c.cyan('/artifact share <url>') + c.dim(' or ') + c.cyan('bandit artifact email <url> <to>');
+      // Dashboard deep-link (signs you in + renders) rather than the raw owner-only S3 URL.
+      const viewUrl = `${remoteWebBase}/artifacts?a=${encodeURIComponent(hostKit.artifactKeyFromUrl(artifact.url))}`;
+      return renderPublishedLink(viewUrl, {
+        label: team ? `published ${filename} to your team — open to view & share` : `published ${filename} (private) — open to view & share`,
+      });
     } catch (err) { return fail(err); }
   };
 

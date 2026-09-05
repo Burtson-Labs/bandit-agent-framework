@@ -25,6 +25,7 @@ import {
   revokeShareLink,
   listShareLinks,
   setArtifactScope,
+  artifactKeyFromUrl,
   guessContentType
 } from '@burtson-labs/host-kit';
 import { c, glyph, linkify } from './ansi';
@@ -309,10 +310,13 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       filename,
       contentType: guessContentType(filename),
     });
-    const label = team ? 'published to your team' : 'published (private)';
+    // Hand back the Stealth dashboard deep-link (signs you in + renders the artifact), NOT the raw
+    // owner-only S3 URL — that 401s in a browser. Share externally from the dashboard, or via
+    // `bandit artifact share`.
     const dash = resolveDashboardUrl(fileConfig as { dashboard?: { baseUrl?: string } });
-    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label, manageUrl: `${dash}/artifacts`, ownerOnly: true }) + '\n');
-    process.stdout.write(c.dim(`  share it: `) + c.cyan(`bandit artifact share <url>`) + c.dim(` (or `) + c.cyan(`email <url> <to>`) + c.dim(`)\n`));
+    const viewUrl = `${dash}/artifacts?a=${encodeURIComponent(artifactKeyFromUrl(artifact.url))}`;
+    const label = team ? 'published to your team — open to view & share' : 'published (private) — open to view & share';
+    process.stdout.write('  ' + renderPublishedLink(viewUrl, { label }) + '\n');
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
   }
