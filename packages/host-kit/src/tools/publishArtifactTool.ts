@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
 import { publishArtifact, guessContentType, artifactKeyFromUrl } from '../artifacts';
+import { inlineHtmlImages } from '../imageInline';
 
 export function buildPublishArtifactTool(opts: {
   token: string;
@@ -52,14 +53,25 @@ export function buildPublishArtifactTool(opts: {
 
       try {
         const scope = (params.scope ?? '').trim().toLowerCase() === 'team' ? 'team' : undefined;
+        const contentType = guessContentType(path.basename(abs));
+        // For an HTML artifact, inline every <img> (local paths, the user's pastes, remote URLs) as
+        // data URIs so it renders standalone — the whole point of "put an image in the artifact".
+        let content = new Uint8Array(bytes);
+        let inlineNote = '';
+        if (contentType === 'text/html') {
+          const r = await inlineHtmlImages(bytes.toString('utf8'), { baseDir: path.dirname(abs) });
+          content = new Uint8Array(Buffer.from(r.html, 'utf8'));
+          if (r.inlined) inlineNote = ` Inlined ${r.inlined} image(s).`;
+          if (r.skipped) inlineNote += ` (${r.skipped} image(s) couldn't be inlined — unreachable, not an image, or too large.)`;
+        }
         const artifact = await publishArtifact({
           s3ApiBaseUrl: opts.s3ApiBaseUrl,
           authBaseUrl: opts.authBaseUrl,
           token: opts.token,
           scope,
-          content: new Uint8Array(bytes),
+          content,
           filename: path.basename(abs),
-          contentType: guessContentType(path.basename(abs))
+          contentType
         });
         // The raw S3 URL is owner-only (401 in a browser), so hand the user a dashboard deep-link to
         // VIEW it (the dashboard signs them in and renders it). Keep the raw URL in the output only so
@@ -74,7 +86,7 @@ export function buildPublishArtifactTool(opts: {
           : '';
         return {
           output:
-            `Published "${name}"${scope === 'team' ? ' to the team' : ' (private)'}.` + viewLine +
+            `Published "${name}"${scope === 'team' ? ' to the team' : ' (private)'}.` + inlineNote + viewLine +
             ` To create an external link anyone can open without signing in, call share_artifact with url "${artifact.url}".`
         };
       } catch (err) {

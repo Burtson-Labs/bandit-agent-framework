@@ -39,6 +39,7 @@ import {
   buildShareArtifactTool,
   buildListArtifactsTool,
   buildDeleteArtifactTool,
+  buildFetchImageTool,
   buildReadMemoryTool,
   buildRememberTool,
   buildTestRunTool,
@@ -156,6 +157,9 @@ export async function buildTurnRunContext(
   // a tight pass/fail summary so fix-test-rerun loops close cleanly
   // without flooding context with raw test stdout.
   registry.register(buildTestRunTool());
+  // fetch_image — verify an image URL is usable before embedding it in an artifact
+  // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
+  registry.register(buildFetchImageTool());
   // publish_artifact — cloud-only, so "write a README and publish it as an
   // artifact" works in-editor the same as in the CLI. Registered only when a
   // Bandit cloud key is present, so local-only turns stay fully offline.

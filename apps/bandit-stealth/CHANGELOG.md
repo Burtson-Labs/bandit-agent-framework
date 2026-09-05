@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.430
+
+- **Images in artifacts just work.** When Bandit builds an HTML artifact with an image — a remote URL, a local file, or an image you pasted — it now **inlines the image into the file on publish**, so the artifact is self-contained and renders anywhere. No more broken images or watching Bandit hunt through a dozen searches for a "hotlinkable" URL (most direct image links are blocked in the browser but fetch fine server-side). A new `fetch_image` check lets Bandit confirm an image is usable before embedding it.
+
 ## 1.7.429
 
 - **Published artifacts give you a link that actually opens.** Publishing (from the agent or the CLI) now hands back a **Stealth dashboard link** that signs you in and shows the artifact — instead of the raw storage URL, which (being private) returned an "Authorization header missing" error when opened in a browser. Click it → you're in the dashboard viewing it, where you can also share or delete it.

@@ -26,6 +26,7 @@ import {
   listShareLinks,
   setArtifactScope,
   artifactKeyFromUrl,
+  inlineHtmlImages,
   guessContentType
 } from '@burtson-labs/host-kit';
 import { c, glyph, linkify } from './ansi';
@@ -303,12 +304,20 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
 
   process.stdout.write(c.dim(`  ${glyph.spark} publishing ${filename} (${humanSize(bytes.byteLength)})…\n`));
   try {
+    const contentType = guessContentType(filename);
+    // Inline <img> sources for HTML artifacts so they render standalone.
+    let content = new Uint8Array(bytes);
+    if (contentType === 'text/html') {
+      const r = await inlineHtmlImages(bytes.toString('utf8'), { baseDir: path.dirname(abs) });
+      content = new Uint8Array(Buffer.from(r.html, 'utf8'));
+      if (r.inlined) process.stdout.write(c.dim(`  ${glyph.spark} inlined ${r.inlined} image(s)\n`));
+    }
     const artifact = await publishArtifact({
       ...base,
       scope: team ? 'team' : undefined,
-      content: new Uint8Array(bytes),
+      content,
       filename,
-      contentType: guessContentType(filename),
+      contentType,
     });
     // Hand back the Stealth dashboard deep-link (signs you in + renders the artifact), NOT the raw
     // owner-only S3 URL — that 401s in a browser. Share externally from the dashboard, or via
