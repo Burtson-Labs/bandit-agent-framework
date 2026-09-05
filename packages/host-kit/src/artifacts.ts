@@ -304,6 +304,40 @@ export async function createShareLink(
   return { url: body.url, token: body.token ?? '', expiresAt: body.expiresAt ?? '' };
 }
 
+export interface RescopedArtifact {
+  /** New object key after the move (scope is the key prefix). */
+  key: string;
+  /** New shareable URL for the artifact at its new scope. */
+  url: string;
+  scope: 'private' | 'team';
+}
+
+/**
+ * Re-scope an artifact between private and team. The server moves the object to a
+ * new key and repoints its live share links, returning the new key/url. Toggling
+ * to 'team' requires the account to be on a team.
+ */
+export async function setArtifactScope(
+  opts: ArtifactManageOptions & { keyOrUrl: string; scope: 'private' | 'team' }
+): Promise<RescopedArtifact> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/scope`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ key, scope: opts.scope }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not change scope: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const body = (await res.json()) as { key?: string; url?: string; scope?: string };
+  return { key: body.key ?? key, url: body.url ?? '', scope: (body.scope as 'private' | 'team') ?? opts.scope };
+}
+
 export interface EmailedShareLink extends ArtifactShareLink {
   /** True if Postmark accepted the message; false when mail isn't configured or delivery failed
    *  (the link is still valid — email is best-effort). */

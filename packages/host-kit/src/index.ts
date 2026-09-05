@@ -38,6 +38,7 @@ export {
   emailShareLink,
   revokeShareLink,
   listShareLinks,
+  setArtifactScope,
   artifactKeyFromUrl,
   DEFAULT_AUTH_BASE_URL,
   type PublishArtifactOptions,
@@ -46,6 +47,7 @@ export {
   type ArtifactListItem,
   type ArtifactShareLink,
   type EmailedShareLink,
+  type RescopedArtifact,
   type ArtifactShareInfo
 } from './artifacts';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';

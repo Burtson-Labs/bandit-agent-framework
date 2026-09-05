@@ -24,6 +24,7 @@ import {
   emailShareLink,
   revokeShareLink,
   listShareLinks,
+  setArtifactScope,
   guessContentType
 } from '@burtson-labs/host-kit';
 import { c, glyph, linkify } from './ansi';
@@ -224,6 +225,26 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
+  // ── scope <url|key> <private|team> ────────────────────────────────────────
+  if (sub === 'scope') {
+    const target = positional[1];
+    const next = (positional[2] ?? '').toLowerCase();
+    if (!target || (next !== 'private' && next !== 'team')) {
+      process.stdout.write('usage: bandit artifact scope <url|key> <private|team>\n');
+      return;
+    }
+    try {
+      const moved = await setArtifactScope({ ...base, keyOrUrl: target, scope: next });
+      process.stdout.write(
+        c.green(`  ${glyph.check} now ${next === 'team' ? 'shared with your team' : 'private (only you)'}\n`) +
+        c.dim(`  ${moved.url}\n`)
+      );
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
   // ── clear [--team] [--yes] ────────────────────────────────────────────────
   if (sub === 'clear') {
     const skipPrompt = argv.includes('--yes') || argv.includes('-y');
@@ -263,7 +284,8 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       '  bandit artifact share <url> [--expires 7d]  external link anyone can open (expires; revocable)\n' +
       '  bandit artifact email <url> <to> [--expires 7d]  email someone an external link\n' +
       '  bandit artifact shares <url>            list active external links for an artifact\n' +
-      '  bandit artifact unshare <token>         revoke an external link\n'
+      '  bandit artifact unshare <token>         revoke an external link\n' +
+      '  bandit artifact scope <url> <private|team>  move an artifact between private and team\n'
     );
     return;
   }
