@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.421
+
+- **Smoother cold starts.** Cloud models now warm up in the background the moment Bandit boots, so your first prompt after a break isn't stuck waiting for the model to spin up. And if a request ever does catch a cold model, you get a friendly "warming up…" note instead of timeout internals and env-var suggestions. (Skips local models; set `BANDIT_NO_WARM=1` to opt out.)
+
 ## 1.7.420
 
 - **Private or team artifacts, your choice.** Artifacts are now **private to you by default** — teammates no longer see them in `bandit artifact ls`. Add `--team` to publish into your team's shared space: `bandit artifact <file> --team`, `/insights --share --team`, or `scope: "team"` on the agent's publish tool. `ls` tags each artifact `private`/`team`, and `clear` only removes your private ones unless you pass `--team`. (The shareable link still opens for anyone you send it to, whatever the scope.)

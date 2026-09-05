@@ -1680,13 +1680,13 @@ async function runPrompt(opts: RunOptions): Promise<string> {
       if (type === 'tool_loop:llm_retry') {
         const p = payload as { iteration?: number; attempt?: number; maxAttempts?: number; delayMs?: number; reason?: string };
         spinner.stop();
+        // Friendlier, no plumbing: a retry here is almost always a cold start.
+        // The full reason still goes to the turn log below for diagnostics.
         process.stdout.write(
           c.dim(
-            `  ${glyph.info} upstream hiccup — retrying ${p?.attempt ?? '?'} of ${p?.maxAttempts ?? '?'} ` +
-            `in ${Math.round((p?.delayMs ?? 0) / 1000)}s`
-          ) +
-          (p?.reason ? c.dim(` (${p.reason})`) : '') +
-          '\n'
+            `  ${glyph.info} warming up the model — retry ${p?.attempt ?? '?'} of ${p?.maxAttempts ?? '?'} ` +
+            `in ${Math.round((p?.delayMs ?? 0) / 1000)}s…`
+          ) + '\n'
         );
         void turnLog?.append({
           type: 'llm-retry',
@@ -3289,6 +3289,24 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       ? c.yellow('remote ollama')
       : c.yellow('cloud');
   process.stdout.write(c.dim(`  ${kind}/${model}  •  ${endpointLabel}  •  `) + modeLabel + c.dim(`  •  ${skillCount} skills  •  ${memorySummary}  •  ${session.currentId}  •  booted in ${bootMs}ms\n`));
+
+  // Warm-on-boot: cloud models (bandit-core-2 / bandit-logic-2 → Ollama Cloud,
+  // which evicts idle models) cold-start on the first request. Fire a tiny
+  // throwaway completion NOW, in the background, so the model spins up while the
+  // user reads the tips and types — moving the cold-load off their first real
+  // prompt. Best-effort: never blocks, swallows every error, skips local Ollama
+  // (already warm). Disable with BANDIT_NO_WARM=1.
+  if (kind === 'bandit' && !/^(1|true)$/i.test(process.env.BANDIT_NO_WARM ?? '')) {
+    void (async () => {
+      try {
+        const warmProvider = await createProvider(settings);
+        const warmReq = { model, messages: [{ role: 'user', content: 'hi' }], stream: true, temperature: 0 };
+        for await (const chunk of warmProvider.chat(warmReq as never)) {
+          if ((chunk as { done?: boolean }).done) break;
+        }
+      } catch { /* warm-up is best-effort — the real request still works */ }
+    })();
+  }
   if (conversation.length > 0) {
     process.stdout.write(c.dim(`  ${glyph.info} resumed with ${conversation.length} prior messages\n`));
   }
