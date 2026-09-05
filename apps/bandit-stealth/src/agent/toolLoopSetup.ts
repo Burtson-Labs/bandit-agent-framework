@@ -36,6 +36,7 @@ import {
   CheckpointStore,
   TodoStore,
   buildPublishArtifactTool,
+  buildShareArtifactTool,
   buildReadMemoryTool,
   buildRememberTool,
   buildTestRunTool,
@@ -158,11 +159,15 @@ export async function buildTurnRunContext(
   // Bandit cloud key is present, so local-only turns stay fully offline.
   // publishArtifact exchanges the bai_ key for a gateway JWT before S3Api.
   if (banditApiKey) {
-    registry.register(buildPublishArtifactTool({
+    const artifactToolOpts = {
       token: banditApiKey,
       s3ApiBaseUrl: process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai',
       authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
-    }));
+    };
+    registry.register(buildPublishArtifactTool(artifactToolOpts));
+    // share_artifact — mint an external, revocable link for an already-published
+    // artifact, so "publish this and give me a link to send out" works in-editor.
+    registry.register(buildShareArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — surface every connected server's tools as
