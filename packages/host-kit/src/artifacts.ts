@@ -263,6 +263,78 @@ export async function deleteArtifact(opts: ArtifactManageOptions & { keyOrUrl: s
   }
 }
 
+export interface ArtifactShareLink {
+  url: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface ArtifactShareInfo {
+  token: string;
+  url: string;
+  expiresAt: string;
+  createdAt: string;
+  views: number;
+}
+
+/**
+ * Mint an EXTERNAL share link for an artifact — a revocable, expiring URL that
+ * anyone (non-Bandit-users included) can open. Default expiry is the server's
+ * default (~7 days); pass expiryMinutes to shorten it (capped server-side).
+ */
+export async function createShareLink(
+  opts: ArtifactManageOptions & { keyOrUrl: string; expiryMinutes?: number }
+): Promise<ArtifactShareLink> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/share`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ key, expiryMinutes: opts.expiryMinutes }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not create share link: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const body = (await res.json()) as { url?: string; token?: string; expiresAt?: string };
+  if (!body.url) throw new Error('share link created but no URL was returned');
+  return { url: body.url, token: body.token ?? '', expiresAt: body.expiresAt ?? '' };
+}
+
+/** Revoke an external share link by its token (kills it immediately). */
+export async function revokeShareLink(opts: ArtifactManageOptions & { shareToken: string }): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/share/${encodeURIComponent(opts.shareToken)}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('no matching share link (or it isn\'t yours)');
+    throw new Error(`could not revoke share link: HTTP ${res.status}`);
+  }
+}
+
+/** List the active external share links for an artifact. */
+export async function listShareLinks(
+  opts: ArtifactManageOptions & { keyOrUrl: string }
+): Promise<ArtifactShareInfo[]> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/shares?key=${encodeURIComponent(key)}`, {
+    headers: { authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) throw new Error(`could not list share links: HTTP ${res.status}`);
+  const body = (await res.json()) as { shares?: ArtifactShareInfo[] };
+  return body.shares ?? [];
+}
+
 /**
  * Delete the caller's artifacts. Default clears their PRIVATE ones; pass
  * scope:'team' to clear the team's shared space (affects teammates). Returns how

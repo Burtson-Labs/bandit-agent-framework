@@ -12,6 +12,9 @@ import {
   listArtifacts,
   deleteArtifact,
   clearArtifacts,
+  createShareLink,
+  revokeShareLink,
+  listShareLinks,
   artifactKeyFromUrl
 } from '../src/artifacts';
 
@@ -215,6 +218,36 @@ describe('artifact management', () => {
     const n = await clearArtifacts({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', fetchImpl });
     expect(n).toBe(7);
     expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/mine', method: 'DELETE' });
+  });
+
+  it('createShareLink POSTs {key, expiryMinutes} and returns the share url/token', async () => {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method, body: init?.body });
+      return { ok: true, status: 200, json: async () => ({ url: 'https://s3/api/artifact/shared/tok', token: 'tok', expiresAt: '2026-09-05T19:00:00Z' }) } as Response;
+    }) as unknown as typeof fetch;
+    const link = await createShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'https://s3/api/artifact/team-1/a.html', expiryMinutes: 120, fetchImpl });
+    expect(link).toMatchObject({ token: 'tok', url: 'https://s3/api/artifact/shared/tok' });
+    expect(calls[0]).toMatchObject({ url: 'https://s3/api/artifact/share', method: 'POST' });
+    expect(JSON.parse(calls[0].body!)).toEqual({ key: 'team-1/a.html', expiryMinutes: 120 });
+  });
+
+  it('revokeShareLink DELETEs the token; 404 → clear error', async () => {
+    let url = '';
+    const ok = (async (u: string, init?: { method?: string }) => { url = u; return { ok: true, status: 200, json: async () => ({}) } as Response; }) as unknown as typeof fetch;
+    await revokeShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', shareToken: 'tok', fetchImpl: ok });
+    expect(url).toBe('https://s3/api/artifact/share/tok');
+    const notFound = (async () => ({ ok: false, status: 404, json: async () => ({}) } as Response)) as unknown as typeof fetch;
+    await expect(revokeShareLink({ s3ApiBaseUrl: 'https://s3', token: 'jwt', shareToken: 'x', fetchImpl: notFound })).rejects.toThrow(/no matching share link/);
+  });
+
+  it('listShareLinks GETs /shares?key=', async () => {
+    let url = '';
+    const fetchImpl = (async (u: string) => { url = u; return { ok: true, status: 200, json: async () => ({ shares: [{ token: 't', url: 'u', expiresAt: 'e', createdAt: 'c', views: 3 }] }) } as Response; }) as unknown as typeof fetch;
+    const shares = await listShareLinks({ s3ApiBaseUrl: 'https://s3', token: 'jwt', keyOrUrl: 'team-1/a.html', fetchImpl });
+    expect(shares).toHaveLength(1);
+    expect(shares[0].views).toBe(3);
+    expect(url).toBe('https://s3/api/artifact/shares?key=team-1%2Fa.html');
   });
 
   it('scope=team adds ?scope=team on publish and clear; default (private) does not', async () => {

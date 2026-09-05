@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.422
+
+- **External share links — controlled.** `bandit artifact share <url> [--expires 7d]` mints a link anyone can open (even people without Bandit) that **auto-expires** and you can **revoke anytime** with `bandit artifact unshare <token>`. `bandit artifact shares <url>` lists a file's active links (with view counts). There's a per-account cap on active links, and deleting an artifact kills its links — so external exposure stays bounded.
+
 ## 1.7.421
 
 - **Smoother cold starts.** Cloud models now warm up in the background the moment Bandit boots, so your first prompt after a break isn't stuck waiting for the model to spin up. And if a request ever does catch a cold model, you get a friendly "warming up…" note instead of timeout internals and env-var suggestions. (Skips local models; set `BANDIT_NO_WARM=1` to opt out.)

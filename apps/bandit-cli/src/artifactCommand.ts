@@ -20,6 +20,9 @@ import {
   listArtifacts,
   deleteArtifact,
   clearArtifacts,
+  createShareLink,
+  revokeShareLink,
+  listShareLinks,
   guessContentType
 } from '@burtson-labs/host-kit';
 import { c, glyph, linkify } from './ansi';
@@ -40,6 +43,18 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** Parse a duration like "7d" / "12h" / "30m" / raw minutes → minutes. Null if absent/bad. */
+function parseDurationMinutes(argv: string[]): number | undefined {
+  const i = argv.findIndex((a) => a === '--expires' || a === '--expiry');
+  const raw = i >= 0 ? argv[i + 1] : undefined;
+  if (!raw) return undefined;
+  const m = /^(\d+)\s*(d|h|m)?$/i.exec(raw.trim());
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  const unit = (m[2] ?? 'm').toLowerCase();
+  return unit === 'd' ? n * 24 * 60 : unit === 'h' ? n * 60 : n;
 }
 
 async function confirm(question: string): Promise<boolean> {
@@ -109,6 +124,67 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
+  // ── share <url|key> [--expires 7d] ────────────────────────────────────────
+  if (sub === 'share') {
+    const target = positional[1];
+    if (!target) {
+      process.stdout.write('usage: bandit artifact share <url|key> [--expires 7d]\n');
+      return;
+    }
+    try {
+      const link = await createShareLink({ ...base, keyOrUrl: target, expiryMinutes: parseDurationMinutes(argv) });
+      const when = (link.expiresAt || '').replace('T', ' ').slice(0, 16);
+      process.stdout.write(
+        c.green(`  ${glyph.check} external share link${when ? ` (expires ${when} UTC)` : ''} — anyone with it can view:\n`) +
+        `  ${c.cyan(link.url)}\n` +
+        c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+      );
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
+  // ── unshare <token> ───────────────────────────────────────────────────────
+  if (sub === 'unshare' || sub === 'revoke') {
+    const shareToken = positional[1];
+    if (!shareToken) {
+      process.stdout.write('usage: bandit artifact unshare <token>\n');
+      return;
+    }
+    try {
+      await revokeShareLink({ ...base, shareToken });
+      process.stdout.write(c.green(`  ${glyph.check} share link revoked\n`));
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
+  // ── shares <url|key> ──────────────────────────────────────────────────────
+  if (sub === 'shares') {
+    const target = positional[1];
+    if (!target) {
+      process.stdout.write('usage: bandit artifact shares <url|key>\n');
+      return;
+    }
+    try {
+      const links = await listShareLinks({ ...base, keyOrUrl: target });
+      if (links.length === 0) {
+        process.stdout.write(c.dim('  no active external share links for that artifact.\n'));
+        return;
+      }
+      process.stdout.write(c.bold(`  active share links (${links.length}):\n`));
+      for (const l of links) {
+        const when = (l.expiresAt || '').replace('T', ' ').slice(0, 16);
+        process.stdout.write(`  ${c.dim(`expires ${when}`)}  ${c.dim(`${l.views} views`)}  ${c.cyan(l.url)}\n`);
+      }
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
   // ── clear [--team] [--yes] ────────────────────────────────────────────────
   if (sub === 'clear') {
     const skipPrompt = argv.includes('--yes') || argv.includes('-y');
@@ -141,10 +217,13 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (!target) {
     process.stdout.write(
       'usage:\n' +
-      '  bandit artifact <path> [--team]      publish a file (private by default; --team shares with your team)\n' +
-      '  bandit artifact ls                   list your + your team\'s artifacts\n' +
-      '  bandit artifact rm <url|key>         delete one\n' +
-      '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n'
+      '  bandit artifact <path> [--team]         publish a file (private by default; --team shares with your team)\n' +
+      '  bandit artifact ls                      list your + your team\'s artifacts\n' +
+      '  bandit artifact rm <url|key>            delete one\n' +
+      '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n' +
+      '  bandit artifact share <url> [--expires 7d]  external link anyone can open (expires; revocable)\n' +
+      '  bandit artifact shares <url>            list active external links for an artifact\n' +
+      '  bandit artifact unshare <token>         revoke an external link\n'
     );
     return;
   }
