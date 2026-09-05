@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.428
+
+- **Bandit can see and tidy up your artifacts.** Ask "what have I published?" and Bandit lists your artifacts; ask it to "delete that draft" and it removes the right one (deleting also revokes the artifact's share links). Two new tools — `list_artifacts` and `delete_artifact` — round out publish/share so the whole artifact lifecycle works in a turn. The dashboard also gains an **All / Private / Team filter** so team artifacts are easy to browse.
+
 ## 1.7.427
 
 - **Switch an artifact between private and team anytime.** Toggle it from the Artifacts dashboard ("Make team" / "Make private") or the CLI (`bandit artifact scope <url> team|private`) — no need to re-publish. Any live share links you've handed out keep working across the switch. (Also: the Artifacts button now appears in the desktop app, not just the browser.)

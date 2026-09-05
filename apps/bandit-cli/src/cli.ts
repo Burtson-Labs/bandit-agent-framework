@@ -107,6 +107,8 @@ import {
   buildReadMemoryTool,
   buildPublishArtifactTool,
   buildShareArtifactTool,
+  buildListArtifactsTool,
+  buildDeleteArtifactTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
   loadApprovedMcpFingerprints,
@@ -868,8 +870,11 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   if (opts.settings.apiKey) {
     const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
     const authBase = process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
-    registry.register(buildPublishArtifactTool({ token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase }));
-    registry.register(buildShareArtifactTool({ token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase }));
+    const artifactToolOpts = { token: opts.settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase };
+    registry.register(buildPublishArtifactTool(artifactToolOpts));
+    registry.register(buildShareArtifactTool(artifactToolOpts));
+    registry.register(buildListArtifactsTool(artifactToolOpts));
+    registry.register(buildDeleteArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — enumerated lazily on first turn after a server is
