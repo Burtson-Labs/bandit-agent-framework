@@ -2,7 +2,7 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
-## 1.7.430
+## 1.7.431
 
 - **Images in artifacts just work.** When Bandit builds an HTML artifact with an image — a remote URL, a local file, or an image you pasted — it now **inlines the image into the file on publish**, so the artifact is self-contained and renders anywhere. No more broken images or watching Bandit hunt through a dozen searches for a "hotlinkable" URL (most direct image links are blocked in the browser but fetch fine server-side). A new `fetch_image` check lets Bandit confirm an image is usable before embedding it.
 
