@@ -65,6 +65,7 @@ import { readClipboardImage } from './clipboardImage';
 import { openFilePicker } from './filePicker';
 import { pdfReadTool } from './pdfTool';
 import { c, glyph, banner, launchBanner, divider, skillLine, toolLine, errorLine, setActiveTheme, linkify, THEME_NAMES, supportsTrueColor, supportsBlockArt, downsampleTruecolorTo256 } from './ansi';
+import { renderPublishedLink } from './linkShare';
 import { Spinner, StreamFooter, renderTodoTree } from './spinner';
 import { renderDiff, renderAppliedDiff } from './diff';
 import { resolveLang, highlightCode } from './syntaxHighlight';
@@ -4619,7 +4620,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         const lines = items.map((it) => {
           const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
           const size = it.size < 1024 ? `${it.size} B` : `${(it.size / 1024).toFixed(1)} KB`;
-          return `  ${c.dim(size.padStart(8))}  ${c.dim(when)}  ${c.cyan(it.url)}`;
+          return `  ${c.dim(size.padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}`;
         });
         return c.bold(`your artifacts (${items.length}):\n`) + lines.join('\n');
       } catch (err) { return fail(err); }
@@ -4651,7 +4652,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       const artifact = await hostKit.publishArtifact({
         ...base, content: new Uint8Array(bytes), filename, contentType: hostKit.guessContentType(filename),
       });
-      return c.green(`${glyph.check} published ${filename} — shareable link:\n`) + '  ' + c.cyan(artifact.url);
+      return renderPublishedLink(artifact.url, { label: `published ${filename}` });
     } catch (err) { return fail(err); }
   };
 

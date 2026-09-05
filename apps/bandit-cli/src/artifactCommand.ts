@@ -22,7 +22,8 @@ import {
   clearArtifacts,
   guessContentType
 } from '@burtson-labs/host-kit';
-import { c, glyph } from './ansi';
+import { c, glyph, linkify } from './ansi';
+import { renderPublishedLink } from './linkShare';
 import { loadConfigFiles, resolveConfig } from './config';
 
 /** S3Api base — config `s3.baseUrl`, else BANDIT_S3_URL, else the prod host. */
@@ -80,7 +81,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       for (const it of items) {
         const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
         process.stdout.write(
-          `  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${c.cyan(it.url)}\n`
+          `  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}\n`
         );
       }
     } catch (err) {
@@ -157,10 +158,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       filename,
       contentType: guessContentType(filename),
     });
-    process.stdout.write(
-      c.green(`  ${glyph.check} published — shareable link:\n`) +
-      `  ${c.cyan(artifact.url)}\n`
-    );
+    process.stdout.write('  ' + renderPublishedLink(artifact.url, { label: 'published — shareable link' }) + '\n');
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
   }
