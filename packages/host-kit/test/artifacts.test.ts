@@ -190,6 +190,14 @@ describe('artifactKeyFromUrl', () => {
     expect(artifactKeyFromUrl('https://stealth.banditailabs.com/artifacts?a=team-1%2Fx.html&foo=1#top'))
       .toBe('team-1/x.html');
   });
+  it('extracts the key from a URL with ANY host (even a hallucinated domain), ignoring the host', () => {
+    // get_artifact/update_artifact always hit the real S3 base, so the host is irrelevant.
+    expect(artifactKeyFromUrl('https://artifacts.bandit.sh/owner-203d14dda6c1a005/1039e77-briefing.html'))
+      .toBe('owner-203d14dda6c1a005/1039e77-briefing.html');
+    expect(artifactKeyFromUrl('https://whatever.example/team-1/a%20b.md')).toBe('team-1/a b.md');
+    // a real S3 URL still resolves via the /api/artifact/ marker (not the generic path rule)
+    expect(artifactKeyFromUrl('https://s3.burtson.ai/api/artifact/owner-x/abc.html')).toBe('owner-x/abc.html');
+  });
 });
 
 describe('artifact management', () => {

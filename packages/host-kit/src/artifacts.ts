@@ -266,6 +266,8 @@ export interface ArtifactListItem {
  * already a key (no marker), so callers can pass either a URL or a raw key.
  */
 export function artifactKeyFromUrl(urlOrKey: string): string {
+  const decodeSegs = (s: string) =>
+    s.split('/').map((seg) => { try { return decodeURIComponent(seg); } catch { return seg; } }).join('/');
   // Dashboard deep-link — the link publish_artifact hands the user to VIEW/manage it,
   // e.g. https://stealth.banditailabs.com/artifacts?a=<url-encoded key>. This is the URL
   // people naturally paste back to revise, so resolve the key straight from ?a=.
@@ -275,12 +277,16 @@ export function artifactKeyFromUrl(urlOrKey: string): string {
   }
   // Raw owner S3 URL: …/api/artifact/<key> (key may contain slashes + encoded segments).
   const marker = '/api/artifact/';
-  const i = urlOrKey.indexOf(marker);
-  const raw = i >= 0 ? urlOrKey.slice(i + marker.length) : urlOrKey;
-  return raw
-    .split('/')
-    .map((seg) => { try { return decodeURIComponent(seg); } catch { return seg; } })
-    .join('/');
+  const mi = urlOrKey.indexOf(marker);
+  if (mi >= 0) return decodeSegs(urlOrKey.slice(mi + marker.length).replace(/[?#].*$/, ''));
+  // ANY other absolute URL — including a guessed/wrong host the model may have invented.
+  // The key is just the path after the host; get_artifact/update_artifact always hit the
+  // real S3 base, so the host in the pasted URL is irrelevant. This keeps a hallucinated
+  // domain from causing a spurious 404.
+  const asUrl = /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/(.+)$/i.exec(urlOrKey);
+  if (asUrl) return decodeSegs(asUrl[1].replace(/[?#].*$/, ''));
+  // Bare key (possibly with encoded segments).
+  return decodeSegs(urlOrKey);
 }
 
 /** List the caller's own artifacts (server returns them most-recent first). */
