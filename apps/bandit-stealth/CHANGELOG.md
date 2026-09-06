@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.442
+
+- **Revising an artifact no longer stalls on "warming up".** Fetching an artifact to revise was flooding the model with the entire file in one gulp, which made the very next reply look like a 120-second cold start (and could force a model reload). Artifact content is now sized sensibly — typical artifacts come back inline; large ones go to a workspace file for targeted edits — and the response watchdog now measures the real payload, so big turns get the patience they actually need.
+
 ## 1.7.441
 
 - **Revising an artifact is robust to the link form.** `get_artifact` / `update_artifact` now resolve the artifact from any link — the dashboard URL, the raw storage URL, a bare key, or even a URL with the wrong host — since only the artifact key matters and the request always goes to the right place. Fixes a case where Bandit got a spurious "not found" on the first try and had to hunt through your artifact list.
