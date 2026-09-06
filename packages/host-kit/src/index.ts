@@ -39,6 +39,8 @@ export {
   revokeShareLink,
   listShareLinks,
   setArtifactScope,
+  restoreArtifact,
+  archiveArtifact,
   artifactKeyFromUrl,
   DEFAULT_AUTH_BASE_URL,
   type PublishArtifactOptions,
@@ -54,6 +56,7 @@ export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 export { buildShareArtifactTool } from './tools/shareArtifactTool';
 export { buildListArtifactsTool } from './tools/listArtifactsTool';
 export { buildDeleteArtifactTool } from './tools/deleteArtifactTool';
+export { buildRestoreArtifactTool } from './tools/restoreArtifactTool';
 export { buildFetchImageTool } from './tools/fetchImageTool';
 export { inlineHtmlImages, type InlineImagesOptions, type InlineImagesResult } from './imageInline';
 // Sandbox execution seam — swappable boundary for running commands (local host

@@ -39,6 +39,7 @@ import {
   buildShareArtifactTool,
   buildListArtifactsTool,
   buildDeleteArtifactTool,
+  buildRestoreArtifactTool,
   buildFetchImageTool,
   buildReadMemoryTool,
   buildRememberTool,
@@ -179,6 +180,7 @@ export async function buildTurnRunContext(
     // (see what's published, clean one up) without leaving the editor.
     registry.register(buildListArtifactsTool(artifactToolOpts));
     registry.register(buildDeleteArtifactTool(artifactToolOpts));
+    registry.register(buildRestoreArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — surface every connected server's tools as
