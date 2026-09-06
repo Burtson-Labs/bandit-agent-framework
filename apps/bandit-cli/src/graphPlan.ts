@@ -32,6 +32,7 @@ import {
 import { c, glyph } from './ansi';
 import { buildGraphHostDeps, graphFlagGate } from './graphDemo';
 import { READ_ONLY_TOOLS, resumeSpecLive, runSpecLive, type LoopNodeHostDeps } from './graphRun';
+import { renderMarkdownDocument } from './terminal/renderDocument';
 
 /** Sink nodes = nodes nothing else depends on (a graph's terminal outputs). */
 function sinkIdsOf(nodes: ProposalNode[]): Set<string> {
@@ -156,7 +157,7 @@ export async function runGraphPlan(argv: string[], cwd: string): Promise<void> {
   const sinks = spec.nodes.filter((n) => !dependedUpon.has(n.id));
   for (const sink of sinks) {
     const out = result.nodes[sink.id]?.output;
-    if (typeof out === 'string' && out.trim()) process.stdout.write('\n' + out.trim() + '\n');
+    if (typeof out === 'string' && out.trim()) process.stdout.write('\n' + renderMarkdownDocument(out.trim()) + '\n');
   }
 }
 
@@ -216,7 +217,9 @@ export async function tryAutoGraphTurn(
       process.stdout.write(c.dim('  graph produced no synthesis — running normally\n'));
       return none;
     }
-    process.stdout.write('\n' + answer + '\n');
+    // Render markdown for the terminal (headers/bold/tables) so a graph-routed turn
+    // looks like a normal turn; keep `answer` raw for history + remote mirroring.
+    process.stdout.write('\n' + renderMarkdownDocument(answer) + '\n');
     return { ran: true, answer };
   } catch (err) {
     process.stdout.write(c.dim(`  graph route unavailable (${err instanceof Error ? err.message : String(err)}) — running normally

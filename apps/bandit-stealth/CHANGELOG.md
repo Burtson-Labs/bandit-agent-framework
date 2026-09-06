@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.436
+
+- **Graph answers render like a normal turn.** When a prompt runs as a graph in the CLI (e.g. "research X and publish a briefing"), the synthesized answer now renders with headers, bold, lists, and tables instead of printing raw `#` / `**` / `| … |` markup — matching how a normal turn already looks. Graph research nodes can also reach the web again (`web_fetch` / `web_search`).
+
 ## 1.7.435
 
 - **"Research this and publish a briefing" now fans out.** In the CLI, when you ask Bandit to research a few things and turn them into a shareable report/briefing/page, it runs the research in parallel as a graph and the final step publishes the artifact and hands you the link — instead of working through it one source at a time. Only that final step can publish; the research stays read-only, and it's signed-in only (publishing is a cloud feature). Pure research/analysis (no "publish") still runs fully read-only. `BANDIT_GRAPH=0` opts out.
