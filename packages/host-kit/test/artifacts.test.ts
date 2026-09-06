@@ -17,6 +17,8 @@ import {
   revokeShareLink,
   listShareLinks,
   setArtifactScope,
+  getArtifact,
+  updateArtifact,
   artifactKeyFromUrl
 } from '../src/artifacts';
 
@@ -299,5 +301,71 @@ describe('artifact management', () => {
     expect(urls[1]).toBe('https://s3.burtson.ai/api/artifact'); // private → no query
     expect(urls[2]).toBe('https://s3.burtson.ai/api/artifact/mine?scope=team');
     expect(urls[3]).toBe('https://s3.burtson.ai/api/artifact/mine');
+  });
+});
+
+describe('getArtifact', () => {
+  it('GETs the key with the bearer token and returns the text content', async () => {
+    const calls: Array<{ url: string; method?: string; auth?: string }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; headers?: Record<string, string> }) => {
+      calls.push({ url, method: init?.method, auth: (init?.headers ?? {}).authorization });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'text/html' : null) },
+        text: async () => '<h1>current</h1>',
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const r = await getArtifact({
+      s3ApiBaseUrl: 'https://s3.burtson.ai/',
+      token: 'jwt-9',
+      keyOrUrl: 'https://s3.burtson.ai/api/artifact/owner-x/abc-report.html',
+      fetchImpl,
+    });
+
+    expect(r).toEqual({ key: 'owner-x/abc-report.html', contentType: 'text/html', content: '<h1>current</h1>' });
+    expect(calls[0]).toMatchObject({ url: 'https://s3.burtson.ai/api/artifact/owner-x/abc-report.html', auth: 'Bearer jwt-9' });
+    expect(calls[0].method).toBeUndefined(); // GET
+  });
+
+  it('throws with the server message on failure', async () => {
+    const fetchImpl = (async () => ({ ok: false, status: 404, json: async () => ({ message: 'not found' }) } as Response)) as unknown as typeof fetch;
+    await expect(getArtifact({ s3ApiBaseUrl: 'https://s3', token: 't', keyOrUrl: 'owner/x.html', fetchImpl }))
+      .rejects.toThrow(/HTTP 404 — not found/);
+  });
+});
+
+describe('updateArtifact', () => {
+  it('PUTs a multipart body to the artifact key and returns the same URL', async () => {
+    const calls: Array<{ url: string; method?: string; auth?: string; contentType?: string; bodyIsBytes: boolean }> = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown }) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      calls.push({ url, method: init?.method, auth: headers.authorization, contentType: headers['content-type'], bodyIsBytes: init?.body instanceof Uint8Array });
+      return { ok: true, status: 200, json: async () => ({ url: 'https://s3.burtson.ai/api/artifact/owner-x/abc-report.html', key: 'owner-x/abc-report.html', size: 20 }) } as Response;
+    }) as unknown as typeof fetch;
+
+    const r = await updateArtifact({
+      s3ApiBaseUrl: 'https://s3.burtson.ai',
+      token: 'jwt-2',
+      keyOrUrl: 'https://s3.burtson.ai/api/artifact/owner-x/abc-report.html',
+      content: '<h1>revised</h1>',
+      fetchImpl,
+    });
+
+    expect(r.url).toMatch(/owner-x\/abc-report\.html$/);
+    expect(calls[0]).toMatchObject({
+      url: 'https://s3.burtson.ai/api/artifact/owner-x/abc-report.html',
+      method: 'PUT',
+      auth: 'Bearer jwt-2',
+      bodyIsBytes: true, // hand-built multipart, not FormData
+    });
+    expect(calls[0].contentType).toMatch(/^multipart\/form-data; boundary=----banditartifact/);
+  });
+
+  it('throws with the server message on failure (e.g. archived)', async () => {
+    const fetchImpl = (async () => ({ ok: false, status: 409, json: async () => ({ message: 'archived' }) } as Response)) as unknown as typeof fetch;
+    await expect(updateArtifact({ s3ApiBaseUrl: 'https://s3', token: 't', keyOrUrl: 'owner/x.html', content: 'x', fetchImpl }))
+      .rejects.toThrow(/HTTP 409 — archived/);
   });
 });

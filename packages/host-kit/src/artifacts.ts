@@ -418,6 +418,65 @@ export async function archiveArtifact(opts: ArtifactManageOptions & { keyOrUrl: 
   }
 }
 
+export interface FetchedArtifact {
+  key: string;
+  contentType: string;
+  content: string;
+}
+
+/** Fetch an existing artifact's current content (owner-auth) so the model can revise it.
+ *  Returns the body as text — the artifacts you'd revise (HTML, markdown, text) are text. */
+export async function getArtifact(opts: ArtifactManageOptions & { keyOrUrl: string }): Promise<FetchedArtifact> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const path = key.split('/').map(encodeURIComponent).join('/');
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/${path}`, {
+    headers: { authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not fetch artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+  const content = await res.text();
+  return { key, contentType, content };
+}
+
+/** Overwrite an existing artifact's content IN PLACE (same key + URL) — the "revise this
+ *  artifact" path, so the model iterates without minting a new link. HTML gets the same
+ *  mobile-friendly pass as publish. */
+export async function updateArtifact(
+  opts: ArtifactManageOptions & { keyOrUrl: string; content: string | Uint8Array; filename?: string; contentType?: string }
+): Promise<PublishedArtifact> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const path = key.split('/').map(encodeURIComponent).join('/');
+  const filename = opts.filename ?? (key.split('/').pop() || 'artifact');
+  const contentType = opts.contentType ?? guessContentType(filename);
+  const raw = typeof opts.content === 'string' && /html/.test(contentType)
+    ? ensureMobileFriendlyHtml(opts.content)
+    : opts.content;
+  const bytes = typeof raw === 'string' ? new TextEncoder().encode(raw) : raw;
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const { body, contentType: multipartContentType } = buildMultipartBody('File', filename, contentType, bytes);
+  const res = await fetchImpl(`${base}/api/artifact/${path}`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': multipartContentType },
+    body: body as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not update artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const j = (await res.json()) as Partial<PublishedArtifact>;
+  return { url: j.url ?? opts.keyOrUrl, key: j.key ?? key, size: j.size ?? bytes.byteLength };
+}
+
 export interface EmailedShareLink extends ArtifactShareLink {
   /** True if Postmark accepted the message; false when mail isn't configured or delivery failed
    *  (the link is still valid — email is best-effort). */
