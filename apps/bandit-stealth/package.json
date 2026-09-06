@@ -189,6 +189,11 @@
         "command": "banditStealth.agent.cancel",
         "key": "alt+shift+c",
         "mac": "alt+shift+c"
+      },
+      {
+        "command": "banditStealth.cyclePermissionMode",
+        "key": "alt+shift+p",
+        "mac": "alt+shift+p"
       }
     ],
     "menus": {
