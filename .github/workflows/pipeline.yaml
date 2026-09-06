@@ -38,6 +38,40 @@ jobs:
       - name: Smoke-test bandit-cli
         run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke
 
+  # ─── Behavioral eval gate (BanditBench) ─────────────────────────────────────
+  # The 25 built-in fixtures run against the PRODUCTION bandit provider (real
+  # gateway, real tool channel — the channel users actually get) and the job
+  # fails on any fixture failure (eval.js exits non-zero). Every build/publish
+  # job `needs:` this, so a behavioral regression blocks the release — unit
+  # tests alone no longer green-light a ship. Without the BANDIT_EVAL_API_KEY
+  # secret (forks, or until it's configured in repo settings) the job still
+  # verifies the fixture loader (--list) and passes, so the gate degrades
+  # gracefully instead of blocking releases on a missing secret.
+  eval-gate:
+    name: Eval gate (BanditBench)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BANDIT_API_KEY: ${{ secrets.BANDIT_EVAL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Fixture loader health
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --list
+      - name: Run BanditBench against the production provider
+        if: env.BANDIT_API_KEY != ''
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --provider bandit --model bandit-core-2
+      - name: Gate skipped (no BANDIT_EVAL_API_KEY)
+        if: env.BANDIT_API_KEY == ''
+        run: echo "BANDIT_EVAL_API_KEY not set — fixture loader verified; model eval skipped. Add the secret to arm the gate."
+
   # ─── Test on Windows ────────────────────────────────────────────────────────
   # The Linux `test` job above runs on our self-hosted pool, which is
   # the only platform our self-hosted runner image ships. Bandit ships
@@ -101,7 +135,7 @@ jobs:
   #      child binary inherits the parent's TCC and Gatekeeper trust).
   build-recorder-darwin:
     name: Build macOS recorder
-    needs: test
+    needs: [test, eval-gate]
     # Hosted macOS runner — the most expensive class on GitHub Actions
     # (10× Linux rate). We don't have a self-hosted macOS pool wired
     # (Mac mini in the cluster isn't a runner yet — see
@@ -160,7 +194,7 @@ jobs:
   # commit) but only tags publish.
   build-vsix:
     name: Build VSIX (+ release on tag)
-    needs: [test, build-recorder-darwin]
+    needs: [test, eval-gate, build-recorder-darwin]
     if: always() && needs.test.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -286,7 +320,7 @@ jobs:
   # build-binaries.mjs verifies every output before it can be attached.
   build-cli-binaries:
     name: Build CLI binaries (${{ matrix.family }})
-    needs: test
+    needs: [test, eval-gate]
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
@@ -357,7 +391,7 @@ jobs:
   # ─── Tier 1: no workspace deps ─────────────────────────────────────────────
   publish-core-chat:
     name: Publish @burtson-labs/core-chat
-    needs: test
+    needs: [test, eval-gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -369,7 +403,7 @@ jobs:
 
   publish-agent-core:
     name: Publish @burtson-labs/agent-core
-    needs: test
+    needs: [test, eval-gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -382,7 +416,7 @@ jobs:
   # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
   publish-agent-ui:
     name: Publish @burtson-labs/agent-ui
-    needs: [test, publish-core-chat, publish-agent-core]
+    needs: [test, eval-gate, publish-core-chat, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -394,7 +428,7 @@ jobs:
 
   publish-stealth-core-runtime:
     name: Publish @burtson-labs/stealth-core-runtime
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -406,7 +440,7 @@ jobs:
 
   publish-host-kit:
     name: Publish @burtson-labs/host-kit
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -418,7 +452,7 @@ jobs:
 
   publish-agent-adapters-provider:
     name: Publish @burtson-labs/agent-adapters-provider
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -430,7 +464,7 @@ jobs:
 
   publish-agent-adapters-node:
     name: Publish @burtson-labs/agent-adapters-node
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -442,7 +476,7 @@ jobs:
 
   publish-agent-adapters-github:
     name: Publish @burtson-labs/agent-adapters-github
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -454,7 +488,7 @@ jobs:
 
   publish-agent-adapters-vscode:
     name: Publish @burtson-labs/agent-adapters-vscode
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -466,7 +500,7 @@ jobs:
 
   publish-agent-adapters-web:
     name: Publish @burtson-labs/agent-adapters-web
-    needs: [test, publish-agent-core]
+    needs: [test, eval-gate, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -484,7 +518,7 @@ jobs:
   # bandit-stealth-cli today.
   publish-cli-npmjs:
     name: Publish CLI to npm
-    needs: test
+    needs: [test, eval-gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
