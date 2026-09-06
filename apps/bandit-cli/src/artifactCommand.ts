@@ -25,6 +25,8 @@ import {
   revokeShareLink,
   listShareLinks,
   setArtifactScope,
+  restoreArtifact,
+  archiveArtifact,
   artifactKeyFromUrl,
   inlineHtmlImages,
   guessContentType
@@ -247,6 +249,42 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
+  // ── restore <url|key> (unarchive from cold storage) ───────────────────────
+  if (sub === 'restore' || sub === 'unarchive') {
+    const target = positional[1];
+    if (!target) {
+      process.stdout.write('usage: bandit artifact restore <url|key>\n');
+      return;
+    }
+    process.stdout.write(c.dim(`  ${glyph.spark} restoring from cold storage…\n`));
+    try {
+      await restoreArtifact({ ...base, keyOrUrl: target });
+      process.stdout.write(c.green(`  ${glyph.check} restored — it's back on fast storage\n`));
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
+  // ── archive <url|key> (move to cold storage) ──────────────────────────────
+  if (sub === 'archive') {
+    const target = positional[1];
+    if (!target) {
+      process.stdout.write('usage: bandit artifact archive <url|key>\n');
+      return;
+    }
+    try {
+      await archiveArtifact({ ...base, keyOrUrl: target });
+      process.stdout.write(
+        c.green(`  ${glyph.check} archived to cold storage (freed hot space)\n`) +
+        c.dim(`  restore anytime: bandit artifact restore ${target}\n`)
+      );
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
   // ── clear [--team] [--yes] ────────────────────────────────────────────────
   if (sub === 'clear') {
     const skipPrompt = argv.includes('--yes') || argv.includes('-y');
@@ -287,7 +325,9 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       '  bandit artifact email <url> <to> [--expires 7d]  email someone an external link\n' +
       '  bandit artifact shares <url>            list active external links for an artifact\n' +
       '  bandit artifact unshare <token>         revoke an external link\n' +
-      '  bandit artifact scope <url> <private|team>  move an artifact between private and team\n'
+      '  bandit artifact scope <url> <private|team>  move an artifact between private and team\n' +
+      '  bandit artifact archive <url>           move an artifact to cold storage (frees space)\n' +
+      '  bandit artifact restore <url>           bring an archived artifact back to fast storage\n'
     );
     return;
   }

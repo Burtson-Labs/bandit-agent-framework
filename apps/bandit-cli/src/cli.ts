@@ -109,6 +109,7 @@ import {
   buildShareArtifactTool,
   buildListArtifactsTool,
   buildDeleteArtifactTool,
+  buildRestoreArtifactTool,
   buildFetchImageTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
@@ -880,6 +881,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     registry.register(buildShareArtifactTool(artifactToolOpts));
     registry.register(buildListArtifactsTool(artifactToolOpts));
     registry.register(buildDeleteArtifactTool(artifactToolOpts));
+    registry.register(buildRestoreArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — enumerated lazily on first turn after a server is
@@ -4637,7 +4639,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   const handleArtifactCommand = async (arg: string): Promise<string> => {
     const tokens = arg.trim().split(/\s+/).filter(Boolean);
     const sub = (tokens[0] ?? '').toLowerCase();
-    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | scope <url> <private|team> | rm <url|key> | clear [--team] --yes');
+    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | scope <url> <private|team> | archive <url> | restore <url> | rm <url|key> | clear [--team] --yes');
     if (!resolved.apiKey) {
       return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
     }
@@ -4726,6 +4728,20 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         const moved = await hostKit.setArtifactScope({ ...base, keyOrUrl: t, scope: next as 'private' | 'team' });
         return c.green(`${glyph.check} now ${next === 'team' ? 'shared with your team' : 'private'}: `) + c.cyan(moved.url);
       } catch (err) { return fail(err); }
+    }
+
+    if (sub === 'restore' || sub === 'unarchive') {
+      const t = posArgs[1];
+      if (!t) return c.dim('usage: /artifact restore <url|key>');
+      try { await hostKit.restoreArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} restored from cold storage`); }
+      catch (err) { return fail(err); }
+    }
+
+    if (sub === 'archive') {
+      const t = posArgs[1];
+      if (!t) return c.dim('usage: /artifact archive <url|key>');
+      try { await hostKit.archiveArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} archived to cold storage`); }
+      catch (err) { return fail(err); }
     }
 
     if (sub === 'clear') {

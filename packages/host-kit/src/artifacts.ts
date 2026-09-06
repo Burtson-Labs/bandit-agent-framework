@@ -338,6 +338,46 @@ export async function setArtifactScope(
   return { key: body.key ?? key, url: body.url ?? '', scope: (body.scope as 'private' | 'team') ?? opts.scope };
 }
 
+/**
+ * Restore an archived artifact from cold storage back to hot. Explicit, one-time —
+ * a slow cold tier (the NAS) is fine because there's no per-read cost. Returns when
+ * the artifact is hot again.
+ */
+export async function restoreArtifact(opts: ArtifactManageOptions & { keyOrUrl: string }): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/restore`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not restore artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+/** Archive an artifact to cold storage (free up hot space). Owner-scoped; requires cold storage configured. */
+export async function archiveArtifact(opts: ArtifactManageOptions & { keyOrUrl: string }): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/archive`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not archive artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
 export interface EmailedShareLink extends ArtifactShareLink {
   /** True if Postmark accepted the message; false when mail isn't configured or delivery failed
    *  (the link is still valid — email is best-effort). */
