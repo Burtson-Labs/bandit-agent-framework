@@ -145,11 +145,51 @@ function buildMultipartBody(
  * is user-initiated ("share this"), so silent failure would be worse than an
  * error.
  */
+const MOBILE_BASELINE_MARKER = 'bandit-mobile-baseline';
+
+/**
+ * Models write desktop-shaped HTML: no viewport meta, bare wide tables.
+ * On a phone the artifacts page rendered them clipped (field report:
+ * table columns cut off mid-cell). The viewer can't fix it — its iframe
+ * is sandboxed without allow-same-origin, deliberately — so the baseline
+ * is baked at PUBLISH time: a viewport meta when none exists plus a tiny
+ * containment stylesheet (tables/pre scroll inside themselves, media
+ * bounded). Marker-guarded so re-publishing never stacks copies; a
+ * document that brings its own viewport is left alone.
+ */
+export function ensureMobileFriendlyHtml(html: string): string {
+  if (html.includes(MOBILE_BASELINE_MARKER)) return html;
+  const hasViewport = /<meta[^>]+name=["']viewport/i.test(html);
+  const inject =
+    `${hasViewport ? '' : '<meta name="viewport" content="width=device-width, initial-scale=1">\n'}` +
+    `<style data-${MOBILE_BASELINE_MARKER}>` +
+    'body{word-wrap:break-word;-webkit-text-size-adjust:100%}' +
+    'img,video,canvas,svg{max-width:100%;height:auto}' +
+    'table{display:block;max-width:100%;overflow-x:auto}' +
+    'pre{max-width:100%;overflow-x:auto}' +
+    '</style>';
+  const headMatch = /<head[^>]*>/i.exec(html);
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length;
+    return `${html.slice(0, at)}\n${inject}${html.slice(at)}`;
+  }
+  const htmlMatch = /<html[^>]*>/i.exec(html);
+  if (htmlMatch) {
+    const at = htmlMatch.index + htmlMatch[0].length;
+    return `${html.slice(0, at)}\n<head>${inject}</head>${html.slice(at)}`;
+  }
+  return `${inject}\n${html}`;
+}
+
 export async function publishArtifact(opts: PublishArtifactOptions): Promise<PublishedArtifact> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
   const contentType = opts.contentType ?? guessContentType(opts.filename);
-  const bytes = typeof opts.content === 'string' ? new TextEncoder().encode(opts.content) : opts.content;
+  const content =
+    typeof opts.content === 'string' && /html/.test(contentType)
+      ? ensureMobileFriendlyHtml(opts.content)
+      : opts.content;
+  const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
 
   // S3Api validates a gateway JWT, not the `bai_` device key — trade up first.
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
