@@ -5175,10 +5175,18 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           // edit request would produce nodes that CAN'T edit). Edit-shaped
           // prompts get the one-time nudge instead.
           if (!isRemoteTurn && !/^(0|false)$/i.test(process.env.BANDIT_GRAPH ?? '')) {
-            const { classifyGraphShaped } = await import('@burtson-labs/agent-core');
+            const { classifyGraphShaped, wantsArtifactDeliverable } = await import('@burtson-labs/agent-core');
             if (classifyGraphShaped(line).suggestsGraph) {
               const editShaped = /\b(fix|refactor|implement|add|update|change|create|edit|bump|delete|rename|install|deploy|migrate)\b/i.test(line);
-              if (!editShaped && conversation.length <= 2) {
+              // Artifact-deliverable prompts (research → publish a report/briefing/page)
+              // route to graph too: the sink node can publish, so they fan out instead
+              // of running linearly. Genuine CODE edits still take the loop (read-only
+              // nodes can't edit), so exclude code verbs and any named source file.
+              const artifactDeliverable = wantsArtifactDeliverable(line);
+              const codeShaped = /\b(refactor|implement|rename|bump|install|deploy|migrate)\b/i.test(line)
+                || /\.(ts|tsx|js|jsx|py|cs|go|rs|java|rb|php|md|json|ya?ml|sh|html?|css)\b/i.test(line);
+              const routeable = (!editShaped || artifactDeliverable) && !codeShaped;
+              if (routeable && conversation.length <= 2) {
                 const { tryAutoGraphTurn } = await import('./graphPlan');
                 if (remoteSession?.active) void remoteSession.mirrorUser(line);
                 const g = await tryAutoGraphTurn(line, cwd);

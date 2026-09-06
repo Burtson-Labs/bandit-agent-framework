@@ -25,6 +25,7 @@ import {
   type GraphSpec,
 } from '@burtson-labs/agent-core';
 import { getModelCapabilities } from '@burtson-labs/stealth-core-runtime';
+import { buildPublishArtifactTool, buildShareArtifactTool } from '@burtson-labs/host-kit';
 import { c, glyph } from './ansi';
 import { loadConfigFiles, resolveConfig } from './config';
 import { CliToolExecutionContext } from './cliToolContext';
@@ -73,14 +74,32 @@ export function demoNodePrompts(): Record<string, string> {
 
 /** Resolve provider + tool deps the way the REPL does. Shared by demo, plan,
  *  and resume so every graph surface runs identical loop wiring. */
-export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeHostDeps; model: string }> {
+export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeHostDeps; model: string; publishTools: string[] }> {
   const fileConfig = await loadConfigFiles(cwd);
   const resolved = resolveConfig(fileConfig, {});
   const { buildProviderSettings } = await import('./cli');
   const { settings, model } = buildProviderSettings(resolved);
   const modelCaps = getModelCapabilities(model);
+  const registry = createCoreToolRegistry();
+
+  // Cloud SINK capability: when signed into Bandit cloud, register the artifact
+  // publish/share tools so a terminal (sink) node can turn the graph's synthesis
+  // into a published artifact. Only sink nodes get these in their envelope (see
+  // graphPlan) — the research fan-out stays read-only; only the last node writes.
+  // Mirrors the REPL's cloud-gated artifact tools in cli.ts.
+  const publishTools: string[] = [];
+  if (settings.kind === 'bandit' && settings.apiKey) {
+    const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
+    const authBase = process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
+    const webBase = process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com';
+    const artifactToolOpts = { token: settings.apiKey, s3ApiBaseUrl: s3Base, authBaseUrl: authBase, webBaseUrl: webBase };
+    registry.register(buildPublishArtifactTool(artifactToolOpts));
+    registry.register(buildShareArtifactTool(artifactToolOpts));
+    publishTools.push('publish_artifact', 'share_artifact');
+  }
+
   const deps: LoopNodeHostDeps = {
-    registry: createCoreToolRegistry(),
+    registry,
     ctx: new CliToolExecutionContext(cwd, createDefaultLanguageAdapters()),
     chatFactory: (): Promise<ChatFn> =>
       buildCliChatFn({ settings, model, pendingImages: undefined, getThink: () => undefined }),
@@ -92,7 +111,7 @@ export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeH
       compactToolBlock: modelCaps.tier === 'small',
     },
   };
-  return { deps, model };
+  return { deps, model, publishTools };
 }
 
 export function graphFlagGate(_usage: string): boolean {
