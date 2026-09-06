@@ -168,7 +168,16 @@ export async function buildCliChatFn(deps: CliChatFnDeps): Promise<ChatFn> {
     // killed. Override via BANDIT_NO_TOKEN_WATCHDOG_MS=0 to disable
     // entirely or =N to tune for a slow cold-load.
     // Hoisted up from below so the watchdog can scale with prompt size.
-    const promptChars = messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+    // Count REAL payload size. Tool-result / structured messages may carry their
+    // bulk outside a plain string content (or in parts), and `content.length`
+    // then under-counts to ~0 — which left the watchdog at its 120s floor on a
+    // turn whose prefill actually needed the scaled budget (seen with a large
+    // get_artifact result: "didn't answer in 120s" on a warm model).
+    const promptChars = messages.reduce((sum, m) => {
+      const c = (m as { content?: unknown }).content;
+      if (typeof c === 'string') return sum + c.length;
+      try { return sum + JSON.stringify(m).length; } catch { return sum; }
+    }, 0);
     // precedence: env var > config/slash override > auto-scale.
     // The env override is per-shell (diagnostic sessions); the config
     // override (via /watchdog or ~/.bandit/config.json watchdogMs) is
