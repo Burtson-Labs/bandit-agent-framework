@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.438
+
+- **Revise a published artifact in place.** Bandit can now pull an artifact you already published back into the workspace (`get_artifact`) and republish your edits to the **same link** (`update_artifact`) — so "tweak that report" or "add a section to the dashboard" updates the existing artifact instead of minting a new one. Works from the CLI and the editor.
+
 ## 1.7.437
 
 - **Bandit builds nicer HTML artifacts.** When you ask for an HTML page, report, dashboard, or anything Bandit will publish as an artifact, it now designs for it: a mobile-friendly responsive layout, light + dark theme (follows your system, with a toggle), crisp inline line-icons, and a clean self-contained page. It may also briefly ask how polished you want it — branding, colors, imagery — before building. The same bar applies to artifacts published from a graph run.
