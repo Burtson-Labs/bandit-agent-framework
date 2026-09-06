@@ -69,6 +69,14 @@ export interface PermissionPromptDeps {
    */
   scopeHints?: Partial<Record<PermissionChoice, string>>;
   /**
+   * Remote-control channel: a mirrored surface (the /remote web page) can
+   * answer this prompt. subscribe() registers a resolver and returns an
+   * unsubscribe; when the remote side answers first, the picker tears down
+   * raw mode exactly as if a local key was pressed and resolves with the
+   * remote result. Local input always still works — first answer wins.
+   */
+  remoteChoice?: { subscribe: (resolve: (r: PermissionPromptResult) => void) => () => void };
+  /**
    * Existing readline interface the REPL uses for normal prompts. We
    * pause it while the picker owns stdin (raw mode) and resume after.
    * Omit in one-shot mode — we manage stdin directly.
@@ -209,13 +217,23 @@ async function promptInteractive(deps: PermissionPromptDeps): Promise<Permission
     // this the terminal can end up in raw mode if an error path skips
     // a reset, which makes the whole shell unusable until the user
     // types `stty sane`.
+    let unsubRemote: (() => void) | undefined;
     const cleanup = () => {
+      unsubRemote?.();
+      unsubRemote = undefined;
       process.stdin.removeListener('keypress', onKey);
       process.stdin.setRawMode?.(wasRaw);
       // Advance past the hint line so the caller's next write starts
       // on a fresh row instead of overwriting our menu.
       process.stdout.write('\n');
     };
+    // Remote answers race local keys — first one wins, teardown identical.
+    unsubRemote = deps.remoteChoice?.subscribe((remoteResult) => {
+      cleanup();
+      restoreRl();
+      process.stdout.write(c.dim(`  answered from the web: ${remoteResult.choice}\n`));
+      resolve(remoteResult);
+    });
 
     const onKey = (_str: string, key: { name?: string; ctrl?: boolean; meta?: boolean } | undefined) => {
       if (!key) return;

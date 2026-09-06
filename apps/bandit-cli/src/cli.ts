@@ -647,6 +647,14 @@ interface RunOptions {
    *  tool.result / reasoning.text. Fired alongside the local rendering —
    *  a remote viewer should see the same anatomy the terminal shows. */
   onTurnEvent?: (evt: { type: string } & Record<string, unknown>) => void;
+  /** Remote permission channel: announce a pending permission request to
+   *  mirrors, let them answer it (first answer wins vs the local picker),
+   *  and announce the resolution. */
+  remotePermission?: {
+    announce: (req: { id: string; tool: string; primary: string }) => void;
+    subscribe: (resolve: (r: import('./permissionPrompt').PermissionPromptResult) => void) => () => void;
+    resolved: (id: string, choice: string) => void;
+  };
   prompt: string;
   skillRegistry: SkillRegistry;
   cwd: string;
@@ -1408,13 +1416,22 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         process.stdout.write(c.accent('│ ') + c.dim('review the request, then choose below') + '\n');
       }
       let result;
+      const permId = `perm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       try {
         // Every scope's blast radius comes from grantRuleFor — the same call
         // that produces the rule stored below, so the card cannot promise one
         // scope and save another.
+        opts.remotePermission?.announce({
+          id: permId,
+          tool: name,
+          primary: previewText(displayPrimary ?? primary ?? ''),
+        });
         result = await promptPermission({
           rl: replRl,
           readLine: getLine,
+          remoteChoice: opts.remotePermission
+            ? { subscribe: opts.remotePermission.subscribe }
+            : undefined,
           scopeHints: {
             once: grantRuleFor(scopeInput, 'once').describes,
             turn: grantRuleFor(scopeInput, 'turn').describes,
@@ -1435,6 +1452,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         });
         return { allow: false, reason: 'user cancelled permission prompt' };
       }
+      opts.remotePermission?.resolved(permId, result.choice);
       if (result.choice === 'turn') {
         // Turn-scoped: covers the "model emitted six edits in one iteration"
         // case without outliving the turn. Cleared in the REPL's turn teardown.
@@ -4579,6 +4597,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // skip re-echoing a remote user message the gateway already surfaced.
   let remoteSession: import('@burtson-labs/host-kit').RemoteSession | null = null;
   const remoteTurnQueue: string[] = [];
+  // A pending permission picker's resolver, when one is open. onRemoteTurn
+  // consults this FIRST: '/permission <choice> [note]' answers the picker
+  // and is never enqueued as a conversational turn.
+  let remotePermissionWaiter: ((r: import('./permissionPrompt').PermissionPromptResult) => void) | null = null;
   // Experimental graph-routing nudge: shown at most once per session.
   let graphNudgeShown = false;
 
@@ -4823,6 +4845,20 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         // A remote turn becomes the next prompt in THIS conversation. Tag it in
         // remoteTurnQueue so the mirror below doesn't re-echo the user message.
         onRemoteTurn: (prompt) => {
+          // Permission answers from the web resolve the OPEN PICKER, never
+          // the conversation. Unknown/late answers are dropped (the picker
+          // may have been answered locally already) — echoing them as turns
+          // would send '/permission once' to the model.
+          if (prompt.startsWith('/permission')) {
+            const parts = prompt.slice('/permission'.length).trim().split(/\s+/);
+            const choice = parts[0] as import('./permissionPrompt').PermissionChoice;
+            if (remotePermissionWaiter && ['once', 'turn', 'session', 'always', 'deny'].includes(choice)) {
+              const waiter = remotePermissionWaiter;
+              remotePermissionWaiter = null;
+              waiter({ choice, notes: parts.slice(1).join(' ') || undefined });
+            }
+            return;
+          }
           // Make the injection VISIBLE — banner + the question itself, echoed
           // the way a typed line would be. Through ink's committed-scrollback
           // (commitTurnLine) when ink is mounted: raw stdout writes while the
@@ -5214,6 +5250,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
 
           const response = await runPrompt({
             onTurnEvent: (evt) => { if (remoteSession?.active) void remoteSession.mirrorEvent(evt); },
+            remotePermission: {
+              announce: (req) => { if (remoteSession?.active) void remoteSession.mirrorEvent({ type: 'permission.request', ...req }); },
+              subscribe: (fn) => {
+                remotePermissionWaiter = fn;
+                return () => { if (remotePermissionWaiter === fn) remotePermissionWaiter = null; };
+              },
+              resolved: (id, choice) => { if (remoteSession?.active) void remoteSession.mirrorEvent({ type: 'permission.resolved', id, choice }); },
+            },
             prompt: promptWithBgEvents,
             skillRegistry,
             cwd,
