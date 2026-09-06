@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.440
+
+- **Revising an artifact reads it from the cloud, not a local file.** `get_artifact` now hands Bandit the current published content directly (straight from the API) instead of saving it to disk and forcing a second read of that file. A revision now works from what's actually published, in one step — no confusing "reading from the filesystem" detour.
+
 ## 1.7.439
 
 - **Revise from the link you were handed.** Paste the artifact link Bandit gave you (the dashboard link) and `get_artifact` / `update_artifact` resolve it directly — before, only the raw storage URL worked, so revising from the shared link failed and Bandit had to hunt for it.
