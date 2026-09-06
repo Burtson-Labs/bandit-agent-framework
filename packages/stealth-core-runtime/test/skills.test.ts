@@ -72,6 +72,19 @@ describe('resolveActiveSkills', () => {
     expect(ids).toContain('search/semantic');
   });
 
+  it('auto-activates web-artifact skill on page/artifact-building prompts', () => {
+    const registry = createDefaultSkillRegistry();
+    for (const goal of [
+      'build an html landing page',
+      'publish this as an artifact',
+      'create a report page for me',
+      'make a self-contained dashboard'
+    ]) {
+      const ids = registry.resolveActiveSkills(goal).map((s) => s.id);
+      expect(ids).toContain('web/artifact');
+    }
+  });
+
   it('does not activate auto skills when keywords are absent', () => {
     const registry = createDefaultSkillRegistry();
     const active = registry.resolveActiveSkills('add a button to the header');
@@ -79,6 +92,7 @@ describe('resolveActiveSkills', () => {
     expect(ids).not.toContain('review/code-review');
     expect(ids).not.toContain('testing/test-gen');
     expect(ids).not.toContain('agent/plan');
+    expect(ids).not.toContain('web/artifact');
   });
 
   it('includes explicitly requested skills via include array', () => {

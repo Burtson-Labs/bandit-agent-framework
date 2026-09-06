@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.437
+
+- **Bandit builds nicer HTML artifacts.** When you ask for an HTML page, report, dashboard, or anything Bandit will publish as an artifact, it now designs for it: a mobile-friendly responsive layout, light + dark theme (follows your system, with a toggle), crisp inline line-icons, and a clean self-contained page. It may also briefly ask how polished you want it — branding, colors, imagery — before building. The same bar applies to artifacts published from a graph run.
+
 ## 1.7.436
 
 - **Graph answers render like a normal turn.** When a prompt runs as a graph in the CLI (e.g. "research X and publish a briefing"), the synthesized answer now renders with headers, bold, lists, and tables instead of printing raw `#` / `**` / `| … |` markup — matching how a normal turn already looks. Graph research nodes can also reach the web again (`web_fetch` / `web_search`).
