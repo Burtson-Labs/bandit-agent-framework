@@ -29,6 +29,7 @@ import { buildPublishArtifactTool, buildShareArtifactTool } from '@burtson-labs/
 import { buildWebFetchTool, buildWebSearchTool } from '@burtson-labs/host-kit';
 import { readTavilyKey } from './config';
 import { c, glyph } from './ansi';
+import { renderMarkdownDocument } from './terminal/renderDocument';
 import { loadConfigFiles, resolveConfig } from './config';
 import { CliToolExecutionContext } from './cliToolContext';
 import { buildCliChatFn } from './agent/cliChatFn';
@@ -150,6 +151,6 @@ export async function runGraphDemo(argv: string[], cwd: string): Promise<void> {
   );
   const result = await runSpecLive({ cwd, spec, executors, nodePrompts });
   if (result.status === 'completed') {
-    process.stdout.write('\n' + String(result.nodes.synthesize.output ?? '') + '\n');
+    process.stdout.write('\n' + renderMarkdownDocument(String(result.nodes.synthesize.output ?? '')) + '\n');
   }
 }
