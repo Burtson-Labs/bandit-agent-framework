@@ -182,6 +182,14 @@ describe('artifactKeyFromUrl', () => {
   it('passes a bare key through unchanged', () => {
     expect(artifactKeyFromUrl('team-1/abc.html')).toBe('team-1/abc.html');
   });
+  it('resolves the key from the dashboard deep-link (?a=<encoded key>)', () => {
+    // This is the URL publish_artifact hands the user — the one they paste back to revise.
+    expect(artifactKeyFromUrl('https://stealth.banditailabs.com/artifacts?a=owner-203d14dda6c1a005%2F1039e77-briefing.html'))
+      .toBe('owner-203d14dda6c1a005/1039e77-briefing.html');
+    // tolerates extra query params / fragments
+    expect(artifactKeyFromUrl('https://stealth.banditailabs.com/artifacts?a=team-1%2Fx.html&foo=1#top'))
+      .toBe('team-1/x.html');
+  });
 });
 
 describe('artifact management', () => {

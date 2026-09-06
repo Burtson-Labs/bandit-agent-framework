@@ -266,6 +266,14 @@ export interface ArtifactListItem {
  * already a key (no marker), so callers can pass either a URL or a raw key.
  */
 export function artifactKeyFromUrl(urlOrKey: string): string {
+  // Dashboard deep-link — the link publish_artifact hands the user to VIEW/manage it,
+  // e.g. https://stealth.banditailabs.com/artifacts?a=<url-encoded key>. This is the URL
+  // people naturally paste back to revise, so resolve the key straight from ?a=.
+  const aParam = /[?&]a=([^&#]+)/.exec(urlOrKey);
+  if (aParam) {
+    try { return decodeURIComponent(aParam[1]); } catch { return aParam[1]; }
+  }
+  // Raw owner S3 URL: …/api/artifact/<key> (key may contain slashes + encoded segments).
   const marker = '/api/artifact/';
   const i = urlOrKey.indexOf(marker);
   const raw = i >= 0 ? urlOrKey.slice(i + marker.length) : urlOrKey;

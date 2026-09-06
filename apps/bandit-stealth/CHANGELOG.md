@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.439
+
+- **Revise from the link you were handed.** Paste the artifact link Bandit gave you (the dashboard link) and `get_artifact` / `update_artifact` resolve it directly — before, only the raw storage URL worked, so revising from the shared link failed and Bandit had to hunt for it.
+- **Less pestering on "make it nice".** When you ask Bandit to polish an artifact or follow your UX guidelines, it now applies its house style (mobile, light + dark, line icons) instead of asking what the guidelines are. It only asks about things it genuinely can't infer — a logo, brand colors — and only on bigger from-scratch builds.
+
 ## 1.7.438
 
 - **Revise a published artifact in place.** Bandit can now pull an artifact you already published back into the workspace (`get_artifact`) and republish your edits to the **same link** (`update_artifact`) — so "tweak that report" or "add a section to the dashboard" updates the existing artifact instead of minting a new one. Works from the CLI and the editor.
