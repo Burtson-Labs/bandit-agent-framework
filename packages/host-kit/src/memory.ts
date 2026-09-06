@@ -105,6 +105,27 @@ export async function loadMemory(cwd: string): Promise<MemoryBundle> {
     }
   }
 
+  // GLOBAL lessons (~/.bandit/lessons.md) — lessons the user promoted from a
+  // repo (`/lessons promote`) because they apply everywhere ("prefer pnpm",
+  // "never push tags in batch"). Loaded after repo candidates so repo-specific
+  // memory wins ordering; same dedup + truncation rules apply.
+  try {
+    const globalAbs = path.join(os.homedir(), '.bandit', 'lessons.md');
+    const raw = await fs.promises.readFile(globalAbs);
+    if (raw.byteLength > 0) {
+      const truncated = raw.byteLength > MAX_BYTES;
+      const text = raw.subarray(0, MAX_BYTES).toString('utf-8');
+      const normalised = text.trim();
+      if (normalised && !isDuplicate(normalised, seen)) {
+        sections.push(`<!-- source: ~/.bandit/lessons.md (global lessons) -->\n${text}${truncated ? '\n… (truncated)' : ''}`);
+        sources.push('~/.bandit/lessons.md');
+        seen.push(normalised);
+      }
+    }
+  } catch {
+    // Not present — that's fine.
+  }
+
   return {
     content: sections.join('\n\n'),
     sources

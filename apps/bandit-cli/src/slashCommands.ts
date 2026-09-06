@@ -1221,9 +1221,25 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: 'memory',
-    description: 'Show loaded memory, or /memory migrate [apply] to lift BANDIT.md sections into MEMORY.md + memory/ topic files',
+    description: 'Show loaded memory; /memory migrate [apply] lifts BANDIT.md into topic files; /memory consolidate merges duplicate BANDIT.md/CLAUDE.md/AGENTS.md into one canonical file',
     async run(args, ctx) {
       const arg = args.trim().toLowerCase();
+      // `/memory consolidate` — merge BANDIT.md / CLAUDE.md / AGENTS.md into one
+      // canonical BANDIT.md and point the others at it, so the three conventions
+      // stop drifting apart. (consolidateMemory existed for months with zero
+      // callers — wired here by the 2026-09 self-improvement audit.)
+      if (arg === 'consolidate') {
+        const { consolidateMemory } = await import('@burtson-labs/host-kit');
+        const r = await consolidateMemory(ctx.cwd);
+        if (!r.redirected.length && !r.skipped.length) {
+          return c.dim('Nothing to consolidate — only one memory entry file exists.');
+        }
+        return [
+          c.green(`✓ consolidated into ${r.canonical}`),
+          r.redirected.length ? c.dim(`  ${r.method === 'symlink' ? 'symlinked' : 'copied'}: ${r.redirected.join(', ')}`) : '',
+          r.skipped.length ? c.dim(`  already canonical: ${r.skipped.join(', ')}`) : ''
+        ].filter(Boolean).join('\n');
+      }
       // `/memory migrate` — kick off the PLAN step. Agent reads existing
       // memory files, drafts topic splits + a fresh BANDIT.md, writes
       // everything to .bandit/migration-preview/ along with plan.json.

@@ -2,6 +2,12 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.443
+
+- **Bandit now learns as you work, out of the box.** Learning memory (repo lessons distilled into `.bandit/lessons.md`) and next-prompt suggestions are ON by default — turn either off with `/lessons off` / `/suggest off` (CLI) or the extension settings. Lessons only distill from turns that actually used tools, and now capture which tools ran and whether the turn errored, so what's learned is sharper.
+- **Lessons can graduate.** `/lessons promote` copies a repo's lessons to `~/.bandit/lessons.md`, which loads in every workspace — a lesson learned once applies everywhere.
+- **`/memory consolidate`** merges duplicate BANDIT.md / CLAUDE.md / AGENTS.md into one canonical file so the three conventions stop drifting apart.
+
 ## 1.7.442
 
 - **Revising an artifact no longer stalls on "warming up".** Fetching an artifact to revise was flooding the model with the entire file in one gulp, which made the very next reply look like a 120-second cold start (and could force a model reload). Artifact content is now sized sensibly — typical artifacts come back inline; large ones go to a workspace file for targeted edits — and the response watchdog now measures the real payload, so big turns get the patience they actually need.

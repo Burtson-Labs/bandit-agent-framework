@@ -977,14 +977,14 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
     // Next-prompt prediction (opt-in: banditStealth.suggestNextPrompt). One
     // small extra model call → likely next prompts, posted as composer chips.
-    if (configuration.get<boolean>('suggestNextPrompt', false)) {
+    if (configuration.get<boolean>('suggestNextPrompt', true)) {
       void this.generateNextPromptSuggestions(configuration);
     }
 
-    // Learning memory (opt-in: banditStealth.learnFromRuns). Distill a durable
-    // repo lesson from this turn into .bandit/lessons.md; it's auto-injected on
-    // future turns. Fire-and-forget — future-facing, so it never blocks.
-    if (configuration.get<boolean>('learnFromRuns', false)) {
+    // Learning memory (default ON; banditStealth.learnFromRuns to opt out).
+    // Distill a durable repo lesson from this turn into .bandit/lessons.md;
+    // it's auto-injected on future turns. Fire-and-forget — never blocks.
+    if (configuration.get<boolean>('learnFromRuns', true)) {
       void this.distillLessonFromTurn(configuration, prompt);
     }
   }

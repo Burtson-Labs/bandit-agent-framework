@@ -3123,13 +3123,15 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // for non-reasoning). Toggled via the `/think on|off|auto` slash
   // command. Read on every chat request via buildChat's getThink().
   let sessionThinkingOverride: boolean | undefined = undefined;
-  // Next-prompt suggestions after each turn. Default OFF — it's one extra
-  // (small) model call per turn; opt in with `/suggest on`.
-  let sessionSuggestEnabled = false;
+  // Next-prompt suggestions after each turn. Default ON (2026-09 self-improvement
+  // audit: both learning loops shipped default-off, so they were effectively
+  // unshipped). One small model call per turn; `/suggest off` or BANDIT_SUGGEST=0.
+  let sessionSuggestEnabled = !/^(0|false)$/i.test(process.env.BANDIT_SUGGEST ?? '');
   // Learning memory: distill a durable repo lesson from each turn into
-  // .bandit/lessons.md (read back on future turns). Default OFF (extra call +
-  // the model writes to a persisted store); opt in with `/lessons on`.
-  let sessionLearnEnabled = false;
+  // .bandit/lessons.md (read back on future turns). Default ON — but only turns
+  // that USED TOOLS distill (chit-chat teaches nothing and would waste the call).
+  // `/lessons off` or BANDIT_LESSONS=0 to opt out.
+  let sessionLearnEnabled = !/^(0|false)$/i.test(process.env.BANDIT_LESSONS ?? '');
   // Reasoning display mode. Seeded from config (default 'compact'), changed via
   // /reasoning for the session and persisted. Read fresh each block so a
   // mid-session toggle applies immediately.
@@ -4652,14 +4654,31 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
       clearLessons(cwd);
       return c.green('✓ cleared .bandit/lessons.md');
     }
+    if (a === 'promote' || a === 'promote all') {
+      // Promotion path: repo lessons that apply EVERYWHERE graduate to
+      // ~/.bandit/lessons.md, which loadMemory injects in every workspace.
+      // Reuses the repo store primitives with the home dir as the root, so
+      // caps + dedup behave identically to the per-repo store.
+      const { addLesson } = await import('@burtson-labs/host-kit');
+      const os = await import('node:os');
+      const repoLessons = loadLessons(cwd);
+      if (!repoLessons.length) return c.dim('No repo lessons to promote — .bandit/lessons.md is empty.');
+      let added = 0;
+      for (const l of repoLessons) {
+        if (addLesson(os.homedir(), l).added) added++;
+      }
+      return c.green(`✓ promoted ${added} lesson${added === 1 ? '' : 's'} to ~/.bandit/lessons.md`) +
+        (added < repoLessons.length ? c.dim(` (${repoLessons.length - added} already global)`) : '') +
+        c.dim('\n  Global lessons load in EVERY workspace. Edit/remove: ~/.bandit/lessons.md');
+    }
     // Bare `/lessons` or `/lessons view` → status + the current lessons.
     const lessons = loadLessons(cwd);
     const header = c.bold('Learning memory: ') + (sessionLearnEnabled ? c.green('on') : c.red('off'))
       + c.dim(`  (${lessons.length} lesson${lessons.length === 1 ? '' : 's'} in .bandit/lessons.md)`);
     const body = lessons.length
       ? lessons.map((l) => c.dim('  • ') + l).join('\n')
-      : c.dim('  (none yet — turn on with /lessons on, then Bandit learns as you work)');
-    const help = c.dim('  /lessons on | off | clear');
+      : c.dim('  (none yet — Bandit learns from tool-using turns as you work; /lessons off to disable)');
+    const help = c.dim('  /lessons on | off | clear | promote   (promote → ~/.bandit/lessons.md, loaded everywhere)');
     return [header, body, help].join('\n');
   };
 
@@ -5254,8 +5273,17 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             }
           }
 
+          // Per-turn tool activity — feeds the lesson distiller (toolsUsed/outcome
+          // sharpen distillation and let us skip chit-chat turns entirely).
+          const turnToolsUsed: string[] = [];
+          let turnHadToolError = false;
           const response = await runPrompt({
-            onTurnEvent: (evt) => { if (remoteSession?.active) void remoteSession.mirrorEvent(evt); },
+            onTurnEvent: (evt) => {
+              const e = evt as { type?: string; tool?: string; ok?: boolean; error?: unknown };
+              if (e.type === 'tool.call' && e.tool) turnToolsUsed.push(e.tool);
+              if (e.ok === false || (typeof e.type === 'string' && e.type.includes('error'))) turnHadToolError = true;
+              if (remoteSession?.active) void remoteSession.mirrorEvent(evt);
+            },
             remotePermission: {
               announce: (req) => { if (remoteSession?.active) void remoteSession.mirrorEvent({ type: 'permission.request', ...req }); },
               subscribe: (fn) => {
@@ -5402,7 +5430,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           // lesson from this turn and store it for future turns. Fire-and-
           // forget + silent — lessons are future-facing, so they must NOT
           // block the next prompt; the user reviews them with /lessons.
-          if (sessionLearnEnabled && !cancelledByUser && response && response.trim().length > 40) {
+          // Only tool-active turns distill: pure-chat turns teach nothing durable,
+          // and skipping them keeps the always-on default cheap.
+          if (sessionLearnEnabled && !cancelledByUser && response && response.trim().length > 40 && turnToolsUsed.length > 0) {
             const learnPrompt = line;
             const learnResponse = response;
             void (async () => {
@@ -5412,7 +5442,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
                 const provider = await createProvider(settings);
                 const request = {
                   model,
-                  messages: [{ role: 'user', content: buildLessonPrompt({ prompt: learnPrompt, assistantResponse: learnResponse }) }],
+                  messages: [{ role: 'user', content: buildLessonPrompt({
+                    prompt: learnPrompt,
+                    assistantResponse: learnResponse,
+                    toolsUsed: turnToolsUsed,
+                    outcome: turnHadToolError ? 'error' : 'ok'
+                  }) }],
                   stream: true,
                   temperature: 0.2
                 };

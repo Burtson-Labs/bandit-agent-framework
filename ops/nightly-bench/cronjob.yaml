@@ -1,0 +1,55 @@
+# Nightly BanditBench on the home cluster — the cadence half of the self-improvement
+# loop (the CI eval-gate is the per-release half). Runs the full fixture set against
+# the PRODUCTION bandit provider and diffs against the frozen baseline, so score
+# drift surfaces daily instead of when a human remembers to run the bench.
+#
+# Schedule: 09:00 UTC = 04:00 CDT — after the nightly Mongo maintenance window
+# (~02:00-02:30 CT), so gateway 5xx blips don't read as regressions.
+#
+# Setup (one-time, out of git — never commit real values):
+#   kubectl -n bandit create secret generic bandit-eval-secrets \
+#     --from-literal=BANDIT_API_KEY=<bai_...>
+#
+# Logs: kubectl -n bandit logs job/<latest nightly-banditbench job>
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-banditbench
+  namespace: bandit
+spec:
+  schedule: "0 9 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: bench
+              image: node:22-bookworm
+              envFrom:
+                - secretRef:
+                    name: bandit-eval-secrets
+              command: ["/bin/bash", "-lc"]
+              args:
+                - |
+                  set -euo pipefail
+                  corepack enable
+                  git clone --depth 1 https://github.com/Burtson-Labs/bandit-agent-framework.git /work
+                  cd /work
+                  pnpm install --frozen-lockfile
+                  pnpm build
+                  echo "── eval (pass/fail fixtures) ──"
+                  pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --provider bandit --model bandit-core-2
+                  echo "── benchmark vs frozen baseline (score drift) ──"
+                  pnpm --filter @burtson-labs/bandit-stealth-cli benchmark -- \
+                    --models bandit-core-2 --provider bandit \
+                    --compare apps/bandit-cli/src/__eval__/baselines/production.json
+              resources:
+                requests: { cpu: "500m", memory: "2Gi" }
+                limits: { memory: "4Gi" }
