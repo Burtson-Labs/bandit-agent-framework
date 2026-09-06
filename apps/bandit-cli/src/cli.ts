@@ -5188,7 +5188,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
               const routeable = (!editShaped || artifactDeliverable) && !codeShaped;
               if (routeable && conversation.length <= 2) {
                 const { tryAutoGraphTurn } = await import('./graphPlan');
-                if (remoteSession?.active) void remoteSession.mirrorUser(line);
+                // NO mirrorUser here: local turns were already mirrored a few
+                // lines up, and remote turns are mirrored by the gateway's
+                // input endpoint — this line double-mirrored every
+                // graph-routed turn (two user bubbles on the remote page).
                 const g = await tryAutoGraphTurn(line, cwd);
                 if (g.ran) {
                   conversation.push({ role: 'user', content: line }, { role: 'assistant', content: g.answer });
