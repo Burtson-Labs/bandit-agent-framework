@@ -26,6 +26,8 @@ import {
 } from '@burtson-labs/agent-core';
 import { getModelCapabilities } from '@burtson-labs/stealth-core-runtime';
 import { buildPublishArtifactTool, buildShareArtifactTool } from '@burtson-labs/host-kit';
+import { buildWebFetchTool, buildWebSearchTool } from '@burtson-labs/host-kit';
+import { readTavilyKey } from './config';
 import { c, glyph } from './ansi';
 import { loadConfigFiles, resolveConfig } from './config';
 import { CliToolExecutionContext } from './cliToolContext';
@@ -81,6 +83,15 @@ export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeH
   const { settings, model } = buildProviderSettings(resolved);
   const modelCaps = getModelCapabilities(model);
   const registry = createCoreToolRegistry();
+
+  // Web research tools — read-only by nature and already ALLOWED by the
+  // READ_ONLY_TOOLS envelope, but the core registry never contained them,
+  // so research nodes were stuck grepping local files ("I only have
+  // search_code") on tasks that plainly wanted the web. Same wiring as the
+  // REPL: web_fetch unconditionally, web_search Tavily-backed (reports
+  // 'not configured' to the model when no key is set).
+  registry.register(buildWebFetchTool());
+  registry.register(buildWebSearchTool({ apiKey: readTavilyKey() ?? resolved.tavilyApiKey }));
 
   // Cloud SINK capability: when signed into Bandit cloud, register the artifact
   // publish/share tools so a terminal (sink) node can turn the graph's synthesis
