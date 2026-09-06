@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.435
+
+- **"Research this and publish a briefing" now fans out.** In the CLI, when you ask Bandit to research a few things and turn them into a shareable report/briefing/page, it runs the research in parallel as a graph and the final step publishes the artifact and hands you the link — instead of working through it one source at a time. Only that final step can publish; the research stays read-only, and it's signed-in only (publishing is a cloud feature). Pure research/analysis (no "publish") still runs fully read-only. `BANDIT_GRAPH=0` opts out.
+
 ## 1.7.434
 
 - **Bring archived artifacts back yourself.** Artifacts that haven't been touched in a while move to cold storage to free space; opening one now tells you it's archived instead of failing cryptically. Restore it on demand from the CLI with `bandit artifact restore <url>` (or `unarchive`), or just ask Bandit to — it has a new `restore_artifact` tool. You can also move one to cold storage early with `bandit artifact archive <url>` to free space now.

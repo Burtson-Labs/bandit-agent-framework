@@ -23,11 +23,66 @@ import {
   validateSpec,
   buildSpecPlanPrompt,
   specTemplate,
+  wantsArtifactDeliverable,
   type ProposalNode,
+  type GraphProposal,
+  type GraphSpec,
+  type NodeExecutor,
 } from '@burtson-labs/agent-core';
 import { c, glyph } from './ansi';
 import { buildGraphHostDeps, graphFlagGate } from './graphDemo';
-import { READ_ONLY_TOOLS, resumeSpecLive, runSpecLive } from './graphRun';
+import { READ_ONLY_TOOLS, resumeSpecLive, runSpecLive, type LoopNodeHostDeps } from './graphRun';
+
+/** Sink nodes = nodes nothing else depends on (a graph's terminal outputs). */
+function sinkIdsOf(nodes: ProposalNode[]): Set<string> {
+  const dependedUpon = new Set(nodes.flatMap((n) => n.dependsOn ?? []));
+  return new Set(nodes.filter((n) => !dependedUpon.has(n.id)).map((n) => n.id));
+}
+
+/** Appended to a SINK node's prompt when the deliverable is an artifact: turn the
+ *  synthesis into a published, shareable artifact. Only sink nodes get this (and
+ *  the publish_artifact capability) — upstream research stays strictly read-only. */
+const SINK_PUBLISH_INSTRUCTION =
+  '\n\nFinally, turn the finished result into a shareable artifact: if it is a ' +
+  'report / briefing / page, produce a COMPLETE standalone HTML document (inline ' +
+  'CSS, no external assets), then call the publish_artifact tool to publish it. ' +
+  'End your answer with the returned artifact URL on its own line. Actually call ' +
+  'the tool — do not merely describe publishing.';
+
+/**
+ * Materialize a validated proposal into a runnable graph. When the task's
+ * deliverable is a shareable artifact AND the host is signed into cloud
+ * (`publishTools` non-empty), the SINK node(s) get `publish_artifact` in their
+ * envelope plus a publish instruction appended to their prompt; every other node
+ * stays strictly read-only. Mutates sink node prompts in `proposal` (a throwaway
+ * parse result) so the executor and the persisted resume prompts stay in sync.
+ */
+export function buildRunnableGraph(
+  proposal: GraphProposal,
+  deps: LoopNodeHostDeps,
+  publishTools: string[],
+  task: string,
+): { spec: GraphSpec; executors: Record<string, NodeExecutor>; nodePrompts: Record<string, string>; artifactIntent: boolean } {
+  const nodes = proposal.nodes ?? [];
+  const artifactIntent = publishTools.length > 0 && wantsArtifactDeliverable(task);
+  const sinks = sinkIdsOf(nodes);
+  if (artifactIntent) {
+    for (const n of nodes) if (sinks.has(n.id)) n.prompt += SINK_PUBLISH_INSTRUCTION;
+  }
+  const nodePrompts: Record<string, string> = {};
+  for (const n of nodes) nodePrompts[n.id] = n.prompt;
+  const { spec, executors } = materializeProposal(proposal, {
+    makeExecutor: (node: ProposalNode) =>
+      wrapLoopAsNode(
+        { registry: deps.registry, ctx: deps.ctx, chatFactory: deps.chatFactory, loopOptions: deps.loopOptions },
+        defaultNodePrompt(node.prompt),
+      ),
+    envelopeFor: (node: ProposalNode) => ({
+      allowTools: artifactIntent && sinks.has(node.id) ? [...READ_ONLY_TOOLS, ...publishTools] : READ_ONLY_TOOLS,
+    }),
+  });
+  return { spec, executors, nodePrompts, artifactIntent };
+}
 
 export async function runGraphPlan(argv: string[], cwd: string): Promise<void> {
   if (!graphFlagGate('graph plan "your task"')) return;
@@ -38,7 +93,7 @@ export async function runGraphPlan(argv: string[], cwd: string): Promise<void> {
     return;
   }
 
-  const { deps, model } = await buildGraphHostDeps(cwd);
+  const { deps, model, publishTools } = await buildGraphHostDeps(cwd);
 
   // ── Classify + propose (one completion, no tools) ─────────────────────────
   process.stdout.write(c.dim(`  ${glyph.spark} asking ${model} to classify the task…\n`));
@@ -85,20 +140,15 @@ export async function runGraphPlan(argv: string[], cwd: string): Promise<void> {
     return;
   }
 
-  // ── Execute: host-owned everything, read-only envelopes in v1 ─────────────
-  const nodePrompts: Record<string, string> = {};
-  for (const n of proposal.nodes ?? []) nodePrompts[n.id] = n.prompt;
-  const { spec, executors } = materializeProposal(proposal, {
-    makeExecutor: (node: ProposalNode) =>
-      wrapLoopAsNode(
-        { registry: deps.registry, ctx: deps.ctx, chatFactory: deps.chatFactory, loopOptions: deps.loopOptions },
-        defaultNodePrompt(node.prompt)
-      ),
-    // v1 policy: EVERY planned node is read-only, whatever the hint said.
-    envelopeFor: () => ({ allowTools: READ_ONLY_TOOLS }),
-  });
+  // ── Execute: host-owned everything. Research nodes are read-only; the sink
+  //    node may publish when the deliverable is an artifact + signed in. ───────
+  const { spec, executors, nodePrompts, artifactIntent } = buildRunnableGraph(proposal, deps, publishTools, task);
 
-  process.stdout.write('\n' + c.dim(`  executing ${spec.nodes.length} nodes (read-only) — /graph inspects it afterwards\n\n`));
+  process.stdout.write('\n' + c.dim(
+    artifactIntent
+      ? `  executing ${spec.nodes.length} nodes — research read-only, the sink node publishes the artifact\n\n`
+      : `  executing ${spec.nodes.length} nodes (read-only) — /graph inspects it afterwards\n\n`
+  ));
   const result = await runSpecLive({ cwd, spec, executors, nodePrompts });
 
   // Print the sink nodes' output (the synthesis) — that's the answer.
@@ -125,7 +175,7 @@ export async function tryAutoGraphTurn(
 ): Promise<{ ran: boolean; answer: string }> {
   const none = { ran: false, answer: '' };
   try {
-    const { deps, model } = await buildGraphHostDeps(cwd);
+    const { deps, model, publishTools } = await buildGraphHostDeps(cwd);
     process.stdout.write(c.dim(`  ${glyph.spark} graph-shaped — asking ${model} for a plan (BANDIT_GRAPH=0 disables)
 `));
     const chat = await deps.chatFactory();
@@ -144,19 +194,16 @@ export async function tryAutoGraphTurn(
       process.stdout.write(`  ${c.cyan(n.id)}${nd}
 `);
     }
-    const nodePrompts: Record<string, string> = {};
-    for (const n of proposal.nodes ?? []) nodePrompts[n.id] = n.prompt;
-    const { spec, executors } = materializeProposal(proposal, {
-      makeExecutor: (node: ProposalNode) =>
-        wrapLoopAsNode(
-          { registry: deps.registry, ctx: deps.ctx, chatFactory: deps.chatFactory, loopOptions: deps.loopOptions },
-          defaultNodePrompt(node.prompt)
-        ),
-      envelopeFor: () => ({ allowTools: READ_ONLY_TOOLS }),
-    });
-    process.stdout.write(c.dim(`  running ${spec.nodes.length} nodes (read-only)
+    const { spec, executors, nodePrompts, artifactIntent } = buildRunnableGraph(proposal, deps, publishTools, task);
+    process.stdout.write(c.dim(
+      artifactIntent
+        ? `  running ${spec.nodes.length} nodes — research read-only, sink node publishes the artifact
 
-`));
+`
+        : `  running ${spec.nodes.length} nodes (read-only)
+
+`
+    ));
     const result = await runSpecLive({ cwd, spec, executors, nodePrompts });
     const dependedUpon = new Set(spec.nodes.flatMap((n) => n.dependsOn ?? []));
     const sinks = spec.nodes.filter((n) => !dependedUpon.has(n.id));

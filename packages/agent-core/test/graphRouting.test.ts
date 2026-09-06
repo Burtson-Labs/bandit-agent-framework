@@ -7,7 +7,7 @@
  * negative costs nothing (normal loop, today's default).
  */
 import { describe, it, expect } from 'vitest';
-import { classifyGraphShaped } from '../src/graph';
+import { classifyGraphShaped, wantsArtifactDeliverable } from '../src/graph';
 
 const LOOP_TASKS = [
   'fix the typo in the README title',
@@ -75,5 +75,26 @@ describe('classifyGraphShaped — transparency + guards', () => {
   it('a plain conjunction is NOT enough on its own', () => {
     const signal = classifyGraphShaped('open the file and read the first function definition in it');
     expect(signal.suggestsGraph).toBe(false);
+  });
+});
+
+describe('wantsArtifactDeliverable', () => {
+  it('is true for research → publish an artifact/report/briefing/page', () => {
+    expect(wantsArtifactDeliverable('research burtson.ai and x.ai news, then create a briefing')).toBe(true);
+    expect(wantsArtifactDeliverable('summarize these findings and publish a report')).toBe(true);
+    expect(wantsArtifactDeliverable('build a one-pager summarizing the competitive landscape')).toBe(true);
+    expect(wantsArtifactDeliverable('make a shareable page comparing the two options')).toBe(true);
+  });
+
+  it('is false for code work even when it "creates" something', () => {
+    // No artifact-deliverable noun → not an artifact task; the editing loop handles it.
+    expect(wantsArtifactDeliverable('create a new React component and wire it up')).toBe(false);
+    expect(wantsArtifactDeliverable('implement the auth service and add tests')).toBe(false);
+    expect(wantsArtifactDeliverable('refactor the parser into smaller modules')).toBe(false);
+  });
+
+  it('needs BOTH a deliverable noun and a produce verb', () => {
+    expect(wantsArtifactDeliverable('what does the report say?')).toBe(false); // noun, no produce verb
+    expect(wantsArtifactDeliverable('publish the changes to main')).toBe(false); // verb, no deliverable noun
   });
 });

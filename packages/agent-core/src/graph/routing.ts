@@ -139,3 +139,23 @@ export function classifyGraphShaped(prompt: string, opts: GraphShapeOptions = {}
   if (reasons.length === 0) reasons.push('no graph-shape signals');
   return { score, reasons, suggestsGraph: score >= threshold };
 }
+
+// Deliverable nouns that make sense as a PUBLISHED artifact (a shareable page/file),
+// as opposed to source code. Paired with a produce-verb below, they mark a task whose
+// end product is an artifact.
+const ARTIFACT_DELIVERABLE = /\b(artifact|report|briefing|brief|summary|overview|write[- ]?up|page|dashboard|one[- ]?pager|deck|memo|digest)\b/i;
+const PRODUCE_VERB = /\b(publish|share|create|make|generate|build|produce|draft|assemble|put together|compile)\b/i;
+
+/**
+ * True when a task's DELIVERABLE is a shareable artifact (a report/briefing/page),
+ * not source code. This is the one "create"-shaped task a graph may route: the
+ * research/analysis nodes fan out READ-ONLY, and only the terminal SINK node is
+ * granted `publish_artifact` to turn the synthesis into a published artifact.
+ *
+ * Kept narrow on purpose — "implement/refactor/fix" code work must still take the
+ * editing loop (read-only nodes can't edit files).
+ */
+export function wantsArtifactDeliverable(prompt: string): boolean {
+  const text = prompt.trim();
+  return ARTIFACT_DELIVERABLE.test(text) && PRODUCE_VERB.test(text);
+}
