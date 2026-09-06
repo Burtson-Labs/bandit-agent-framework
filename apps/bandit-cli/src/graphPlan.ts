@@ -24,6 +24,7 @@ import {
   buildSpecPlanPrompt,
   specTemplate,
   wantsArtifactDeliverable,
+  HTML_ARTIFACT_GUIDANCE,
   type ProposalNode,
   type GraphProposal,
   type GraphSpec,
@@ -44,11 +45,10 @@ function sinkIdsOf(nodes: ProposalNode[]): Set<string> {
  *  synthesis into a published, shareable artifact. Only sink nodes get this (and
  *  the publish_artifact capability) — upstream research stays strictly read-only. */
 const SINK_PUBLISH_INSTRUCTION =
-  '\n\nFinally, turn the finished result into a shareable artifact: if it is a ' +
-  'report / briefing / page, produce a COMPLETE standalone HTML document (inline ' +
-  'CSS, no external assets), then call the publish_artifact tool to publish it. ' +
-  'End your answer with the returned artifact URL on its own line. Actually call ' +
-  'the tool — do not merely describe publishing.';
+  '\n\nFinally, turn the finished result into a shareable, self-contained HTML artifact and publish it.\n' +
+  HTML_ARTIFACT_GUIDANCE +
+  '\nWrite the HTML to a file, then call the publish_artifact tool to publish it and end your ' +
+  'answer with the returned artifact URL on its own line. Actually call the tool — do not merely describe publishing.';
 
 /**
  * Materialize a validated proposal into a runnable graph. When the task's

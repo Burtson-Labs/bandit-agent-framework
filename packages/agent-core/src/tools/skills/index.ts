@@ -5,6 +5,7 @@ export { testGenSkill } from './test-gen-skill';
 export { planSkill } from './plan-skill';
 export { semanticSearchSkill, configureSemanticSearchOllamaUrl, resetSemanticIndex } from './semantic-search-skill';
 export { mailSearchSkill } from './mail-search-skill';
+export { webArtifactSkill, HTML_ARTIFACT_GUIDANCE } from './web-artifact-skill';
 // Host-opt-in only (not in createDefaultSkillRegistry — see interaction-skill).
 export { interactionSkill } from './interaction-skill';
 
@@ -16,12 +17,13 @@ import { testGenSkill } from './test-gen-skill';
 import { planSkill } from './plan-skill';
 import { semanticSearchSkill } from './semantic-search-skill';
 import { mailSearchSkill } from './mail-search-skill';
+import { webArtifactSkill } from './web-artifact-skill';
 
 /**
  * Returns a SkillRegistry pre-loaded with all built-in skills.
  * Core and git skills are 'always' active. Review, test, plan,
- * semantic search, and mail-search skills auto-activate based on
- * prompt patterns.
+ * semantic search, mail-search, and web-artifact skills auto-activate
+ * based on prompt patterns.
  */
 export function createDefaultSkillRegistry(): SkillRegistry {
   return new SkillRegistry().registerAll([
@@ -31,6 +33,7 @@ export function createDefaultSkillRegistry(): SkillRegistry {
     testGenSkill,
     planSkill,
     semanticSearchSkill,
-    mailSearchSkill
+    mailSearchSkill,
+    webArtifactSkill
   ]);
 }
