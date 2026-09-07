@@ -1,0 +1,59 @@
+# Approval-first social drafts — Bandit reads its own recent shipped work (git log +
+# the top of the extension CHANGELOG), drafts three candidate X posts, publishes them
+# as a small HTML artifact, and emails the link to Mark for approval.
+#
+# This job NEVER posts anywhere. A human copies the winning candidate out of the
+# artifact and posts it manually. Auto-posting via the X API is explicitly out of
+# scope for v1.
+#
+# Schedule: "0 14 * * 1,3,5" UTC = 09:00 Central (CDT) Mon/Wed/Fri. Pinned to UTC,
+# so it lands 08:00 during CST.
+#
+# Reuses the nightly-bench secret (one-time setup, out of git — never commit values):
+#   kubectl -n bandit create secret generic bandit-eval-secrets \
+#     --from-literal=BANDIT_API_KEY=<bai_...>
+#
+# Manual run: kubectl -n bandit create job --from=cronjob/social-drafts social-drafts-manual-$(date +%s)
+# Logs:       kubectl -n bandit logs job/<latest social-drafts job>
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: social-drafts
+  namespace: bandit
+spec:
+  schedule: "0 14 * * 1,3,5"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: drafter
+              image: node:22-bookworm
+              envFrom:
+                - secretRef:
+                    name: bandit-eval-secrets
+              command: ["/bin/bash", "-lc"]
+              args:
+                - |
+                  set -euo pipefail
+                  corepack enable
+                  # depth 100 (not 1) so "git log --since" actually has history to read
+                  git clone --depth 100 https://github.com/Burtson-Labs/bandit-agent-framework.git /work
+                  cd /work
+                  pnpm install --frozen-lockfile && pnpm build
+                  # Source material for the drafts — real shipped work only, gathered up front
+                  git log --oneline --since="4 days ago" > /tmp/recent-commits.txt
+                  head -n 120 apps/bandit-stealth/CHANGELOG.md > /tmp/changelog-top.md
+                  mkdir -p ~/.bandit
+                  printf '{"provider":"bandit","model":"bandit-core-2","mode":"auto","bandit":{"apiKey":"%s"}}' "$BANDIT_API_KEY" > ~/.bandit/config.json
+                  node apps/bandit-cli/dist/cli.js -p 'Read /tmp/recent-commits.txt (output of: git log --oneline --since="4 days ago") and /tmp/changelog-top.md (top entries of apps/bandit-stealth/CHANGELOG.md). Using ONLY that real shipped work as source material, draft exactly 3 candidate X posts for Burtson Labs: (1) a feature announcement about something that actually shipped; (2) a build-in-public post about why things take time, grounded in the real work in those files; (3) a developer tip built around a real Bandit command — verify the exact command against README.md or docs/ in this repo before using it. HARD RULES, apply to every post: never mention the npm scope "@burtson-labs" or the handle "@burtson" (use the unscoped name "bandit-stealth-cli" or just "Bandit"); never name any backing model or third-party AI product — describe Bandit in Bandit terms; no fabricated metrics; posts must be <= 275 chars each; tone: confident builder, no hype-words like "revolutionary". Now write the 3 candidates into one small self-contained HTML page: one section per candidate with a short label and a one-line rationale, the post text ALONE inside a copy-friendly <pre> block (nothing but the post text in the block, so it can be selected and copied as-is), and the exact character count shown under each block. Save it as /tmp/social-drafts.html, publish_artifact that file, then email_artifact the published URL to mark@burtson.io framed as social post drafts awaiting approval. This job NEVER posts anywhere. You are drafting candidates for human approval only — do not post, schedule, or submit anything to any social platform or API; your only outputs are the HTML artifact and the approval email.'
+              resources:
+                requests: { cpu: "500m", memory: "2Gi" }
+                limits: { memory: "4Gi" }
