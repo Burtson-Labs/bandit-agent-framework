@@ -1,0 +1,6 @@
+node_modules/
+out/
+assets/music-bed.mp3
+auth.json
+*.storage-state.json
+*.log
