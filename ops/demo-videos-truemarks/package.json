@@ -1,0 +1,21 @@
+{
+  "name": "@burtson-labs/demo-videos-truemarks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-contained Playwright demo-video pipeline for the TrueMarks products (VidRec LE, VidEx LE). Records PUBLIC truemarks.ai marketing pages only — no logins. Finished videos land in ~/Desktop/bandit-demos; nothing is published or committed.",
+  "type": "module",
+  "scripts": {
+    "record:vidrec": "node record.mjs vidrec",
+    "record:videx": "node record.mjs videx",
+    "assemble:vidrec": "bash assemble.sh vidrec",
+    "assemble:videx": "bash assemble.sh videx",
+    "vidrec": "npm run record:vidrec && npm run assemble:vidrec",
+    "videx": "npm run record:videx && npm run assemble:videx",
+    "all": "npm run vidrec && npm run videx"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "playwright": "^1.49.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+out/
+*.log
+# music bed is fetched locally, never committed
+assets/*
+!assets/README.md
