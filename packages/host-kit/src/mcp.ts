@@ -8,7 +8,7 @@
  * Schema is the standard MCP `mcpServers` shape:
  * `{ "mcpServers": { "<name>": { "command": "...", "args": [...], "env": {...} } } }`.
  * Users porting from another MCP-speaking client can paste the same
- * stanza in. See docs/integration-playlist/mcp-roadmap.md for design rules.
+ * stanza in. See https://docs.burtson.ai/mcp.html for design rules.
  */
 
 import * as fs from 'fs';
