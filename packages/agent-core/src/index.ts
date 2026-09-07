@@ -56,7 +56,7 @@ export * from './lessons';
 export * from './spec';
 
 // MCP — Model Context Protocol client (Phase 1: groundwork). See
-// docs/integration-playlist/mcp-roadmap.md. Off by default — hosts
+// https://docs.burtson.ai/mcp.html. Off by default — hosts
 // that don't construct an McpClientPool get zero behavior change.
 export * from './mcp';
 

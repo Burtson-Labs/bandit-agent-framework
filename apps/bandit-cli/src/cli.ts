@@ -2761,7 +2761,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     const hasCloudKey = Boolean(process.env.BANDIT_API_KEY || overrides.apiKey);
     const hint = hasCloudKey
       ? `${c.cyan('/mcp google connect')} to register the Burtson MCP server, or paste a config at ${c.cyan(homeMcpPath)}`
-      : `paste a config at ${c.cyan(homeMcpPath)} (see docs/integration-playlist/mcp-roadmap.md)`;
+      : `paste a config at ${c.cyan(homeMcpPath)} (see ${c.cyan('https://docs.burtson.ai/mcp.html')})`;
     process.stdout.write(c.dim(`[mcp] no servers configured — ${hint}\n`));
   }
   /**
@@ -5888,7 +5888,7 @@ async function main(): Promise<void> {
     // clients (Claude Desktop, Cursor, Cline, Continue, etc.) point
     // at this command in their mcpServers config and drive Bandit's
     // tools through the same JSON-RPC envelope they use everywhere
-    // else. See docs/integration-playlist/mcp-roadmap.md (Phase 4).
+    // else. See https://docs.burtson.ai/mcp.html.
     const subArgs = rawArgs.slice(2);
     let workspace = process.cwd();
     let readOnly = false;

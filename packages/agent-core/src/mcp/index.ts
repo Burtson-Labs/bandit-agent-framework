@@ -1,8 +1,8 @@
 /**
  * MCP — Model Context Protocol — entry point.
  *
- * Bandit speaks MCP as a CLIENT. See docs/integration-playlist/mcp-roadmap.md
- * for the phased plan. Phase 1 (this module) lays the groundwork:
+ * Bandit speaks MCP as a CLIENT. See https://docs.burtson.ai/mcp.html
+ * for usage docs. Phase 1 (this module) lays the groundwork:
  * spawn child-process MCP servers via stdio, enumerate their tools,
  * register them in Bandit's existing ToolRegistry with `<server>.<tool>`
  * names. Phase 2 layers on the user-visible config + UX.
