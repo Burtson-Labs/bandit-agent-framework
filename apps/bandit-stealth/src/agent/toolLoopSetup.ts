@@ -42,6 +42,7 @@ import {
   buildRestoreArtifactTool,
   buildGetArtifactTool,
   buildUpdateArtifactTool,
+  buildEmailArtifactTool,
   buildFetchImageTool,
   buildReadMemoryTool,
   buildRememberTool,
@@ -186,6 +187,7 @@ export async function buildTurnRunContext(
     // get_artifact / update_artifact — fetch a published artifact back + revise it in place (same URL).
     registry.register(buildGetArtifactTool(artifactToolOpts));
     registry.register(buildUpdateArtifactTool(artifactToolOpts));
+    registry.register(buildEmailArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — surface every connected server's tools as

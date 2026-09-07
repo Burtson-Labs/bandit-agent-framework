@@ -2,6 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.444
+
+- **Bandit can email you an artifact.** New `email_artifact` tool: after publishing, the agent can create a share link and email it to a recipient — the delivery half of the nightly morning brief (the cluster bench job now ends by having Bandit write, publish, and email a short report on its own scores).
+
 ## 1.7.443
 
 - **Bandit now learns as you work, out of the box.** Learning memory (repo lessons distilled into `.bandit/lessons.md`) and next-prompt suggestions are ON by default — turn either off with `/lessons off` / `/suggest off` (CLI) or the extension settings. Lessons only distill from turns that actually used tools, and now capture which tools ran and whether the turn errored, so what's learned is sharper.
