@@ -112,6 +112,7 @@ import {
   buildRestoreArtifactTool,
   buildGetArtifactTool,
   buildUpdateArtifactTool,
+  buildEmailArtifactTool,
   buildFetchImageTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
@@ -896,6 +897,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     // (same URL), so "update that artifact" works without minting a new link.
     registry.register(buildGetArtifactTool(artifactToolOpts));
     registry.register(buildUpdateArtifactTool(artifactToolOpts));
+    registry.register(buildEmailArtifactTool(artifactToolOpts));
   }
 
   // MCP tools — enumerated lazily on first turn after a server is

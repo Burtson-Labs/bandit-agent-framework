@@ -38,18 +38,29 @@ spec:
               command: ["/bin/bash", "-lc"]
               args:
                 - |
-                  set -euo pipefail
+                  set -uo pipefail
                   corepack enable
                   git clone --depth 1 https://github.com/Burtson-Labs/bandit-agent-framework.git /work
                   cd /work
-                  pnpm install --frozen-lockfile
-                  pnpm build
+                  pnpm install --frozen-lockfile && pnpm build
+                  BENCH_EXIT=0
                   echo "── eval (pass/fail fixtures) ──"
-                  pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --provider bandit --model bandit-core-2
+                  pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --provider bandit --model bandit-core-2 \
+                    2>&1 | tee /tmp/eval.out || BENCH_EXIT=1
                   echo "── benchmark vs frozen baseline (score drift) ──"
                   pnpm --filter @burtson-labs/bandit-stealth-cli benchmark -- \
                     --models bandit-core-2 --provider bandit \
-                    --compare apps/bandit-cli/src/__eval__/baselines/production.json
+                    --compare apps/bandit-cli/src/__eval__/baselines/production.json \
+                    2>&1 | tee /tmp/bench.out || BENCH_EXIT=1
+                  # ── Morning brief: Bandit analyzes Bandit's own scores and emails the result ──
+                  # Rung 2 of the self-improvement ladder: the nightly numbers become a published
+                  # artifact in Mark's inbox instead of pod logs. Best-effort — a brief failure
+                  # never masks (or fakes) the bench verdict, which is this job's exit code.
+                  mkdir -p ~/.bandit
+                  printf '{"provider":"bandit","model":"bandit-core-2","mode":"auto","bandit":{"apiKey":"%s"}}' "$BANDIT_API_KEY" > ~/.bandit/config.json
+                  cp .bandit/eval-report.md /tmp/eval-report.md 2>/dev/null || true
+                  node apps/bandit-cli/dist/cli.js -p "Read /tmp/eval.out, /tmp/bench.out, and /tmp/eval-report.md (whichever exist). Write a SHORT self-contained HTML morning brief for the Bandit team: overall pass rate, any fixture failures or baseline regressions (name them, quote the error one-liners), notable score drift, and a 3-bullet 'what to do next'. If everything passed, say so plainly in one screen. Then publish_artifact the HTML file and email_artifact the published URL to mark@burtson.io with subject-appropriate framing. Keep it under a page." || echo "brief step failed (bench verdict unaffected)"
+                  exit "$BENCH_EXIT"
               resources:
                 requests: { cpu: "500m", memory: "2Gi" }
                 limits: { memory: "4Gi" }

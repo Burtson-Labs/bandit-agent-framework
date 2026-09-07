@@ -62,6 +62,7 @@ export { buildDeleteArtifactTool } from './tools/deleteArtifactTool';
 export { buildRestoreArtifactTool } from './tools/restoreArtifactTool';
 export { buildGetArtifactTool } from './tools/getArtifactTool';
 export { buildUpdateArtifactTool } from './tools/updateArtifactTool';
+export { buildEmailArtifactTool } from './tools/emailArtifactTool';
 export { buildFetchImageTool } from './tools/fetchImageTool';
 export { inlineHtmlImages, type InlineImagesOptions, type InlineImagesResult } from './imageInline';
 // Sandbox execution seam — swappable boundary for running commands (local host
