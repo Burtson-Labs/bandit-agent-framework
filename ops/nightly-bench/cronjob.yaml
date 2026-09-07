@@ -50,7 +50,7 @@ spec:
                   echo "── benchmark vs frozen baseline (score drift) ──"
                   pnpm --filter @burtson-labs/bandit-stealth-cli benchmark -- \
                     --models bandit-core-2 --provider bandit \
-                    --compare apps/bandit-cli/src/__eval__/baselines/production.json \
+                    --compare src/__eval__/baselines/production.json \
                     2>&1 | tee /tmp/bench.out || BENCH_EXIT=1
                   # ── Morning brief: Bandit analyzes Bandit's own scores and emails the result ──
                   # Rung 2 of the self-improvement ladder: the nightly numbers become a published
