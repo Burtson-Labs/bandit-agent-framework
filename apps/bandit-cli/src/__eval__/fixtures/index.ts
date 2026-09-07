@@ -31,6 +31,8 @@ import { fixture as listThenRead } from './list-then-read';
 import { fixture as multiReadSynthesis } from './multi-read-synthesis';
 import { fixture as jsonSettingChange } from './json-setting-change';
 import { fixture as changelogAppend } from './changelog-append';
+// Self-improve loop seed (regression-derived, see ops/self-improve/README.md):
+import { fixture as artifactRevisionNoReread } from './artifact-revision-no-reread';
 import type { Fixture } from '../types';
 
 export const allFixtures: Fixture[] = [
@@ -58,5 +60,6 @@ export const allFixtures: Fixture[] = [
   listThenRead,
   multiReadSynthesis,
   jsonSettingChange,
-  changelogAppend
+  changelogAppend,
+  artifactRevisionNoReread
 ];
