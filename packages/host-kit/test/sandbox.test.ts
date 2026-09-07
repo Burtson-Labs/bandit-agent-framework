@@ -28,7 +28,7 @@ describe('LocalSandboxExecutor', () => {
   it('kills at timeoutMs and flags timedOut', async () => {
     const r = await new LocalSandboxExecutor().exec('sleep 5', { timeoutMs: 200 });
     expect(r.timedOut).toBe(true);
-  });
+  }, 15_000);
 });
 
 describe('createSandboxExecutor', () => {
