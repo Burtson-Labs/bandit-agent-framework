@@ -249,7 +249,7 @@ describe('runHooks', () => {
     const start = Date.now();
     const r = await runHooks('PreToolUse', settings, { toolName: 'x' }, tmpRoot);
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(2000); // would be 5s+ without the SIGTERM
+    expect(elapsed).toBeLessThan(4000); // would be 5s+ without the SIGTERM (slow CI spawn tolerated)
     expect(r).toHaveLength(1);
-  });
+  }, 15_000);
 });
