@@ -1,0 +1,5 @@
+{
+  "//": "Not a workspace package (ops/ is outside pnpm-workspace globs). Exists so node parses propose.ts as ESM without the typeless-package warning.",
+  "private": true,
+  "type": "module"
+}
