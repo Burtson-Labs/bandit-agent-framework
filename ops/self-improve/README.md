@@ -69,7 +69,7 @@ tee'd `bandit eval` console log — ANSI is stripped), `--turns-dir`,
 
 ## Cron (weekly, Sunday 10:00 UTC)
 
-Run it on any scheduler (cron, CI, or a Kubernetes CronJob — deployment manifests are kept in the operator's private infra repo). The job needs two environment variables: `BANDIT_API_KEY` (a Bandit cloud key for the evidence eval) and `GITHUB_TOKEN` (a repo-scoped PAT so `open-pr.sh` can push a branch and open the PR). Provide them however your scheduler provides secrets.
+Run it on any scheduler (cron or CI). The job needs two environment variables: `BANDIT_API_KEY` (a Bandit cloud key for the evidence eval) and `GITHUB_TOKEN` (a repo-scoped PAT so `open-pr.sh` can push a branch and open the PR). Provide them however your scheduler provides secrets.
 
 ## Seed fixture
 
