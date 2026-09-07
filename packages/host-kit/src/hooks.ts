@@ -166,8 +166,25 @@ function runShell(command: string, cwd: string, timeoutMs: number): Promise<Hook
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
-    const proc = cp.spawn(command, { cwd, shell: true, env: { ...process.env } });
-    const timer = setTimeout(() => { proc.kill('SIGTERM'); }, timeoutMs);
+    // detached (POSIX): make the shell a process-group leader so the timeout can
+    // kill the WHOLE tree. `proc.kill()` alone signals only the sh wrapper — its
+    // children survive holding the stdio pipes, so 'close' (which waits on
+    // streams) never fires until they exit naturally and the "timeout" is a
+    // no-op for any hook that spawns children (caught by CI on Linux: a
+    // 200ms-timeout `sleep 5` hook ran the full 5s).
+    const proc = cp.spawn(command, { cwd, shell: true, env: { ...process.env }, detached: process.platform !== 'win32' });
+    const killTree = (signal: NodeJS.Signals): void => {
+      try {
+        if (process.platform !== 'win32' && proc.pid) process.kill(-proc.pid, signal);
+        else proc.kill(signal);
+      } catch { /* already gone */ }
+    };
+    const timer = setTimeout(() => {
+      killTree('SIGTERM');
+      // Grace period, then hard-kill anything ignoring SIGTERM.
+      const escalate = setTimeout(() => killTree('SIGKILL'), 1500);
+      escalate.unref?.();
+    }, timeoutMs);
     proc.stdout?.on('data', d => { stdout += d.toString(); });
     proc.stderr?.on('data', d => { stderr += d.toString(); });
     proc.on('close', code => {
