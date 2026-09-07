@@ -69,26 +69,7 @@ tee'd `bandit eval` console log — ANSI is stripped), `--turns-dir`,
 
 ## Cron (weekly, Sunday 10:00 UTC)
 
-`cronjob.yaml` mirrors the nightly bench job: same namespace, same
-`bandit-eval-secrets`, fresh clone, `pnpm install && pnpm build`, then
-eval → propose → open-pr. Differences worth knowing:
-
-- **GITHUB_TOKEN required.** The secret needs a `GITHUB_TOKEN` key (repo
-  scope: push branches + open PRs on `Burtson-Labs/bandit-agent-framework`)
-  alongside the existing `BANDIT_API_KEY`. Add it to the existing secret
-  out-of-band — never commit token values:
-
-  ```sh
-  kubectl -n bandit patch secret bandit-eval-secrets \
-    --type merge -p '{"stringData":{"GITHUB_TOKEN":"<repo-scoped PAT>"}}'
-  ```
-
-- **In-cluster evidence is the bench report only.** A fresh clone has no
-  `.bandit/turns/` (turn logs are local-machine evidence and gitignored), so
-  the pod runs the eval itself and proposes from that report. Local runs get
-  both evidence sources.
-- A failing eval inside the pod is treated as *input* to the proposer, not a
-  job failure.
+Run it on any scheduler (cron, CI, or a Kubernetes CronJob — deployment manifests are kept in the operator's private infra repo). The job needs two environment variables: `BANDIT_API_KEY` (a Bandit cloud key for the evidence eval) and `GITHUB_TOKEN` (a repo-scoped PAT so `open-pr.sh` can push a branch and open the PR). Provide them however your scheduler provides secrets.
 
 ## Seed fixture
 
