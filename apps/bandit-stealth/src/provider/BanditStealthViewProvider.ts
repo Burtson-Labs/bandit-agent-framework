@@ -305,6 +305,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
    *  Map, the 1000-entry eviction policy, and the disk-store
    *  composition. See `services/toolCallDetailService.ts`. */
   public readonly toolCallDetails = new ToolCallDetailService();
+  /** Tool activity of the most recent turn — feeds the lesson distiller
+   *  (toolsUsed/outcome sharpen distillation; a zero-tool turn skips it,
+   *  matching the CLI's gate). Reset at the top of performCompletion so
+   *  slash/legacy turns can't inherit a prior turn's tool list. */
+  private lastTurnToolsUsed: string[] = [];
+  private lastTurnHadToolError = false;
   private undoSnapshotsAvailable = false;
   public readonly undo: IUndoManager;
   /** Lazily initialized local embedding client (nomic-embed-text). */
@@ -997,6 +1003,15 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
    */
   private async distillLessonFromTurn(configuration: vscode.WorkspaceConfiguration, userPrompt: string): Promise<void> {
     try {
+      // Snapshot the per-turn tool activity BEFORE any await — this method
+      // is fire-and-forget, and a fast follow-up prompt resets the fields
+      // at the top of performCompletion mid-distill otherwise.
+      const toolsUsed = [...this.lastTurnToolsUsed];
+      const outcome: 'ok' | 'error' = this.lastTurnHadToolError ? 'error' : 'ok';
+      // Only tool-active turns distill — pure-chat turns teach nothing
+      // durable, and skipping them keeps the always-on default cheap
+      // (parity with the CLI's gate).
+      if (toolsUsed.length === 0) return;
       const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!cwd) return;
       const lastAssistant = [...this.conversation].reverse().find((e) => e.role === 'assistant');
@@ -1008,7 +1023,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       const model = this.resolveChatModel(configuration, false);
       const request = {
         model,
-        messages: [{ role: 'user', content: buildLessonPrompt({ prompt: userPrompt, assistantResponse: lastAssistant.content }) }],
+        messages: [{ role: 'user', content: buildLessonPrompt({ prompt: userPrompt, assistantResponse: lastAssistant.content, toolsUsed, outcome }) }],
         stream: true,
         temperature: 0.2
       };
@@ -1688,6 +1703,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   }
 
   private async performCompletion(apiKey: string, configuration: vscode.WorkspaceConfiguration): Promise<void> {
+    // Fresh per-turn tool-activity slate for the lesson distiller. Reset
+    // here (not in performToolUseCompletion) so slash-command and legacy
+    // direct-stream turns also clear it — otherwise a stale tool list
+    // from the previous turn would leak into their distillation gate.
+    this.lastTurnToolsUsed = [];
+    this.lastTurnHadToolError = false;
     // Intercept slash commands before they reach the agent — sending
     // meta-commands to the model as a user prompt makes small models
     // hallucinate "I don't have a /memory tool" responses (observed
@@ -2390,6 +2411,18 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         emitEvent: (type, payload) => {
           // Telemetry tap (sync, no-op when disabled) — observes only.
           this.telemetry?.onEvent(type, payload);
+          // Lesson-distiller tap — record the turn's tool anatomy (names
+          // + whether anything errored) for distillLessonFromTurn after
+          // the turn. Same payload shapes the remote mirror below reads.
+          if (type === 'tool_loop:tool_execute') {
+            const p = payload as { name?: string };
+            if (p?.name) this.lastTurnToolsUsed.push(p.name);
+          } else if (type === 'tool_loop:tool_result') {
+            const p = payload as { isError?: boolean };
+            if (p?.isError) this.lastTurnHadToolError = true;
+          } else if (type === 'tool_loop:tool_error') {
+            this.lastTurnHadToolError = true;
+          }
           // Remote-control mirror (observe-only, fire-and-forget so it never
           // awaits inside this sync callback). Streams the turn's tool anatomy
           // to the live session; the final assistant text is mirrored after
