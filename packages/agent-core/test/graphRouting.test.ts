@@ -17,6 +17,11 @@ const LOOP_TASKS = [
   'add a comment above the greet function',
   'update the timeout',                        // too short
   'read config.json',                          // too short
+  // Bench-audit additions — edit-shaped prompts that carry weak
+  // graph-ish surface signals but must still refuse:
+  'change the button color in styles.css from blue to green',
+  'move the date helper from utils.ts into shared.ts and drop the old copy', // 2 files ≠ graph
+  'summarize this function in a docstring right above its declaration',      // synthesis verb alone ≠ graph
 ];
 
 const GRAPH_TASKS = [
@@ -24,6 +29,11 @@ const GRAPH_TASKS = [
   'compare config/dev.json and config/prod.json and summarize what settings differ',
   'for each of the three services, audit its logging, then produce a combined overview report',
   'review both the auth module and the billing module independently and report the security gaps',
+  // Bench-audit additions — canonical research-synthesis shapes (the
+  // fan-out/fan-in a graph exists for, with no file paths involved):
+  'research the pricing pages of vendor-a.com and vendor-b.com separately, then synthesize a comparison of their tiers',
+  'gather recent coverage of the product launch and the outage independently, then combine the findings into one digest',
+  'for each of the last three releases, look up the changelog highlights, then compile an overview of the trend',
 ];
 
 describe('classifyGraphShaped — single-step tasks stay out of the planner', () => {
@@ -96,5 +106,26 @@ describe('wantsArtifactDeliverable', () => {
   it('needs BOTH a deliverable noun and a produce verb', () => {
     expect(wantsArtifactDeliverable('what does the report say?')).toBe(false); // noun, no produce verb
     expect(wantsArtifactDeliverable('publish the changes to main')).toBe(false); // verb, no deliverable noun
+  });
+});
+
+describe('wantsArtifactDeliverable — edge cases (bench-audit additions)', () => {
+  it('produce-verb synonyms pair with deliverable nouns', () => {
+    expect(wantsArtifactDeliverable('draft a one-pager on the migration plan')).toBe(true);
+    expect(wantsArtifactDeliverable('put together a memo about the incident')).toBe(true);
+    expect(wantsArtifactDeliverable("assemble a digest of this week's commits")).toBe(true);
+    expect(wantsArtifactDeliverable('generate a dashboard summarizing error rates')).toBe(true);
+  });
+
+  it('build/compile as code verbs without a deliverable noun stay false', () => {
+    expect(wantsArtifactDeliverable('build the docker image and push it')).toBe(false);
+    expect(wantsArtifactDeliverable('compile the project and run the tests')).toBe(false);
+  });
+
+  it('deliverable nouns in non-produce contexts stay false', () => {
+    // 'report' as a verb, no produce verb anywhere → not an artifact task.
+    expect(wantsArtifactDeliverable('report the bug to the maintainers')).toBe(false);
+    // A quick chat summary is an answer, not a published deliverable.
+    expect(wantsArtifactDeliverable('give me a quick summary of the diff')).toBe(false);
   });
 });
