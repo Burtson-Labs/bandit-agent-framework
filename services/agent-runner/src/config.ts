@@ -29,9 +29,15 @@ export interface RunnerConfig {
   permissionMode: PermissionMode;
   /** Minimum structured-log level (SEC-006). Default `info`. */
   logLevel: LogLevelSetting;
+  /** Largest request body the runner will buffer, in bytes (TD-004).
+   *  Default 1 MB. */
+  maxBodyBytes: number;
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
+
+/** 1 MB — a turn request is a prompt and a few fields, never a payload. */
+export const DEFAULT_MAX_BODY_BYTES = 1_000_000;
 
 export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
@@ -62,6 +68,13 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
 
   const host = requestedHost ?? (token ? '0.0.0.0' : '127.0.0.1');
 
+  const maxBodyBytes = Number(env.AGENT_RUNNER_MAX_BODY_BYTES ?? DEFAULT_MAX_BODY_BYTES);
+  if (!Number.isInteger(maxBodyBytes) || maxBodyBytes <= 0) {
+    throw new Error(
+      `invalid AGENT_RUNNER_MAX_BODY_BYTES '${String(env.AGENT_RUNNER_MAX_BODY_BYTES)}' — expected a positive integer`,
+    );
+  }
+
   const workspaceRoot = env.AGENT_RUNNER_WORKSPACE_ROOT?.trim() || undefined;
   const allowedProviderHosts = env.AGENT_RUNNER_ALLOWED_PROVIDER_HOSTS?.trim()
     ? env.AGENT_RUNNER_ALLOWED_PROVIDER_HOSTS.split(',')
@@ -77,5 +90,6 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
     allowedProviderHosts,
     permissionMode: parsePermissionMode(env.AGENT_RUNNER_PERMISSION_MODE),
     logLevel: parseLogLevel(env.AGENT_RUNNER_LOG_LEVEL),
+    maxBodyBytes,
   };
 }

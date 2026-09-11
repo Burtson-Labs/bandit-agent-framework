@@ -26,22 +26,71 @@
  * `console.log` on the request path.
  */
 import * as http from 'node:http';
+import type { Readable } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ContractError, PROTOCOL_VERSION, parseTurnRequest } from './contract.js';
 import { runTurn } from './turn.js';
-import { loadRunnerConfig, type RunnerConfig } from './config.js';
+import { DEFAULT_MAX_BODY_BYTES, loadRunnerConfig, type RunnerConfig } from './config.js';
 import { createLogger, REQUEST_ID_HEADER, resolveRequestId, type Logger } from './logger.js';
 import { resolveWorkspacePath, validateProvider } from './policy.js';
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+type BodyStream = Readable & { headers?: http.IncomingHttpHeaders };
+
+/**
+ * Buffer a request body, refusing anything over `limit` (TD-004).
+ *
+ * The refusal has to actually STOP the request, which the first version did
+ * not: it rejected the promise on the byte that crossed the limit and then
+ * kept the `data` listener attached, so the rest of the upload was still
+ * concatenated into a string nobody would ever read — a rejected 1 MB body
+ * could still cost 100 MB of heap. So on limit: detach the listener, pause
+ * the stream (no more socket reads, TCP backpressure does the rest) and
+ * settle exactly once. The caller tears the connection down after the 413
+ * has been flushed — see the `PAYLOAD_TOO_LARGE` branch below.
+ *
+ * A declared `content-length` over the limit is refused before a single
+ * byte is read. Chunks are kept as Buffers and decoded once at the end;
+ * concatenating them as strings corrupts any multi-byte character that
+ * happens to straddle a chunk boundary.
+ */
+export function readBody(req: BodyStream, limit = DEFAULT_MAX_BODY_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (c) => {
-      body += c;
-      if (body.length > 1_000_000) reject(new ContractError('BAD_REQUEST', 'body too large'));
+    const declared = Number(req.headers?.['content-length']);
+    if (Number.isFinite(declared) && declared > limit) {
+      reject(new ContractError('PAYLOAD_TOO_LARGE', `request body exceeds ${limit} bytes`));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+
+    const onData = (c: Buffer | string): void => {
+      if (settled) return;
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      if (size + chunk.length > limit) {
+        settled = true;
+        chunks.length = 0;
+        req.off('data', onData);
+        req.pause();
+        reject(new ContractError('PAYLOAD_TOO_LARGE', `request body exceeds ${limit} bytes`));
+        return;
+      }
+      size += chunk.length;
+      chunks.push(chunk);
+    };
+
+    req.on('data', onData);
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
     });
-    req.on('end', () => resolve(body));
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -109,7 +158,7 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
       if (method === 'POST' && route === '/v1/turns') {
         let turn;
         try {
-          turn = parseTurnRequest(JSON.parse(await readBody(req)));
+          turn = parseTurnRequest(JSON.parse(await readBody(req, config.maxBodyBytes)));
           // SEC-002: constrain the two caller-controlled reach-out values,
           // and hand the turn the CANONICAL workspace path so the jail root
           // is the realpath the containment check approved.
@@ -118,12 +167,25 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
         } catch (err) {
           const ce = err instanceof ContractError ? err : new ContractError('BAD_REQUEST', String(err));
           const status =
-            ce.code === 'PROTOCOL_MISMATCH' ? 426 : ce.code === 'RUNNER_MISCONFIGURED' ? 500 : 400;
+            ce.code === 'PROTOCOL_MISMATCH'
+              ? 426
+              : ce.code === 'RUNNER_MISCONFIGURED'
+                ? 500
+                : ce.code === 'PAYLOAD_TOO_LARGE'
+                  ? 413
+                  : 400;
           log.warn('request.rejected', { code: ce.code, status, message: ce.message });
+          const oversized = ce.code === 'PAYLOAD_TOO_LARGE';
           res.writeHead(status, {
             'content-type': 'application/json',
+            // TD-004: the rest of the upload is unread and unwanted. Asking
+            // for close makes Node flush this response and then tear the
+            // socket down, so the caller still sees the 413.
+            ...(oversized ? { connection: 'close' } : {}),
           });
-          res.end(JSON.stringify({ code: ce.code, message: ce.message }));
+          res.end(JSON.stringify({ code: ce.code, message: ce.message }), () => {
+            if (oversized && !req.destroyed) req.destroy();
+          });
           return;
         }
 
