@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Advisories the dependency audit gate (scripts/check-audit.mjs) will not fail on.",
+    "Only high/critical advisories are ever blocking, so only those need entries here.",
+    "",
+    "Each entry: {",
+    "  id:      GitHub advisory id, e.g. GHSA-xxxx-xxxx-xxxx (as reported by `pnpm audit --json`)",
+    "  package: the vulnerable package, for humans reading the diff",
+    "  reason:  why this does not apply to us, or why it cannot be fixed yet.",
+    "           'we should fix this later' is not a reason — say what makes it non-exploitable here.",
+    "  added:   YYYY-MM-DD it was accepted",
+    "  expires: YYYY-MM-DD it stops being accepted. Past this date the gate fails again",
+    "           so an accepted risk gets re-argued instead of inherited forever.",
+    "}",
+    "",
+    "Prefer raising the floor in `pnpm.overrides` (root package.json) over adding an entry."
+  ],
+  "allow": []
+}
