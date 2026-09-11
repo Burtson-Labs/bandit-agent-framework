@@ -24,6 +24,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { ContractError, PROTOCOL_VERSION, parseTurnRequest } from './contract.js';
 import { runTurn } from './turn.js';
 import { loadRunnerConfig, type RunnerConfig } from './config.js';
+import { resolveWorkspacePath, validateProvider } from './policy.js';
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -71,9 +72,16 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
         let turn;
         try {
           turn = parseTurnRequest(JSON.parse(await readBody(req)));
+          // SEC-002: constrain the two caller-controlled reach-out values,
+          // and hand the turn the CANONICAL workspace path so the jail root
+          // is the realpath the containment check approved.
+          validateProvider(turn.provider, config.allowedProviderHosts);
+          turn = { ...turn, workspacePath: resolveWorkspacePath(turn.workspacePath, config.workspaceRoot) };
         } catch (err) {
           const ce = err instanceof ContractError ? err : new ContractError('BAD_REQUEST', String(err));
-          res.writeHead(ce.code === 'PROTOCOL_MISMATCH' ? 426 : 400, {
+          const status =
+            ce.code === 'PROTOCOL_MISMATCH' ? 426 : ce.code === 'RUNNER_MISCONFIGURED' ? 500 : 400;
+          res.writeHead(status, {
             'content-type': 'application/json',
           });
           res.end(JSON.stringify({ code: ce.code, message: ce.message }));

@@ -13,7 +13,9 @@ const ws = mkdtempSync(join(tmpdir(), 'runner-smoke-'));
 const port = 8799;
 const srv = spawn('node', ['dist/server.js'], {
   cwd: new URL('..', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(port) },
+  // SEC-002: turns are rejected unless workspacePath sits inside the
+  // configured containment root — point it at the tmpdir the smoke uses.
+  env: { ...process.env, PORT: String(port), AGENT_RUNNER_WORKSPACE_ROOT: tmpdir() },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stderr.on('data', (c) => process.stderr.write(c));
