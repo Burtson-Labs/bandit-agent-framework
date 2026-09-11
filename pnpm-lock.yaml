@@ -480,6 +480,10 @@ importers:
       '@burtson-labs/stealth-core-runtime':
         specifier: workspace:*
         version: link:../../packages/stealth-core-runtime
+    devDependencies:
+      vitest:
+        specifier: '>=4.1.11 <5.0.0'
+        version: 4.1.11(@types/node@20.19.24)(happy-dom@20.14.3)(vite@6.4.3(@types/node@20.19.24)(yaml@2.9.0))
 
   services/gateway-api:
     dependencies:
