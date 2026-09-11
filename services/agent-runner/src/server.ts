@@ -109,10 +109,13 @@ function bearerMatches(header: string | undefined, token: string): boolean {
 export interface RunnerServerDeps {
   /** Structured logger (SEC-006). Defaults to one built from the config. */
   logger?: Logger;
+  /** Test seam: the turn executor. Defaults to the real `runTurn`. */
+  runTurn?: typeof runTurn;
 }
 
 export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps = {}): http.Server {
   const baseLogger = deps.logger ?? createLogger({ level: config.logLevel });
+  const executeTurn = deps.runTurn ?? runTurn;
   return http.createServer((req, res) => {
     const startedAt = Date.now();
     const method = req.method ?? 'GET';
@@ -126,16 +129,29 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
     // so the info stream stays readable.
     const level = method === 'GET' && route === '/healthz' ? 'debug' : 'info';
     log[level]('request.start', { method, route });
-    res.on('close', () =>
+
+    // COMP-004: one controller per request. A turn that outlives its caller
+    // is pure waste — model calls nobody reads and file writes nobody asked
+    // for — so a dead connection aborts the work it was paying for.
+    const cancel = new AbortController();
+    res.on('close', () => {
+      const disconnected = !res.writableFinished;
+      if (disconnected) cancel.abort(new Error('client disconnected'));
       log[level]('request.end', {
         method,
         route,
         status: res.statusCode,
         // false = the connection died before the response finished, which
         // for /v1/turns means the NDJSON stream was cut mid-turn.
-        completed: res.writableFinished,
+        completed: !disconnected,
         durationMs: Date.now() - startedAt,
-      }),
+      });
+    });
+    // A socket that dies mid-stream surfaces as an 'error' on the response.
+    // Unhandled, that is an uncaught exception and the whole runner goes
+    // down with one hung-up client.
+    res.on('error', (err: unknown) =>
+      log.warn('response.error', { message: String(err instanceof Error ? err.message : err) }),
     );
 
     void (async () => {
@@ -194,9 +210,17 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
           'content-type': 'application/x-ndjson',
           'cache-control': 'no-cache',
         });
-        const emit = (e: unknown) => res.write(JSON.stringify(e) + '\n');
+        // Writes after the caller hung up are dropped rather than thrown:
+        // the turn is already unwinding and the stream has no reader left.
+        const emit = (e: unknown) => {
+          if (res.writableEnded || res.destroyed) return;
+          res.write(JSON.stringify(e) + '\n');
+        };
         try {
-          await runTurn(turn, emit, { permissionMode: config.permissionMode });
+          await executeTurn(turn, emit, {
+            permissionMode: config.permissionMode,
+            signal: cancel.signal,
+          });
         } catch (err) {
           const message = String(err instanceof Error ? err.message : err);
           log.error('turn.failed', { taskId: turn.taskId, message });
@@ -207,7 +231,8 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
             message,
           });
         }
-        res.end();
+        if (cancel.signal.aborted) log.warn('turn.cancelled', { taskId: turn.taskId });
+        if (!res.writableEnded) res.end();
         return;
       }
 
