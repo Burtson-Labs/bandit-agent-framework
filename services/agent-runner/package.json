@@ -14,11 +14,15 @@
     "dev": "tsc -p tsconfig.build.json --watch",
     "start": "node dist/server.js",
     "smoke": "node scripts/smoke.mjs",
+    "test": "vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@burtson-labs/agent-core": "workspace:*",
     "@burtson-labs/host-kit": "workspace:*",
     "@burtson-labs/stealth-core-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.10"
   }
 }
