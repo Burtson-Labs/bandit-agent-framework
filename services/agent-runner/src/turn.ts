@@ -11,6 +11,13 @@
  * checks here; process isolation comes from deployment (one runner per
  * pod). Per-turn jailing is the roadmap, and is WHY the runner is a
  * separate service in the first place — see the ADR.
+ *
+ * Cancellation (COMP-004): the caller passes the request's AbortSignal and
+ * the turn honours it cooperatively — the loop and the graph scheduler both
+ * take the same signal, the planner call bails between chunks, and the tool
+ * gate denies everything once it fires. A client that hangs up therefore
+ * stops costing model calls and, more importantly, stops writing files into
+ * a workspace nobody is watching any more.
  */
 import * as fs from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -162,6 +169,14 @@ function run(
   });
 }
 
+/** Human-readable cancellation cause, defaulting to the common one. */
+function cancellationReason(signal: AbortSignal | undefined): string {
+  const reason = signal?.reason as unknown;
+  if (reason instanceof Error && reason.message) return reason.message;
+  if (typeof reason === 'string' && reason) return reason;
+  return 'turn cancelled';
+}
+
 export async function runTurn(
   req: TurnRequest,
   emit: (e: RunnerEvent) => void,
@@ -171,10 +186,25 @@ export async function runTurn(
     /** Permission mode for the tool gate (SEC-005). Defaults to
      *  AGENT_RUNNER_PERMISSION_MODE, then `standard`. */
     permissionMode?: PermissionMode;
+    /** Cancellation from the HTTP request (COMP-004). Aborting it stops the
+     *  loop, the graph, and every subsequent tool call. */
+    signal?: AbortSignal;
   },
 ): Promise<void> {
   const { taskId } = req;
+  const signal = deps?.signal;
+  const cancelledEvent = (): RunnerEvent => ({
+    type: 'turn.error',
+    taskId,
+    code: 'TURN_CANCELLED',
+    message: cancellationReason(signal),
+  });
+
   emit({ type: 'turn.started', taskId, protocol: 1, runnerVersion: RUNNER_VERSION });
+  if (signal?.aborted) {
+    emit(cancelledEvent());
+    return;
+  }
 
   let artifacts = 0;
   const ctx = makeContext(req.workspacePath, (p, kind) => {
@@ -187,12 +217,18 @@ export async function runTurn(
   // the tool result and to the gateway as a failed tool.result event.
   const permissionMode =
     deps?.permissionMode ?? parsePermissionMode(process.env.AGENT_RUNNER_PERMISSION_MODE);
-  const toolGate = buildToolGate(permissionMode, req.workspacePath);
+  const policyGate = buildToolGate(permissionMode, req.workspacePath);
+  // COMP-004: once the turn is cancelled nothing else executes. The loop
+  // also checks the signal at its own boundaries, but a tool call already
+  // in flight when the client vanished must not be the one that writes.
+  const toolGate: typeof policyGate = (call) =>
+    signal?.aborted ? { allow: false, reason: cancellationReason(signal) } : policyGate(call);
 
   const registry = createCoreToolRegistry();
   const loop = createToolUseLoop(registry, ctx, {
     maxIterations: req.maxIterations ?? 10,
     beforeToolExecute: toolGate,
+    signal,
     emitEvent: (type, payload) => {
       const p = (payload ?? {}) as Record<string, unknown>;
       // Loop event names verified against tool-use-loop.ts — it emits
@@ -250,7 +286,15 @@ export async function runTurn(
     try {
       let plannerText = '';
       for await (const chunk of chat([{ role: 'user', content: buildPlannerPrompt(req.prompt) }])) {
+        // Leaving the for-await closes the provider stream (its generator's
+        // return path runs), so a cancelled turn stops reading the model
+        // instead of finishing the planner call it no longer needs.
+        if (signal?.aborted) break;
         plannerText += chunk;
+      }
+      if (signal?.aborted) {
+        emit(cancelledEvent());
+        return;
       }
       const parsed = parseGraphProposal(plannerText);
       if (parsed.ok && parsed.proposal?.kind === 'graph' && (parsed.proposal.nodes?.length ?? 0) > 1) {
@@ -291,6 +335,9 @@ export async function runTurn(
       });
       const graphResult = await runGraph(planned.spec, planned.executors, {
         maxConcurrency: 2,
+        // The scheduler stops launching nodes and hands the same signal to
+        // every running executor, so cancellation reaches the node loops.
+        signal,
         emitEvent: (type, payload) => {
           const p = (payload ?? {}) as Record<string, unknown>;
           const nodeId = String(p.nodeId ?? p.id ?? '');
@@ -315,6 +362,10 @@ export async function runTurn(
 ${(body ?? '').toString().slice(0, 2000)}`);
       }
       const finalText = parts.join('\n\n') || '(graph produced no output)';
+      if (signal?.aborted) {
+        emit(cancelledEvent());
+        return;
+      }
       emit({ type: 'assistant.delta', taskId, text: finalText });
 
       const failed = Object.values(graphResult.nodes).filter((r) => r.state === 'failed').length;
@@ -339,6 +390,13 @@ ${(body ?? '').toString().slice(0, 2000)}`);
   }
 
   const result = await loop.run(req.prompt, chat, RUNNER_SYSTEM_PROMPT);
+  if (result.cancelled || signal?.aborted) {
+    // Terminal line even though nobody may be listening: the stream
+    // contract says the last line is always completed or error, and a
+    // cancelled turn is NOT a completed one.
+    emit(cancelledEvent());
+    return;
+  }
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
   emit({
     type: 'turn.completed',
