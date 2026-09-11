@@ -40,6 +40,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # `turbo run lint` across every package that declares a lint script.
+      # The rules were configured but never enforced, which makes them
+      # suggestions — this is the step that makes them rules.
+      - name: Lint
+        run: pnpm lint
+
       # Every package with a test script, in one task. The previous version
       # named three packages explicitly and silently skipped the rest —
       # agent-core, host-kit, agent-ui and the CLI's own suite never ran on a
@@ -52,3 +58,33 @@ jobs:
 
       - name: Smoke-test bandit-cli
         run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke
+
+  # ─── Dependency audit ────────────────────────────────────────────────────────
+  # Fails the PR on a new high/critical advisory in the *production* tree.
+  # Separate job so a vulnerable transitive dep is reported even when the
+  # build or tests are already failing for an unrelated reason — the two
+  # answer different questions and shouldn't mask each other.
+  #
+  # Not a bare `pnpm audit --prod --audit-level high`: pnpm exits non-zero on
+  # any advisory at all, so the bare command reds the build on a low-severity
+  # note with no way to accept a known-unfixable one. scripts/check-audit.mjs
+  # applies the high/critical threshold itself and honors the dated allowlist
+  # in .github/audit-allowlist.json.
+  security-audit:
+    name: Security audit (dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: node scripts/check-audit.mjs

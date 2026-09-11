@@ -31,12 +31,38 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Lint
+        run: pnpm lint
       - name: Test stealth-core-runtime
         run: pnpm --filter stealth-core-runtime exec vitest run
       - name: Test bandit-stealth extension
         run: pnpm --filter bandit-stealth exec vitest run
       - name: Smoke-test bandit-cli
         run: pnpm --filter @burtson-labs/bandit-stealth-cli run smoke
+
+  # ─── Dependency audit ───────────────────────────────────────────────────────
+  # Same gate the PR checks run, on main and on tags: fails on a new
+  # high/critical advisory in the production tree that isn't in the dated
+  # allowlist at .github/audit-allowlist.json. See scripts/check-audit.mjs for
+  # why this isn't a bare `pnpm audit --audit-level high`.
+  #
+  # Deliberately standalone — the publish jobs don't `needs:` it. An advisory
+  # published upstream between a green PR and the release tag would otherwise
+  # block shipping a fix that has nothing to do with it. It reports loudly on
+  # every push instead.
+  security-audit:
+    name: Security audit (dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: node scripts/check-audit.mjs
 
   # ─── Behavioral eval gate (BanditBench) ─────────────────────────────────────
   # The 25 built-in fixtures run against the PRODUCTION bandit provider (real
