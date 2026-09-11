@@ -1,9 +1,20 @@
 import * as vscode from 'vscode';
 import type { IncomingMessage } from '../../messages';
+import { VOICE_STT_API_KEY_SECRET_KEY, VOICE_TTS_API_KEY_SECRET_KEY } from '../../storageKeys';
 
 export interface ConfigMessageDeps {
   syncState(): Promise<void>;
+  /** Keychain-backed store for the voice API keys, which are bearer
+   *  tokens for third-party endpoints and never go to settings.json. */
+  secrets: vscode.SecretStorage;
 }
+
+/** Voice settings whose value is a credential — routed to SecretStorage
+ *  rather than `configuration.update`. */
+const VOICE_SECRET_KEYS: ReadonlyMap<string, string> = new Map([
+  ['voice.stt.apiKey', VOICE_STT_API_KEY_SECRET_KEY],
+  ['voice.tts.apiKey', VOICE_TTS_API_KEY_SECRET_KEY]
+]);
 
 export async function handleSetConfig(
   message: Extract<IncomingMessage, { type: 'setConfig' }>,
@@ -69,11 +80,26 @@ export async function handleSetConfig(
     'voice.voiceId'
   ]);
   if (VOICE_STRING_KEYS.has(message.key)) {
-    await configuration.update(
-      message.key,
-      typeof message.value === 'string' ? message.value : '',
-      vscode.ConfigurationTarget.Global
-    );
+    const value = typeof message.value === 'string' ? message.value : '';
+    const secretKey = VOICE_SECRET_KEYS.get(message.key);
+    if (secretKey) {
+      // Credential — keychain, not settings.json. An empty value is the
+      // user clearing the field, which has to delete the secret rather
+      // than store '' (otherwise the stored-empty would mask nothing but
+      // still read back as "configured").
+      const trimmed = value.trim();
+      if (trimmed) {
+        await deps.secrets.store(secretKey, trimmed);
+      } else {
+        await deps.secrets.delete(secretKey);
+      }
+    } else {
+      await configuration.update(
+        message.key,
+        value,
+        vscode.ConfigurationTarget.Global
+      );
+    }
     await deps.syncState();
   }
 }

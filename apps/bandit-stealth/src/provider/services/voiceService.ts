@@ -36,6 +36,7 @@ import {
 } from '../../extensionRecorder';
 import type { ConversationEntry } from '../../services/conversationTypes';
 import { API_KEY_SECRET_KEY } from '../../storageKeys';
+import { buildVoiceConfig } from '../../helpers/voiceConfig';
 import { sttRequiresBanditKey, synthesizeSpeech, transcribeAudio, ttsRequiresBanditKey } from '../../voiceProviders';
 import type { ProviderContext } from '../context';
 
@@ -104,7 +105,7 @@ export class VoiceService {
     const banditUrl = resolveTtsUrl(configuration);
     try {
       const result = await synthesizeSpeech(
-        { get: <T,>(section: string, def: T) => configuration.get<T>(section, def) },
+        await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets),
         { text, voice: voiceId, banditApiKey: apiKey, banditUrl }
       );
       this.ctx.postMessage({
@@ -169,7 +170,7 @@ export class VoiceService {
       const bytes = Buffer.from(audioBase64, 'base64');
       const normalizedMime = (mimeType || 'audio/webm').split(';')[0].trim();
       const result = await transcribeAudio(
-        { get: <T,>(section: string, def: T) => configuration.get<T>(section, def) },
+        await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets),
         { audioBytes: bytes, mimeType: normalizedMime, banditApiKey: apiKey, banditUrl }
       );
       const transcription = result.text.trim();

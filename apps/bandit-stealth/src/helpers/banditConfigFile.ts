@@ -7,10 +7,15 @@
 // wasn't visible to the CLI — they had no shared source of truth and users
 // had to enter their key twice.
 //
-// As of v1.7.332 the IDE writes to ~/.bandit/config.json too (mirrored
-// to the VS Code setting for Settings-Sync compat). At read time we
-// check env TAVILY_API_KEY → ~/.bandit/config.json → VS Code setting,
-// matching the CLI's resolution order so both surfaces see the same key.
+// As of v1.7.332 the IDE writes to ~/.bandit/config.json too, which is
+// what gave the two surfaces a shared source of truth.
+//
+// The VS Code setting is no longer written at all: it was a plaintext
+// credential in a synced (and often committed) file. New keys go to
+// ~/.bandit/config.json (mode 0600) plus the OS keychain. Read order is
+// env TAVILY_API_KEY → ~/.bandit/config.json → SecretStorage → legacy
+// setting, matching the CLI so both surfaces see the same key. The
+// setting stays readable only until migrateSettingSecrets clears it.
 //
 // Inlined here rather than imported from a shared package because the
 // extension can't depend on @burtson-labs/bandit-stealth-cli (it's a
@@ -24,6 +29,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type * as vscode from 'vscode';
+import { TAVILY_API_KEY_SECRET_KEY } from '../storageKeys';
 
 export const BANDIT_CONFIG_PATH = path.join(os.homedir(), '.bandit', 'config.json');
 
@@ -88,13 +94,26 @@ export function clearTavilyKeyFromBanditConfig(): void {
 
 /** Read the effective Tavily key the chat engine should use. Resolution
  *  order matches the CLI's `resolveConfig`: env wins (per-shell override),
- *  then ~/.bandit/config.json (canonical store), then the legacy VS Code
- *  setting (Settings Sync mirror + backward compat for existing users). */
-export function resolveTavilyKey(configuration: vscode.WorkspaceConfiguration): string | undefined {
+ *  then ~/.bandit/config.json (canonical store, written 0600 and shared
+ *  with the CLI), then SecretStorage, then the legacy VS Code setting.
+ *
+ *  The setting is last and exists only so an existing install keeps working
+ *  until `migrateSettingSecrets` lifts the value into the keychain and
+ *  clears it. New writes go to the file + SecretStorage, never to
+ *  settings.json. */
+export async function resolveTavilyKey(
+  configuration: vscode.WorkspaceConfiguration,
+  secrets?: vscode.SecretStorage
+): Promise<string | undefined> {
   const envKey = process.env.TAVILY_API_KEY?.trim();
   if (envKey && envKey.length > 0) {return envKey;}
   const fileKey = readTavilyKeyFromBanditConfig();
   if (fileKey) {return fileKey;}
+  if (secrets) {
+    const stored = await Promise.resolve(secrets.get(TAVILY_API_KEY_SECRET_KEY)).catch(() => undefined);
+    const trimmedSecret = (stored ?? '').trim();
+    if (trimmedSecret) {return trimmedSecret;}
+  }
   const settingKey = (configuration.get<string>('webSearch.tavilyApiKey', '') || '').trim();
   return settingKey.length > 0 ? settingKey : undefined;
 }

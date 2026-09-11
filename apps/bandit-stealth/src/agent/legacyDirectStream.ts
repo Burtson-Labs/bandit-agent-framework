@@ -60,7 +60,7 @@ export interface LegacyDirectStreamDeps {
     cfg: vscode.WorkspaceConfiguration,
     apiKey: string,
     ollamaAuth: string | undefined
-  ) => Parameters<typeof createProvider>[0];
+  ) => Promise<Parameters<typeof createProvider>[0]>;
   buildChatRequest: (cfg: vscode.WorkspaceConfiguration, contextBlock: string | undefined) => AIChatRequest;
   buildContextBlock: (
     prompt: string,
@@ -105,7 +105,7 @@ export async function runLegacyDirectStream(deps: LegacyDirectStreamDeps): Promi
 
   try {
     const ollamaAuth = await Promise.resolve(secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-    const provider = await createProvider(buildProviderSettings(configuration, apiKey, ollamaAuth));
+    const provider = await createProvider(await buildProviderSettings(configuration, apiKey, ollamaAuth));
     const lastUserMessage = [...getConversation()].reverse().find((e) => e.role === 'user')?.content ?? '';
     const contextResult = await buildContextBlock(lastUserMessage, configuration).catch(() => undefined);
     const request = buildChatRequest(configuration, contextResult?.formatted);

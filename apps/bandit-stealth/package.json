@@ -336,7 +336,8 @@
           "banditStealth.openaiApiKey": {
             "type": "string",
             "default": "",
-            "description": "Bearer API key for the OpenAI-compatible endpoint. Local servers (LM Studio, llama.cpp) usually skip this. Stored in workspace settings — for stronger isolation, set OPENAI_API_KEY in your shell environment instead."
+            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates — you don't need to do anything. Set the key from the Bandit panel instead.",
+            "description": "Deprecated — now stored in the OS keychain (VS Code SecretStorage) instead of settings.json. Any value left here is migrated automatically on activation. Local servers (LM Studio, llama.cpp) usually don't need a key at all."
           },
           "banditStealth.openaiModel": {
             "type": "string",
@@ -439,7 +440,8 @@
           "banditStealth.voice.stt.apiKey": {
             "type": "string",
             "default": "",
-            "description": "Bearer token for the STT endpoint when not using Bandit cloud. Stored in user settings (not VS Code Secrets) so it can travel with workspace settings — for production secrets prefer a self-hosted endpoint without a token."
+            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Set the key from Settings > Voice in the Bandit panel instead.",
+            "description": "Deprecated - now stored in the OS keychain (VS Code SecretStorage) instead of settings.json. Any value left here is migrated automatically on activation. Bearer token for the STT endpoint when not using Bandit cloud."
           },
           "banditStealth.voice.stt.model": {
             "type": "string",
@@ -466,7 +468,8 @@
           "banditStealth.voice.tts.apiKey": {
             "type": "string",
             "default": "",
-            "description": "Bearer token / API key for the TTS endpoint when not using Bandit cloud. Sent as 'Authorization: Bearer <key>' for OpenAI and 'xi-api-key: <key>' for ElevenLabs."
+            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Set the key from Settings > Voice in the Bandit panel instead.",
+            "description": "Deprecated - now stored in the OS keychain (VS Code SecretStorage) instead of settings.json. Any value left here is migrated automatically on activation. Bearer token / API key for the TTS endpoint when not using Bandit cloud."
           },
           "banditStealth.voice.tts.model": {
             "type": "string",
@@ -579,7 +582,8 @@
           "banditStealth.webSearch.tavilyApiKey": {
             "type": "string",
             "default": "",
-            "description": "API key for the `web_search` tool (powered by Tavily — free tier at https://tavily.com). Without this, web_search will return a 'not configured' error so the agent falls back to web_fetch. Leave blank to disable. The TAVILY_API_KEY environment variable is checked as a fallback."
+            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Use the 'Bandit: Set Tavily Key' command instead.",
+            "description": "Deprecated - now stored in the OS keychain (VS Code SecretStorage) plus ~/.bandit/config.json (shared with the CLI). Any value left here is migrated automatically on activation. The TAVILY_API_KEY environment variable still wins when set."
           },
           "banditStealth.intent.showSuggestions": {
             "type": "boolean",
