@@ -37,6 +37,7 @@ import {
   clearModelBehaviorOverrides
 } from './agent/modelBehaviorProfiles';
 import { registerCommands } from './commands/registerCommands';
+import { migrateSettingSecrets } from './helpers/secretMigration';
 import { BanditStealthViewProvider } from './provider/BanditStealthViewProvider';
 
 // Re-export for command files and other consumers that import the class
@@ -101,6 +102,13 @@ export function activate(context: vscode.ExtensionContext): void {
     const recorderPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'recorders', recorderName).fsPath;
     setBundledRecorderPath(recorderPath);
   }
+
+  // Lift any API key still sitting in plain settings.json into the OS
+  // keychain and clear the setting. Fire-and-forget: `activate` is sync and
+  // nothing here should delay the first paint. Readers fall back to the
+  // setting until this lands, so there is no window where a key stops
+  // working. See helpers/secretMigration.ts.
+  void migrateSettingSecrets(context);
 
   const runtimeController = new StealthAgentRuntime(context);
   const frameworkRuntime: FrameworkAgentRuntime = runtimeController.getFrameworkRuntime();

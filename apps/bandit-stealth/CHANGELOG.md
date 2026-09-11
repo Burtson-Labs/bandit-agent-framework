@@ -6,6 +6,7 @@ All notable changes to **Bandit Stealth** are listed here. Versions follow the e
 
 - **`web_fetch` can't be steered into your private network.** A page or prompt could previously talk the agent into reaching loopback, your LAN, or a cloud metadata endpoint — by pointing a public-looking hostname at an internal address, by redirecting to one mid-fetch, or by disguising the address (`2130706433`, `0x7f000001`, `0177.0.0.1`, `127.1`, `[::ffff:127.0.0.1]`). `web_fetch` now resolves a URL once, rejects it if *any* address it resolves to is private or reserved, and connects to exactly the address it checked. Redirects are followed one hop at a time with the full check re-run on every target, capped at 5 hops, and can never drop to `file:`/`data:`.
 - **Blocked fetches say what tripped them.** The message names the address that failed the check, so "why can't it read this URL?" is answerable at a glance. Pointing the agent at internal docs on purpose still works with `BANDIT_ALLOW_PRIVATE_WEB_FETCH=1`.
+- **Your API keys now live in the OS keychain, not `settings.json`.** The OpenAI-compatible key, the speech-to-text and text-to-speech keys, and the Tavily key were stored as plain settings — which meant a workspace-scoped key could be committed to a repo, and a user-scoped one synced between machines in cleartext. They move to secure storage automatically the next time Bandit starts; nothing to re-enter, and every command works the same. The Tavily key still mirrors to `~/.bandit/config.json` so the CLI sees it.
 
 ## 1.7.444
 

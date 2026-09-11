@@ -118,12 +118,15 @@ import { handleSlashCommand as dispatchSlashCommand } from '../slash';
 import {
   API_KEY_SECRET_KEY,
   OLLAMA_AUTH_SECRET_KEY,
+  OPENAI_API_KEY_SECRET_KEY,
+  TAVILY_API_KEY_SECRET_KEY,
   CONVERSATION_STORAGE_KEY,
   CONVERSATION_HISTORY_STORAGE_KEY,
   MODE_STORAGE_KEY,
   INTENT_MEMORY_STORAGE_KEY,
   MODEL_MAX_ITER_CACHE_KEY
 } from '../storageKeys';
+import { readMigratedSecret } from '../helpers/secretMigration';
 import { createStatusIndicators } from '../agent/statusIndicators';
 import { SlowStateCache } from './slowStateCache';
 import type { ProviderContext } from './context';
@@ -558,20 +561,22 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         `Bandit: saved Tavily key to VS Code settings, but couldn't write ~/.bandit/config.json (${err instanceof Error ? err.message : String(err)}). The CLI may not see this key.`
       );
     }
-    // Legacy / Settings Sync mirror.
-    const config = vscode.workspace.getConfiguration('banditStealth');
-    await config.update('webSearch.tavilyApiKey', trimmed, vscode.ConfigurationTarget.Global);
+    // Second store is the OS keychain, not a VS Code setting — the setting
+    // was a plaintext credential that rode Settings Sync in cleartext.
+    await this.context.secrets.store(TAVILY_API_KEY_SECRET_KEY, trimmed);
     void vscode.window.showInformationMessage('Bandit: Tavily key saved (shared with CLI). web_search is now enabled.');
     this.slowStateCache.invalidate();
     await this.syncState();
   }
 
   public async clearTavilyKey(): Promise<void> {
-    // Clear both locations so neither surface holds a stale key.
+    // Clear every location so no surface holds a stale key — including the
+    // legacy plaintext setting, which a synced profile can still carry.
     try { clearTavilyKeyFromBanditConfig(); } catch { /* best-effort */ }
+    await this.context.secrets.delete(TAVILY_API_KEY_SECRET_KEY);
     const config = vscode.workspace.getConfiguration('banditStealth');
     await config.update('webSearch.tavilyApiKey', undefined, vscode.ConfigurationTarget.Global);
-    void vscode.window.showInformationMessage('Bandit: Tavily key cleared from both VS Code settings and ~/.bandit/config.json. web_search now returns "not configured" until you set a new key.');
+    void vscode.window.showInformationMessage('Bandit: Tavily key cleared from the keychain and ~/.bandit/config.json. web_search now returns "not configured" until you set a new key.');
     await this.syncState();
   }
 
@@ -706,7 +711,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
     // Topic dispatchers — each owns a cluster of related message types
     // and returns `true` once it handles one. First match wins.
-    const configDeps = { syncState: () => this.syncState() };
+    const configDeps = { syncState: () => this.syncState(), secrets: this.context.secrets };
     if (await dispatchApiKeyMessage(this, this.apiKeyMessageDeps, message)) {return;}
     if (await dispatchMcpMessage(this, message)) {return;}
     if (await dispatchConversationMessage(this, this.convMessageDeps, message)) {return;}
@@ -1019,7 +1024,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
       const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
       const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-      const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+      const provider = await createProvider(await this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
       const model = this.resolveChatModel(configuration, false);
       const request = {
         model,
@@ -1055,7 +1060,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
       const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
       const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-      const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+      const provider = await createProvider(await this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
       const model = this.resolveChatModel(configuration, false);
       const request = {
         model,
@@ -1624,7 +1629,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     }
 
     const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-    const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+    const provider = await createProvider(await this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
     const request = this.buildAgentCompletionRequest(goal, report, configuration);
 
     let response = '';
@@ -2063,7 +2068,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       }
 
       const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-      const providerSettings = this.buildProviderSettings(configuration, apiKey, ollamaAuth);
+      const providerSettings = await this.buildProviderSettings(configuration, apiKey, ollamaAuth);
       const model = providerKind === 'ollama'
         ? this.resolveAgentModel(configuration)
         : configuration.get<string>('model', 'bandit-core-1') ?? 'bandit-core-1';
@@ -2933,7 +2938,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     const modelSetting = configuration.get<string>('model', 'bandit-core-1');
     const model = modelSetting && modelSetting.trim().length > 0 ? modelSetting.trim() : 'bandit-core-1';
     const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-    const provider = await createProvider(this.buildProviderSettings(configuration, apiKey, ollamaAuth));
+    const provider = await createProvider(await this.buildProviderSettings(configuration, apiKey, ollamaAuth));
 
     const request: AIChatRequest = {
       model,
@@ -3331,7 +3336,9 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     }
   }
 
-  private buildProviderSettings(configuration: vscode.WorkspaceConfiguration, apiKey: string, ollamaAuthToken?: string): ProviderSettings {
+  // Async because the OpenAI-compatible bearer now comes from SecretStorage
+  // rather than a plaintext setting, and SecretStorage.get is a promise.
+  private async buildProviderSettings(configuration: vscode.WorkspaceConfiguration, apiKey: string, ollamaAuthToken?: string): Promise<ProviderSettings> {
     const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
     const rawHeaders = configuration.get<Record<string, string>>('ollamaHeaders', {}) || {};
     const cleanHeaders: Record<string, string> = {};
@@ -3359,6 +3366,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       if (key.toLowerCase() === 'content-type') {continue;}
       if (typeof value === 'string' && value.length > 0) {cleanOpenaiHeaders[key] = value;}
     }
+    const openaiApiKey = await readMigratedSecret(
+      this.context.secrets,
+      OPENAI_API_KEY_SECRET_KEY,
+      configuration,
+      'openaiApiKey'
+    );
     return {
       kind: this.getProviderKind(configuration),
       apiKey,
@@ -3372,7 +3385,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       ollamaModel: this.resolveOllamaBaseModel(configuration),
       ollamaHeaders: Object.keys(cleanHeaders).length > 0 ? cleanHeaders : undefined,
       openaiBaseUrl: configuration.get<string>('openaiBaseUrl', '') || undefined,
-      openaiApiKey: configuration.get<string>('openaiApiKey', '') || undefined,
+      openaiApiKey: openaiApiKey || undefined,
       openaiModel: configuration.get<string>('openaiModel', '') || undefined,
       openaiHeaders: Object.keys(cleanOpenaiHeaders).length > 0 ? cleanOpenaiHeaders : undefined
     };
@@ -3438,7 +3451,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       }
     }
 
-    const settings = this.buildProviderSettings(configuration, apiKey, ollamaAuth);
+    const settings = await this.buildProviderSettings(configuration, apiKey, ollamaAuth);
     const model = providerKind === 'ollama'
       ? this.resolveOllamaBaseModel(configuration)
       : (configuration.get<string>('model', 'bandit-core-1') ?? 'bandit-core-1');
@@ -3595,7 +3608,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         hasApiKey: providerKind === 'ollama' ? true : Boolean(storedApiKey),
         apiKeyTrimmed,
         hasOllamaAuthToken: Boolean(storedOllamaAuth),
-        hasTavilyKey: Boolean(resolveTavilyKey(configuration)),
+        hasTavilyKey: Boolean(await resolveTavilyKey(configuration, this.context.secrets)),
         mcpSnapshot: await this.mcp.buildSnapshot()
       };
       this.slowStateCache.set(slow);
@@ -3686,7 +3699,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     state.voiceMicEnabled = voiceGates.micEnabled;
     state.voiceAutoSpeakPref = voiceGates.autoSpeakPref;
     state.voiceMicPref = voiceGates.micPref;
-    state.voiceProviderSettings = readVoiceProviderSettings(configuration);
+    state.voiceProviderSettings = await readVoiceProviderSettings(configuration, this.context.secrets);
     state.mcpSnapshot = slow.mcpSnapshot;
 
     this.pendingPrompt = undefined;
@@ -3845,7 +3858,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
     if (providerKind === 'bandit' && !apiKey) {return null;}
     const ollamaAuth = await Promise.resolve(this.context.secrets.get(OLLAMA_AUTH_SECRET_KEY)).catch(() => undefined);
-    const provider = await createProvider(this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
+    const provider = await createProvider(await this.buildProviderSettings(configuration, apiKey ?? '', ollamaAuth));
     const model = providerKind === 'ollama'
       ? this.resolveOllamaBaseModel(configuration)
       : configuration.get<string>('model', 'bandit-core-1') ?? 'bandit-core-1';

@@ -151,9 +151,10 @@ export async function buildTurnRunContext(
   // Web search — uses Tavily API. The tool returns a clear "not
   // configured" error if no key is set, so the model knows to fall
   // back to web_fetch with a known URL. Key resolution order:
-  // env TAVILY_API_KEY → ~/.bandit/config.json → VS Code setting.
+  // env TAVILY_API_KEY → ~/.bandit/config.json → SecretStorage →
+  // legacy VS Code setting.
   registry.register(buildWebSearchTool({
-    apiKey: resolveTavilyKey(configuration)
+    apiKey: await resolveTavilyKey(configuration, ctx.extensionContext?.secrets)
   }));
   registry.register(buildRememberTool());
   registry.register(buildReadMemoryTool());

@@ -11,30 +11,61 @@
  */
 import type * as vscode from 'vscode';
 import type { WebviewState } from '../agentTypes';
+import { readMigratedSecret } from './secretMigration';
+import { VOICE_STT_API_KEY_SECRET_KEY, VOICE_TTS_API_KEY_SECRET_KEY } from '../storageKeys';
 
 type VoiceProviderSettings = NonNullable<WebviewState['voiceProviderSettings']>;
 
 /**
  * Read the per-provider voice settings (STT + TTS adapters, URLs,
- * keys, models, voice id) from the workspace config. Used to
- * populate the Voice settings tab without hand-editing settings.json.
+ * keys, models, voice id). Used to populate the Voice settings tab
+ * without hand-editing settings.json.
  *
- * apiKey fields stay in plain workspace settings (not Secrets)
- * because they have to travel with workspace files for self-hosted
- * multi-machine setups. Sensitive cloud keys belong on the Bandit
- * cloud provider, which uses VS Code Secrets.
+ * The two apiKey fields come from SecretStorage, not the workspace
+ * config. They used to be plain settings — the doc comment here argued
+ * they should "travel with workspace files for self-hosted multi-machine
+ * setups", which is another way of saying a bearer token got committed
+ * to a repo. They are bearer tokens for third-party endpoints (OpenAI,
+ * ElevenLabs) and belong in the keychain like every other key.
  */
-export function readVoiceProviderSettings(configuration: vscode.WorkspaceConfiguration): VoiceProviderSettings {
+export async function readVoiceProviderSettings(
+  configuration: vscode.WorkspaceConfiguration,
+  secrets: vscode.SecretStorage
+): Promise<VoiceProviderSettings> {
   return {
     sttProvider: configuration.get<'bandit' | 'openai-whisper' | 'custom'>('voice.stt.provider', 'bandit'),
     sttUrl: configuration.get<string>('voice.stt.url', '') ?? '',
-    sttApiKey: configuration.get<string>('voice.stt.apiKey', '') ?? '',
+    sttApiKey: await readMigratedSecret(secrets, VOICE_STT_API_KEY_SECRET_KEY, configuration, 'voice.stt.apiKey'),
     sttModel: configuration.get<string>('voice.stt.model', 'whisper-1') ?? 'whisper-1',
     ttsProvider: configuration.get<'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom'>('voice.tts.provider', 'bandit'),
     ttsUrl: configuration.get<string>('voice.tts.url', '') ?? '',
-    ttsApiKey: configuration.get<string>('voice.tts.apiKey', '') ?? '',
+    ttsApiKey: await readMigratedSecret(secrets, VOICE_TTS_API_KEY_SECRET_KEY, configuration, 'voice.tts.apiKey'),
     ttsModel: configuration.get<string>('voice.tts.model', 'tts-1') ?? 'tts-1',
     ttsVoiceId: configuration.get<string>('voice.voiceId', 'en_US-brian-premium') ?? 'en_US-brian-premium'
+  };
+}
+
+/**
+ * A `VoiceConfig` that resolves the two apiKey sections from SecretStorage
+ * and delegates everything else to the workspace configuration.
+ *
+ * This is what keeps the adapters in voiceProviders.ts synchronous. They
+ * read their whole configuration through one `get(section, default)` call,
+ * so swapping the backing store for two of those sections needs an overlay
+ * here rather than an async rewrite of every adapter.
+ */
+export async function buildVoiceConfig(
+  configuration: vscode.WorkspaceConfiguration,
+  secrets: vscode.SecretStorage
+): Promise<{ get<T>(section: string, defaultValue: T): T }> {
+  const sttApiKey = await readMigratedSecret(secrets, VOICE_STT_API_KEY_SECRET_KEY, configuration, 'voice.stt.apiKey');
+  const ttsApiKey = await readMigratedSecret(secrets, VOICE_TTS_API_KEY_SECRET_KEY, configuration, 'voice.tts.apiKey');
+  return {
+    get: <T,>(section: string, defaultValue: T): T => {
+      if (section === 'voice.stt.apiKey') {return (sttApiKey as unknown as T) ?? defaultValue;}
+      if (section === 'voice.tts.apiKey') {return (ttsApiKey as unknown as T) ?? defaultValue;}
+      return configuration.get<T>(section, defaultValue);
+    }
   };
 }
 
