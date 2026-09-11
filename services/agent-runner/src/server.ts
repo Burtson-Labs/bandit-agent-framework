@@ -18,12 +18,19 @@
  * bind without a token refuses to start). `/healthz` stays unauthenticated
  * on purpose: k8s probes and the image HEALTHCHECK hit it without headers,
  * and it exposes nothing beyond liveness and the protocol version.
+ *
+ * Observability (SEC-006): every request gets a correlation id — the
+ * caller's `X-Request-Id` when it is well-formed, a fresh uuid otherwise —
+ * which is echoed on the response and stamped on every log line the request
+ * produces. Logs are single-line JSON via `logger.ts`; there is no
+ * `console.log` on the request path.
  */
 import * as http from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ContractError, PROTOCOL_VERSION, parseTurnRequest } from './contract.js';
 import { runTurn } from './turn.js';
 import { loadRunnerConfig, type RunnerConfig } from './config.js';
+import { createLogger, REQUEST_ID_HEADER, resolveRequestId, type Logger } from './logger.js';
 import { resolveWorkspacePath, validateProvider } from './policy.js';
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -50,16 +57,47 @@ function bearerMatches(header: string | undefined, token: string): boolean {
   return timingSafeEqual(presented, expected);
 }
 
-export function createRunnerServer(config: RunnerConfig): http.Server {
+export interface RunnerServerDeps {
+  /** Structured logger (SEC-006). Defaults to one built from the config. */
+  logger?: Logger;
+}
+
+export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps = {}): http.Server {
+  const baseLogger = deps.logger ?? createLogger({ level: config.logLevel });
   return http.createServer((req, res) => {
+    const startedAt = Date.now();
+    const method = req.method ?? 'GET';
+    const route = (req.url ?? '/').split('?')[0];
+    const requestId = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
+    const log = baseLogger.child({ requestId });
+    // Set before any branch so EVERY response carries it — 401 and 404
+    // included. A caller can quote the id in a report before it has a body.
+    res.setHeader(REQUEST_ID_HEADER, requestId);
+    // Liveness probes fire every few seconds forever; they are debug-level
+    // so the info stream stays readable.
+    const level = method === 'GET' && route === '/healthz' ? 'debug' : 'info';
+    log[level]('request.start', { method, route });
+    res.on('close', () =>
+      log[level]('request.end', {
+        method,
+        route,
+        status: res.statusCode,
+        // false = the connection died before the response finished, which
+        // for /v1/turns means the NDJSON stream was cut mid-turn.
+        completed: res.writableFinished,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+
     void (async () => {
-      if (req.method === 'GET' && req.url === '/healthz') {
+      if (method === 'GET' && route === '/healthz') {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true, protocol: PROTOCOL_VERSION }));
         return;
       }
 
       if (config.token && !bearerMatches(req.headers.authorization, config.token)) {
+        log.warn('request.unauthorized', { method, route });
         res.writeHead(401, {
           'content-type': 'application/json',
           'www-authenticate': 'Bearer',
@@ -68,7 +106,7 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
         return;
       }
 
-      if (req.method === 'POST' && req.url === '/v1/turns') {
+      if (method === 'POST' && route === '/v1/turns') {
         let turn;
         try {
           turn = parseTurnRequest(JSON.parse(await readBody(req)));
@@ -81,6 +119,7 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
           const ce = err instanceof ContractError ? err : new ContractError('BAD_REQUEST', String(err));
           const status =
             ce.code === 'PROTOCOL_MISMATCH' ? 426 : ce.code === 'RUNNER_MISCONFIGURED' ? 500 : 400;
+          log.warn('request.rejected', { code: ce.code, status, message: ce.message });
           res.writeHead(status, {
             'content-type': 'application/json',
           });
@@ -88,6 +127,7 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
           return;
         }
 
+        log.info('turn.accepted', { taskId: turn.taskId, provider: turn.provider.kind });
         res.writeHead(200, {
           'content-type': 'application/x-ndjson',
           'cache-control': 'no-cache',
@@ -96,19 +136,25 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
         try {
           await runTurn(turn, emit, { permissionMode: config.permissionMode });
         } catch (err) {
+          const message = String(err instanceof Error ? err.message : err);
+          log.error('turn.failed', { taskId: turn.taskId, message });
           emit({
             type: 'turn.error',
             taskId: turn.taskId,
             code: 'RUNNER_ERROR',
-            message: String(err instanceof Error ? err.message : err),
+            message,
           });
         }
         res.end();
         return;
       }
 
+      log.warn('request.not_found', { method, route });
       res.writeHead(404).end();
-    })().catch(() => res.destroy());
+    })().catch((err: unknown) => {
+      log.error('request.crashed', { message: String(err instanceof Error ? err.message : err) });
+      res.destroy();
+    });
   });
 }
 
@@ -119,18 +165,25 @@ if (require.main === module) {
   try {
     config = loadRunnerConfig();
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(`[agent-runner] refusing to start: ${err instanceof Error ? err.message : String(err)}`);
+    // No config yet, so no configured level — start-up refusals are always
+    // reported, on stderr, in the same JSON shape as everything else.
+    createLogger().error('server.start_refused', {
+      message: err instanceof Error ? err.message : String(err),
+    });
     process.exit(1);
   }
-  const server = createRunnerServer(config);
+  const logger = createLogger({ level: config.logLevel });
+  const server = createRunnerServer(config, { logger });
   server.listen(config.port, config.host, () => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[agent-runner] listening on ${config.host}:${config.port} (protocol v${PROTOCOL_VERSION}) — ` +
-        (config.token
-          ? 'bearer auth enabled'
-          : 'NO AGENT_RUNNER_TOKEN: unauthenticated dev mode, loopback bind only'),
-    );
+    logger.info('server.listening', {
+      host: config.host,
+      port: config.port,
+      protocol: PROTOCOL_VERSION,
+      auth: config.token ? 'bearer' : 'none',
+      permissionMode: config.permissionMode,
+      // Loud, because an unauthenticated runner is only ever acceptable on
+      // loopback and someone reading the logs should see that spelled out.
+      ...(config.token ? {} : { warning: 'AGENT_RUNNER_TOKEN unset: unauthenticated dev mode, loopback bind only' }),
+    });
   });
 }

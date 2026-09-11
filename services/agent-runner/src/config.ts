@@ -10,6 +10,7 @@
  *    configuration error and the process refuses to start — an
  *    unauthenticated runner must never be reachable off-box by default.
  */
+import { parseLogLevel, type LogLevelSetting } from './logger.js';
 import { parsePermissionMode, type PermissionMode } from './toolGate.js';
 
 export interface RunnerConfig {
@@ -26,6 +27,8 @@ export interface RunnerConfig {
   allowedProviderHosts?: string[];
   /** Tool-loop permission mode (SEC-005). Default `standard`. */
   permissionMode: PermissionMode;
+  /** Minimum structured-log level (SEC-006). Default `info`. */
+  logLevel: LogLevelSetting;
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
@@ -73,5 +76,6 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
     workspaceRoot,
     allowedProviderHosts,
     permissionMode: parsePermissionMode(env.AGENT_RUNNER_PERMISSION_MODE),
+    logLevel: parseLogLevel(env.AGENT_RUNNER_LOG_LEVEL),
   };
 }
