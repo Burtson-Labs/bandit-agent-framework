@@ -29,6 +29,7 @@ import {
   type ToolExecutionContext,
 } from '@burtson-labs/agent-core';
 import { chatFnFor } from './providers.js';
+import { buildToolGate, parsePermissionMode, type PermissionMode } from './toolGate.js';
 import type { RunnerEvent, TurnRequest } from './contract.js';
 
 const RUNNER_VERSION = '1.0.0';
@@ -164,8 +165,13 @@ function run(
 export async function runTurn(
   req: TurnRequest,
   emit: (e: RunnerEvent) => void,
-  /** Test seam: inject a scripted ChatFn instead of a live provider. */
-  deps?: { chat?: Awaited<ReturnType<typeof chatFnFor>> },
+  deps?: {
+    /** Test seam: inject a scripted ChatFn instead of a live provider. */
+    chat?: Awaited<ReturnType<typeof chatFnFor>>;
+    /** Permission mode for the tool gate (SEC-005). Defaults to
+     *  AGENT_RUNNER_PERMISSION_MODE, then `standard`. */
+    permissionMode?: PermissionMode;
+  },
 ): Promise<void> {
   const { taskId } = req;
   emit({ type: 'turn.started', taskId, protocol: 1, runnerVersion: RUNNER_VERSION });
@@ -176,9 +182,17 @@ export async function runTurn(
     emit({ type: 'artifact.changed', taskId, path: p, kind });
   });
 
+  // SEC-005: every tool call — plain loop and graph nodes alike — passes the
+  // host-kit-backed gate before it executes. Denials surface to the model as
+  // the tool result and to the gateway as a failed tool.result event.
+  const permissionMode =
+    deps?.permissionMode ?? parsePermissionMode(process.env.AGENT_RUNNER_PERMISSION_MODE);
+  const toolGate = buildToolGate(permissionMode, req.workspacePath);
+
   const registry = createCoreToolRegistry();
   const loop = createToolUseLoop(registry, ctx, {
     maxIterations: req.maxIterations ?? 10,
+    beforeToolExecute: toolGate,
     emitEvent: (type, payload) => {
       const p = (payload ?? {}) as Record<string, unknown>;
       // Loop event names verified against tool-use-loop.ts — it emits
@@ -206,6 +220,16 @@ export async function runTurn(
           tool: String(p.name ?? 'unknown'),
           ok: false,
           summary: String(p.error ?? p.message ?? 'tool error').slice(0, 400),
+        });
+      } else if (type === 'tool_loop:tool_blocked') {
+        // Gate denial (SEC-005): the loop emits tool_blocked instead of
+        // tool_result, so map it here or denials are invisible upstream.
+        emit({
+          type: 'tool.result',
+          taskId,
+          tool: String(p.name ?? 'unknown'),
+          ok: false,
+          summary: `Blocked: ${String(p.reason ?? 'denied by policy')}`.slice(0, 400),
         });
       }
     },
@@ -239,7 +263,12 @@ export async function runTurn(
                 ctx,
                 chat,
                 systemPrompt: RUNNER_SYSTEM_PROMPT,
-                loopOptions: { maxIterations: Math.max(4, Math.floor((req.maxIterations ?? 10) / 2)) },
+                loopOptions: {
+                  maxIterations: Math.max(4, Math.floor((req.maxIterations ?? 10) / 2)),
+                  // wrapLoopAsNode composes this with the node's envelope
+                  // gate — envelope first, runner policy second.
+                  beforeToolExecute: toolGate,
+                },
               },
               defaultNodePrompt(node.prompt),
             ),

@@ -94,7 +94,7 @@ export function createRunnerServer(config: RunnerConfig): http.Server {
         });
         const emit = (e: unknown) => res.write(JSON.stringify(e) + '\n');
         try {
-          await runTurn(turn, emit);
+          await runTurn(turn, emit, { permissionMode: config.permissionMode });
         } catch (err) {
           emit({
             type: 'turn.error',

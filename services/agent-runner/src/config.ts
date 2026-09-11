@@ -10,6 +10,7 @@
  *    configuration error and the process refuses to start — an
  *    unauthenticated runner must never be reachable off-box by default.
  */
+import { parsePermissionMode, type PermissionMode } from './toolGate.js';
 
 export interface RunnerConfig {
   port: number;
@@ -23,6 +24,8 @@ export interface RunnerConfig {
   workspaceRoot?: string;
   /** Allowlisted provider hosts (SEC-002). Unset = any http(s) host. */
   allowedProviderHosts?: string[];
+  /** Tool-loop permission mode (SEC-005). Default `standard`. */
+  permissionMode: PermissionMode;
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
@@ -63,5 +66,12 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
         .filter(Boolean)
     : undefined;
 
-  return { port, host, token, workspaceRoot, allowedProviderHosts };
+  return {
+    port,
+    host,
+    token,
+    workspaceRoot,
+    allowedProviderHosts,
+    permissionMode: parsePermissionMode(env.AGENT_RUNNER_PERMISSION_MODE),
+  };
 }
