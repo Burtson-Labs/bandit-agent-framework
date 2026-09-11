@@ -26,6 +26,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as dnsMod from 'node:dns';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import {
   TodoStore,
   buildTodoWriteTool,
@@ -34,7 +36,59 @@ import {
   buildWebSearchTool,
   isPrivateHost
 } from '../src/tools/extraTools';
+import {
+  normalizeIPv4Numeric,
+  pinnedHttpTransport,
+  type LookupAllFn,
+  type PinnedAddress,
+  type PinnedTransport,
+  type TransportResponse
+} from '../src/tools/ssrfGuard';
 import { testCtx } from './_helpers';
+
+/** One scripted hop of the pinned transport. */
+interface HopSpec {
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface TransportCall {
+  url: string;
+  pinned: PinnedAddress;
+}
+
+/**
+ * A stand-in for the pinned-socket transport. Records the URL and the
+ * address the guard pinned for every hop, so tests can assert "the
+ * connection went to the IP we vetted" and "the redirect target was
+ * re-vetted" without touching the network.
+ */
+function makeTransport(
+  script: HopSpec[] | ((call: number) => HopSpec)
+): { transport: PinnedTransport; calls: TransportCall[] } {
+  const calls: TransportCall[] = [];
+  const transport: PinnedTransport = async (url, pinned) => {
+    const index = calls.length;
+    calls.push({ url: url.toString(), pinned });
+    const hop = typeof script === 'function' ? script(index) : script[index];
+    if (!hop) throw new Error(`transport called ${index + 1}x but only ${(script as HopSpec[]).length} hops scripted`);
+    const res: TransportResponse = {
+      status: hop.status ?? 200,
+      statusText: hop.statusText ?? (hop.status === undefined || hop.status === 200 ? 'OK' : ''),
+      headers: { 'content-type': 'text/plain', ...(hop.headers ?? {}) },
+      body: hop.body ?? ''
+    };
+    return res;
+  };
+  return { transport, calls };
+}
+
+/** Every hostname resolves to one public address. */
+function publicLookup(address = '93.184.215.14'): LookupAllFn {
+  return async () => [{ address, family: 4 }];
+}
 
 let tmpRoot: string;
 
@@ -234,14 +288,10 @@ describe('buildRememberTool', () => {
 });
 
 describe('buildWebFetchTool', () => {
-  // SSRF guard resolves DNS before fetch. Stub it for the public-flow tests
-  // so they stay hermetic and fast — the dedicated SSRF describe block
-  // below exercises the resolver behavior end-to-end.
-  beforeEach(() => {
-    vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
-      [{ address: '93.184.215.14', family: 4 }] as unknown as dnsMod.LookupAddress
-    );
-  });
+  // The guard resolves DNS and connects through a pinned transport. Both
+  // are injected here so the public-flow tests stay hermetic — the
+  // dedicated SSRF describe block below exercises the guard itself.
+  const lookup = publicLookup();
 
   it('exposes name="web_fetch" with a required url parameter', () => {
     const tool = buildWebFetchTool();
@@ -271,14 +321,8 @@ describe('buildWebFetchTool', () => {
   });
 
   it('returns the fetched body with HTTP status header on success', async () => {
-    const tool = buildWebFetchTool();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('plain text content here', {
-        status: 200,
-        statusText: 'OK',
-        headers: { 'Content-Type': 'text/plain' }
-      })
-    );
+    const { transport } = makeTransport([{ status: 200, body: 'plain text content here' }]);
+    const tool = buildWebFetchTool({ lookup, transport });
     const r = await tool.execute({ url: 'https://example.com/x' }, testCtx);
     expect(r.isError).toBe(false);
     expect(r.output).toMatch(/HTTP 200 OK/);
@@ -287,13 +331,13 @@ describe('buildWebFetchTool', () => {
   });
 
   it('strips HTML tags when content-type indicates HTML', async () => {
-    const tool = buildWebFetchTool();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        '<html><head><script>alert(1)</script><style>x{}</style></head><body><p>Hello <b>world</b></p></body></html>',
-        { status: 200, statusText: 'OK', headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-      )
-    );
+    const { transport } = makeTransport([
+      {
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+        body: '<html><head><script>alert(1)</script><style>x{}</style></head><body><p>Hello <b>world</b></p></body></html>'
+      }
+    ]);
+    const tool = buildWebFetchTool({ lookup, transport });
     const r = await tool.execute({ url: 'https://example.com/' }, testCtx);
     expect(r.output).toContain('Hello world');
     // Script + style content removed.
@@ -304,39 +348,37 @@ describe('buildWebFetchTool', () => {
   });
 
   it('truncates bodies larger than 16 KB and marks them with an ellipsis', async () => {
-    const tool = buildWebFetchTool();
-    const big = 'A'.repeat(20 * 1024);
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(big, {
-        status: 200,
-        statusText: 'OK',
-        headers: { 'Content-Type': 'text/plain' }
-      })
-    );
+    const { transport } = makeTransport([{ body: 'A'.repeat(20 * 1024) }]);
+    const tool = buildWebFetchTool({ lookup, transport });
     const r = await tool.execute({ url: 'https://example.com/big' }, testCtx);
     expect(r.output).toMatch(/… \(truncated\)/);
   });
 
   it('flags non-2xx responses with isError=true so the model knows the call failed', async () => {
-    const tool = buildWebFetchTool();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('not found', {
-        status: 404,
-        statusText: 'Not Found',
-        headers: { 'Content-Type': 'text/plain' }
-      })
-    );
+    const { transport } = makeTransport([{ status: 404, statusText: 'Not Found', body: 'not found' }]);
+    const tool = buildWebFetchTool({ lookup, transport });
     const r = await tool.execute({ url: 'https://example.com/missing' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/HTTP 404 Not Found/);
   });
 
-  it('returns isError when fetch throws (network failure / abort)', async () => {
-    const tool = buildWebFetchTool();
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+  it('returns isError when the transport throws (network failure / abort)', async () => {
+    const transport: PinnedTransport = async () => { throw new Error('ECONNREFUSED'); };
+    const tool = buildWebFetchTool({ lookup, transport });
     const r = await tool.execute({ url: 'https://example.com/down' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/Fetch failed: ECONNREFUSED/);
+  });
+
+  it('surfaces a DNS failure as a normal fetch error, not a security block', async () => {
+    const failing: LookupAllFn = async () => { throw new Error('getaddrinfo ENOTFOUND nope.example'); };
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ lookup: failing, transport });
+    const r = await tool.execute({ url: 'https://nope.example/' }, testCtx);
+    expect(r.isError).toBe(true);
+    expect(r.output).toMatch(/Fetch failed: getaddrinfo ENOTFOUND/);
+    expect(r.output).not.toMatch(/Blocked/);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -352,51 +394,55 @@ describe('buildWebFetchTool SSRF guard', () => {
   });
 
   it('blocks hostname literal "localhost" without resolving DNS', async () => {
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const lookupSpy = vi.spyOn(dnsMod.promises, 'lookup');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'http://localhost:6443/api' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/Blocked: localhost/);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(lookupSpy).not.toHaveBeenCalled();
   });
 
   it('blocks direct IPv4 loopback (127.0.0.1) without DNS', async () => {
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const lookupSpy = vi.spyOn(dnsMod.promises, 'lookup');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'http://127.0.0.1:8080/' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/127\.0\.0\.1.*private/);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(lookupSpy).not.toHaveBeenCalled();
   });
 
   it('blocks the cloud-metadata link-local address 169.254.169.254', async () => {
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'http://169.254.169.254/latest/meta-data/' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/169\.254\.169\.254/);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   it('blocks IPv6 loopback [::1]', async () => {
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'http://[::1]:9000/' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/Blocked/);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   it('blocks a public hostname that resolves to a private IP (DNS rebinding shape)', async () => {
     vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
       [{ address: '10.0.0.5', family: 4 }] as unknown as dnsMod.LookupAddress
     );
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'https://internal.example.com/admin' }, testCtx);
     expect(r.isError).toBe(true);
     expect(r.output).toMatch(/internal\.example\.com.*private/);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   it('blocks when the hostname resolves to multiple IPs and ANY of them is private', async () => {
@@ -404,49 +450,320 @@ describe('buildWebFetchTool SSRF guard', () => {
       { address: '8.8.8.8', family: 4 },
       { address: '192.168.1.10', family: 4 }
     ] as unknown as dnsMod.LookupAddress);
-    const tool = buildWebFetchTool();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { transport, calls } = makeTransport([{ status: 200 }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'https://mixed.example.com/' }, testCtx);
     expect(r.isError).toBe(true);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   it('allows fetch when hostname resolves to a public IP', async () => {
     vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
       [{ address: '93.184.215.14', family: 4 }] as unknown as dnsMod.LookupAddress
     );
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('ok', { status: 200, statusText: 'OK', headers: { 'Content-Type': 'text/plain' } })
-    );
-    const tool = buildWebFetchTool();
+    const { transport, calls } = makeTransport([{ status: 200, body: 'ok' }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'https://example.com/' }, testCtx);
     expect(r.isError).toBe(false);
     expect(r.output).toMatch(/HTTP 200 OK/);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].pinned.address).toBe('93.184.215.14');
   });
 
   it('allows fetch to private addresses when BANDIT_ALLOW_PRIVATE_WEB_FETCH=1', async () => {
     process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH = '1';
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('internal', { status: 200, statusText: 'OK', headers: { 'Content-Type': 'text/plain' } })
-    );
-    const tool = buildWebFetchTool();
+    const { transport, calls } = makeTransport([{ status: 200, body: 'internal' }]);
+    const tool = buildWebFetchTool({ transport });
     const r = await tool.execute({ url: 'http://10.0.0.5/docs' }, testCtx);
     expect(r.isError).toBe(false);
     expect(r.output).toContain('internal');
+    expect(calls[0].pinned.address).toBe('10.0.0.5');
+  });
+
+  describe('numeric / alternate IPv4 encodings (SEC-004 class)', () => {
+    it('blocks decimal-encoded loopback (http://2130706433/)', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://2130706433/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: 127\.0\.0\.1.*private/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks octal-encoded loopback (http://0177.0.0.1/)', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://0177.0.0.1/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: 127\.0\.0\.1.*private/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks hex-encoded loopback (http://0x7f000001/)', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://0x7f000001/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: 127\.0\.0\.1.*private/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks dotted-partial loopback (http://127.1/)', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://127.1/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: 127\.0\.0\.1.*private/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks hex-encoded cloud metadata (http://0xA9FEA9FE/)', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://0xA9FEA9FE/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/169\.254\.169\.254/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks IPv4-mapped IPv6 loopback, including the canonical hex form the URL parser emits', async () => {
+      // new URL('http://[::ffff:127.0.0.1]/') canonicalizes the hostname to
+      // [::ffff:7f00:1] — the pure-hex mapped form that defeated the old
+      // dotted-only regex. Both spellings must be blocked.
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      for (const url of ['http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]/']) {
+        const r = await tool.execute({ url }, testCtx);
+        expect(r.isError, `expected ${url} to be blocked`).toBe(true);
+        expect(r.output).toMatch(/Blocked: \[::ffff:7f00:1\]/);
+      }
+      expect(calls).toHaveLength(0);
+    });
+
+    it('blocks IPv4-mapped IPv6 cloud metadata ([::ffff:169.254.169.254])', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport });
+      const r = await tool.execute({ url: 'http://[::ffff:169.254.169.254]/latest/meta-data/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('normalizeIPv4Numeric canonicalizes every inet_aton form and rejects non-numeric hosts', () => {
+      expect(normalizeIPv4Numeric('2130706433')).toBe('127.0.0.1');
+      expect(normalizeIPv4Numeric('0x7f000001')).toBe('127.0.0.1');
+      expect(normalizeIPv4Numeric('0177.0.0.1')).toBe('127.0.0.1');
+      expect(normalizeIPv4Numeric('127.1')).toBe('127.0.0.1');
+      expect(normalizeIPv4Numeric('0xA9FEA9FE')).toBe('169.254.169.254');
+      expect(normalizeIPv4Numeric('192.168.1')).toBe('192.168.0.1');
+      expect(normalizeIPv4Numeric('example.com')).toBeNull();
+      expect(normalizeIPv4Numeric('999.1.1.1')).toBeNull();
+      expect(normalizeIPv4Numeric('1.2.3.4.5')).toBeNull();
+      expect(normalizeIPv4Numeric('09')).toBeNull();
+    });
+  });
+
+  describe('redirect handling (SEC-003 class)', () => {
+    it('follows public→public redirects, re-vetting and re-pinning every hop', async () => {
+      const lookups: string[] = [];
+      const lookup: LookupAllFn = async (hostname) => {
+        lookups.push(hostname);
+        return [{ address: hostname === 'a.example.com' ? '93.184.215.14' : '151.101.1.140', family: 4 }];
+      };
+      const { transport, calls } = makeTransport([
+        { status: 302, headers: { location: 'https://b.example.com/final' } },
+        { status: 200, body: 'landed' }
+      ]);
+      const tool = buildWebFetchTool({ lookup, transport });
+      const r = await tool.execute({ url: 'https://a.example.com/start' }, testCtx);
+      expect(r.isError).toBe(false);
+      expect(r.output).toContain('landed');
+      // Output header names the ORIGINAL host, matching pre-hardening UX.
+      expect(r.output).toMatch(/• a\.example\.com/);
+      expect(calls).toHaveLength(2);
+      expect(calls[1].url).toBe('https://b.example.com/final');
+      // Every hop got its own resolution and its own pinned address.
+      expect(lookups).toEqual(['a.example.com', 'b.example.com']);
+      expect(calls[0].pinned.address).toBe('93.184.215.14');
+      expect(calls[1].pinned.address).toBe('151.101.1.140');
+    });
+
+    it('blocks a redirect from a public host to the cloud-metadata IP', async () => {
+      const { transport, calls } = makeTransport([
+        { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data/' } }
+      ]);
+      const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+      const r = await tool.execute({ url: 'https://public.example.com/redirect-me' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: redirect to 169\.254\.169\.254/);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('blocks a redirect to a hostname that resolves to a private address', async () => {
+      const lookup: LookupAllFn = async (hostname) =>
+        hostname === 'internal.example.com'
+          ? [{ address: '10.0.0.5', family: 4 }]
+          : [{ address: '93.184.215.14', family: 4 }];
+      const { transport, calls } = makeTransport([
+        { status: 301, headers: { location: 'https://internal.example.com/admin' } }
+      ]);
+      const tool = buildWebFetchTool({ lookup, transport });
+      const r = await tool.execute({ url: 'https://public.example.com/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: redirect to internal\.example\.com/);
+      expect(r.output).toMatch(/10\.0\.0\.5/);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('blocks a redirect whose target hides the internal address in a numeric encoding', async () => {
+      // SEC-003 × SEC-004: the redirect hop gets the SAME normalization the
+      // first hop gets, so "302 → http://2130706433/" is still loopback.
+      for (const location of ['http://2130706433/', 'http://0xA9FEA9FE/latest/meta-data/', 'http://127.1/']) {
+        const { transport, calls } = makeTransport([{ status: 302, headers: { location } }]);
+        const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+        const r = await tool.execute({ url: 'https://public.example.com/' }, testCtx);
+        expect(r.isError, `expected redirect to ${location} to be blocked`).toBe(true);
+        expect(r.output).toMatch(/Blocked: redirect to/);
+        expect(calls).toHaveLength(1);
+      }
+    });
+
+    it('blocks a redirect to an IPv4-mapped IPv6 internal address', async () => {
+      const { transport, calls } = makeTransport([
+        { status: 307, headers: { location: 'http://[::ffff:169.254.169.254]/latest/meta-data/' } }
+      ]);
+      const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+      const r = await tool.execute({ url: 'https://public.example.com/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: redirect to \[::ffff:a9fe:a9fe\]/);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('blocks redirects that downgrade to non-http protocols (file:, data:)', async () => {
+      for (const location of ['file:///etc/passwd', 'data:text/html,<script>x</script>']) {
+        const { transport, calls } = makeTransport([{ status: 302, headers: { location } }]);
+        const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+        const r = await tool.execute({ url: 'https://public.example.com/' }, testCtx);
+        expect(r.isError, `expected redirect to ${location} to be blocked`).toBe(true);
+        expect(r.output).toMatch(/Blocked: redirect to unsupported protocol/);
+        expect(calls).toHaveLength(1);
+      }
+    });
+
+    it('gives up after 5 redirect hops', async () => {
+      const { transport, calls } = makeTransport((call) => ({
+        status: 302,
+        headers: { location: `https://pub.example.com/r${call + 1}` }
+      }));
+      const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+      const r = await tool.execute({ url: 'https://pub.example.com/r0' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/too many redirects \(limit 5\)/);
+      expect(calls).toHaveLength(6); // original request + 5 followed hops
+    });
+
+    it('treats a 3xx without a Location header as a final response', async () => {
+      const { transport, calls } = makeTransport([{ status: 302, statusText: 'Found', body: 'no location' }]);
+      const tool = buildWebFetchTool({ lookup: publicLookup(), transport });
+      const r = await tool.execute({ url: 'https://pub.example.com/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/HTTP 302 Found/);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
+  describe('DNS rebinding / pinned connection (SEC-003 class)', () => {
+    it('connects to the vetted IP — a re-resolving name cannot swap in a private address after the check', async () => {
+      // Attacker DNS answers public on the first resolution and loopback on
+      // the second. Pre-hardening, check (#1) and fetch (#2) each resolved
+      // independently — the TOCTOU window. Now one resolution feeds both
+      // the check and the pinned connection.
+      let resolutions = 0;
+      const lookup: LookupAllFn = async () => {
+        resolutions += 1;
+        return resolutions === 1
+          ? [{ address: '93.184.215.14', family: 4 }]
+          : [{ address: '127.0.0.1', family: 4 }];
+      };
+      const { transport, calls } = makeTransport([{ status: 200, body: 'ok' }]);
+      const tool = buildWebFetchTool({ lookup, transport });
+
+      const first = await tool.execute({ url: 'https://rebind.example.com/' }, testCtx);
+      expect(first.isError).toBe(false);
+      expect(resolutions).toBe(1); // exactly one resolution serves check AND connect
+      expect(calls).toHaveLength(1);
+      expect(calls[0].pinned.address).toBe('93.184.215.14'); // connected IP === checked IP
+
+      // A later fetch re-resolves from scratch and catches the flipped record.
+      const second = await tool.execute({ url: 'https://rebind.example.com/' }, testCtx);
+      expect(second.isError).toBe(true);
+      expect(second.output).toMatch(/127\.0\.0\.1/);
+      expect(calls).toHaveLength(1); // no connection was attempted
+    });
+
+    it('pinnedHttpTransport connects the socket to the pinned address, not the URL hostname', async () => {
+      // Real loopback server; the URL hostname is unresolvable on purpose.
+      // If the transport re-resolved the name instead of honoring the pin,
+      // this request could never succeed.
+      const server = http.createServer((req, res) => {
+        res.setHeader('content-type', 'text/plain');
+        res.end(`host-header=${req.headers.host ?? ''}`);
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = (server.address() as AddressInfo).port;
+      try {
+        const res = await pinnedHttpTransport(
+          new URL(`http://pinned-target.invalid:${port}/x`),
+          { address: '127.0.0.1', family: 4 },
+          { headers: { Accept: 'text/plain' }, deadlineAt: Date.now() + 5000 }
+        );
+        expect(res.status).toBe(200);
+        // Host header (and for TLS, SNI) still carries the hostname.
+        expect(res.body).toBe(`host-header=pinned-target.invalid:${port}`);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    it('pins IPv6 addresses too (a v6-only resolution must still connect)', async () => {
+      const server = http.createServer((_req, res) => {
+        res.setHeader('content-type', 'text/plain');
+        res.end('v6');
+      });
+      await new Promise<void>((resolve) => server.listen(0, '::1', resolve));
+      const port = (server.address() as AddressInfo).port;
+      try {
+        const res = await pinnedHttpTransport(
+          new URL(`http://v6-target.invalid:${port}/`),
+          { address: '::1', family: 6 },
+          { headers: {}, deadlineAt: Date.now() + 5000 }
+        );
+        expect(res.status).toBe(200);
+        expect(res.body).toBe('v6');
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
   });
 
   describe('isPrivateHost classifier', () => {
     it('treats every RFC1918 / loopback / link-local literal as private', async () => {
       const privates = [
-        'localhost', 'ip6-localhost', 'ip6-loopback',
+        'localhost', 'ip6-localhost', 'ip6-loopback', 'foo.localhost',
         '127.0.0.1', '127.5.5.5', '0.0.0.0',
         '10.0.0.1', '10.255.255.255',
         '172.16.0.1', '172.20.5.5', '172.31.255.255',
         '192.168.0.1', '192.168.100.100',
         '169.254.169.254', '169.254.0.1',
         '100.64.0.1', '100.127.255.255',                       // CGNAT
+        '255.255.255.255', '224.0.0.1',                        // broadcast / multicast
+        '2130706433', '0x7f000001', '0177.0.0.1', '127.1',     // numeric loopback encodings
+        '2852039166', '0xA9FEA9FE',                            // numeric metadata encodings
         '::1', '::',
-        '::ffff:10.0.0.1',                                     // IPv4-mapped private
+        '::ffff:10.0.0.1',                                     // IPv4-mapped private (dotted)
+        '::ffff:7f00:1', '::ffff:a9fe:a9fe',                   // IPv4-mapped private (hex form)
+        '0:0:0:0:0:ffff:a00:1',                                // IPv4-mapped, uncompressed
+        '64:ff9b::7f00:1',                                     // NAT64-embedded loopback
         'fc00::1', 'fd12:3456:789a::1',                        // Unique Local
         'fe80::1', 'fe9a::dead'                                // link-local
       ];
@@ -463,6 +780,7 @@ describe('buildWebFetchTool SSRF guard', () => {
         '172.15.0.1',                                          // just below 172.16/12
         '172.32.0.1',                                          // just above 172.16/12
         '192.167.0.1',
+        '::ffff:8.8.8.8',                                      // IPv4-mapped public stays public
         '2606:4700:4700::1111'                                 // Cloudflare DNS v6
       ];
       for (const h of publics) {
