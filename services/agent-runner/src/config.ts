@@ -18,6 +18,11 @@ export interface RunnerConfig {
   /** Bearer token required on every non-`/healthz` request.
    *  Unset = loopback-only dev mode. */
   token?: string;
+  /** Containment root every `workspacePath` must resolve inside (SEC-002).
+   *  Unset = every turn request is rejected with a clear message. */
+  workspaceRoot?: string;
+  /** Allowlisted provider hosts (SEC-002). Unset = any http(s) host. */
+  allowedProviderHosts?: string[];
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
@@ -50,5 +55,13 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
   }
 
   const host = requestedHost ?? (token ? '0.0.0.0' : '127.0.0.1');
-  return { port, host, token };
+
+  const workspaceRoot = env.AGENT_RUNNER_WORKSPACE_ROOT?.trim() || undefined;
+  const allowedProviderHosts = env.AGENT_RUNNER_ALLOWED_PROVIDER_HOSTS?.trim()
+    ? env.AGENT_RUNNER_ALLOWED_PROVIDER_HOSTS.split(',')
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean)
+    : undefined;
+
+  return { port, host, token, workspaceRoot, allowedProviderHosts };
 }
