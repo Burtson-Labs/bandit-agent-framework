@@ -447,6 +447,9 @@ importers:
       '@burtson-labs/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@burtson-labs/host-kit':
+        specifier: workspace:*
+        version: link:../../packages/host-kit
       '@burtson-labs/stealth-core-runtime':
         specifier: workspace:*
         version: link:../../packages/stealth-core-runtime

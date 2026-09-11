@@ -12,6 +12,7 @@ on:
     paths:
       - "services/agent-runner/**"
       - "packages/agent-core/**"
+      - "packages/host-kit/**"
       - "packages/stealth-core-runtime/**"
       - "pnpm-lock.yaml"
       - ".dockerignore"
