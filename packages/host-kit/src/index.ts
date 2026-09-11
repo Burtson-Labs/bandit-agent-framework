@@ -174,9 +174,21 @@ export {
   buildTodoWriteTool,
   buildWebFetchTool,
   buildWebSearchTool,
+  type WebFetchToolOptions,
   type WebSearchToolOptions,
   buildRememberTool
 } from './tools/extraTools';
+export {
+  isPrivateHost,
+  vetHost,
+  runGuardedWebFetch,
+  type LookupAllFn,
+  type PinnedTransport,
+  type PinnedAddress,
+  type TransportResponse,
+  type VetOutcome,
+  type GuardedFetchOptions
+} from './tools/ssrfGuard';
 export { buildTaskTool, buildCheckTaskTool, buildListTasksTool, type TaskToolOptions } from './tools/taskTool';
 export {
   buildTestRunTool,

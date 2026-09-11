@@ -5,10 +5,12 @@
  * - web_search: query a search API (Tavily), return ranked snippets
  */
 
-import { promises as dns } from 'node:dns';
-import { isIP } from 'node:net';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
 import { appendMemory } from '../memory';
+import { runGuardedWebFetch, type LookupAllFn, type PinnedTransport } from './ssrfGuard';
+
+// Back-compat re-export: hosts and tests import the classifier from here.
+export { isPrivateHost } from './ssrfGuard';
 
 interface TodoItem {
   id: number;
@@ -230,69 +232,22 @@ export function buildRememberTool(): AgentTool {
 }
 
 /**
- * SSRF guard for web_fetch — resolves the URL's hostname and refuses to
- * proceed if it lands on a private/loopback/link-local address. This is
- * the difference between "agent can read public docs" and "attacker prompt
- * tricks agent into hitting http://169.254.169.254/latest/meta-data/ or
- * http://localhost:6443 on the user's box."
+ * web_fetch — HTTP GET with a hardened SSRF guard (see ./ssrfGuard.ts
+ * for the full threat model: DNS-rebinding pinning, per-hop redirect
+ * re-validation, numeric/IPv6-mapped encoding normalization).
  *
- * Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out — appropriate when the
- * user is intentionally pointing the agent at internal docs.
+ * Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out of the private-range
+ * blocking — appropriate when the user is intentionally pointing the
+ * agent at internal docs.
  */
-const PRIVATE_HOSTNAMES = new Set(['localhost', 'ip6-localhost', 'ip6-loopback']);
-
-function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split('.').map((p) => Number(p));
-  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
-  const [a, b] = parts;
-  if (a === 0) return true;                                  // 0.0.0.0/8 — "this network"
-  if (a === 10) return true;                                 // 10.0.0.0/8 — RFC1918
-  if (a === 127) return true;                                // 127.0.0.0/8 — loopback
-  if (a === 169 && b === 254) return true;                   // 169.254.0.0/16 — link-local (cloud metadata)
-  if (a === 172 && b >= 16 && b <= 31) return true;          // 172.16.0.0/12 — RFC1918
-  if (a === 192 && b === 168) return true;                   // 192.168.0.0/16 — RFC1918
-  if (a === 100 && b >= 64 && b <= 127) return true;         // 100.64.0.0/10 — CGNAT (often internal)
-  return false;
+export interface WebFetchToolOptions {
+  /** Test seam: override DNS resolution (hostname → all A/AAAA records). */
+  lookup?: LookupAllFn;
+  /** Test seam: override the pinned-connection transport. */
+  transport?: PinnedTransport;
 }
 
-function isPrivateIPv6(ip: string): boolean {
-  const lower = ip.toLowerCase();
-  if (lower === '::1' || lower === '::') return true;
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d) — re-check the embedded IPv4.
-  const mapped = lower.match(/^::ffff:([0-9.]+)$/);
-  if (mapped && isIP(mapped[1]) === 4) return isPrivateIPv4(mapped[1]);
-  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;         // fc00::/7 — Unique Local
-  if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;         // fe80::/10 — link-local
-  return false;
-}
-
-export async function isPrivateHost(hostname: string): Promise<boolean> {
-  // Node's URL.hostname returns IPv6 literals WITH brackets (e.g. "[::1]").
-  // Strip them so isIP() classifies the address and DNS doesn't try to
-  // resolve a bracketed string.
-  const stripped = hostname.startsWith('[') && hostname.endsWith(']')
-    ? hostname.slice(1, -1)
-    : hostname;
-  const lower = stripped.toLowerCase();
-  if (PRIVATE_HOSTNAMES.has(lower)) return true;
-  const family = isIP(stripped);
-  if (family === 4) return isPrivateIPv4(stripped);
-  if (family === 6) return isPrivateIPv6(stripped);
-  try {
-    const records = await dns.lookup(stripped, { all: true, verbatim: true });
-    for (const rec of records) {
-      if (rec.family === 4 && isPrivateIPv4(rec.address)) return true;
-      if (rec.family === 6 && isPrivateIPv6(rec.address)) return true;
-    }
-    return false;
-  } catch {
-    // DNS resolution failure isn't itself a security signal — let fetch
-    // report the network error so the model sees a normal failure path.
-    return false;
-  }
-}
-
-export function buildWebFetchTool(): AgentTool {
+export function buildWebFetchTool(options: WebFetchToolOptions = {}): AgentTool {
   return {
     name: 'web_fetch',
     description: 'HTTP GET a URL and return a trimmed plaintext body (up to ~16 KB). Use for docs, RFCs, release notes. No JS execution, no auth.',
@@ -302,54 +257,13 @@ export function buildWebFetchTool(): AgentTool {
     async execute(params: Record<string, string>, _ctx: ToolExecutionContext): Promise<ToolResult> {
       const raw = params.url?.trim();
       if (!raw) return { output: 'Missing url parameter.', isError: true };
-      let url: URL;
-      try { url = new URL(raw); } catch { return { output: `Invalid URL: ${raw}`, isError: true }; }
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-        return { output: `Unsupported protocol: ${url.protocol}`, isError: true };
-      }
-
-      if (process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH !== '1') {
-        if (await isPrivateHost(url.hostname)) {
-          return {
-            output: `Blocked: ${url.hostname} resolves to a private/loopback/link-local address. Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to allow fetches against internal networks.`,
-            isError: true
-          };
-        }
-      }
-
-      try {
-        const res = await fetch(url.toString(), {
-          redirect: 'follow',
-          headers: { 'User-Agent': 'bandit-cli/0.1', Accept: 'text/html,text/plain,application/json;q=0.9,*/*;q=0.5' },
-          signal: AbortSignal.timeout(15_000)
-        });
-        const ct = res.headers.get('content-type') ?? '';
-        const text = await res.text();
-        const body = ct.includes('html') ? stripHtml(text) : text;
-        const trimmed = body.length > 16 * 1024 ? body.slice(0, 16 * 1024) + '\n… (truncated)' : body;
-        return {
-          output: `HTTP ${res.status} ${res.statusText} • ${url.host}\nContent-Type: ${ct || '(unknown)'}\n\n${trimmed}`,
-          isError: !res.ok
-        };
-      } catch (err) {
-        return { output: `Fetch failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
+      return runGuardedWebFetch(raw, {
+        allowPrivate: process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH === '1',
+        lookup: options.lookup,
+        transport: options.transport
+      });
     }
   };
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 export interface WebSearchToolOptions {
