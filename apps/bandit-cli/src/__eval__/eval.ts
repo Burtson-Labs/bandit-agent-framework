@@ -13,6 +13,10 @@
  *   --model <name>      override model
  *   --runs <N>          override the per-fixture run count (default 3)
  *   --out <path>        markdown output path (default .bandit/eval-report.md)
+ *   --json-out <path>   ALSO write a machine-readable JSON report (off by
+ *                       default). Unlike the markdown, this carries per-fixture
+ *                       failure reasons as data, so a downstream job (the
+ *                       nightly brief) can summarize a run without a model.
  */
 
 import * as fs from 'fs';
@@ -21,6 +25,7 @@ import { loadConfigFiles, resolveConfig } from '../config';
 import { allFixtures } from './fixtures';
 import { runFixtures, type RunnerProvider } from './runner';
 import { renderLive, renderMarkdown, renderFixtureProgress } from './report';
+import { buildEvalJson } from './evalJson';
 import { loadWorkspaceFixtures } from './workspaceFixtures';
 import type { ProviderSettings } from '@burtson-labs/stealth-core-runtime';
 import type { Fixture } from './types';
@@ -31,6 +36,8 @@ interface EvalArgs {
   model?: string;
   runs?: number;
   out: string;
+  /** Optional machine-readable report path. Absent = not written. */
+  jsonOut?: string;
   /** When true, only run built-in framework fixtures (skip workspace ones).
    *  Useful in CI to isolate "did a framework change break my own evals"
    *  from "did it break my team's product evals". */
@@ -57,6 +64,7 @@ function parseArgs(argv: string[]): EvalArgs {
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
     else if (a === '--out') args.out = argv[++i];
+    else if (a === '--json-out') args.jsonOut = argv[++i];
     else if (a === '--only-builtins') args.onlyBuiltins = true;
     else if (a === '--only-workspace') args.onlyWorkspace = true;
     else if (a === '--list') args.list = true;
@@ -180,6 +188,16 @@ async function main(): Promise<void> {
   await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
   await fs.promises.writeFile(outPath, md, 'utf8');
   process.stdout.write(`\nmarkdown report: ${path.relative(cwd, outPath) || outPath}\n`);
+
+  // Machine-readable twin of the markdown. Written before the exit code is
+  // computed so a FAILING run still produces the file the brief needs — a
+  // summary email is most valuable precisely when fixtures broke.
+  if (args.jsonOut) {
+    const jsonPath = path.isAbsolute(args.jsonOut) ? args.jsonOut : path.join(cwd, args.jsonOut);
+    await fs.promises.mkdir(path.dirname(jsonPath), { recursive: true });
+    await fs.promises.writeFile(jsonPath, JSON.stringify(buildEvalJson(report), null, 2), 'utf8');
+    process.stdout.write(`json report: ${path.relative(cwd, jsonPath) || jsonPath}\n`);
+  }
 
   const failed = report.fixtureResults.filter(r => !r.passed && !r.skipped).length;
   process.exit(failed > 0 ? 1 : 0);

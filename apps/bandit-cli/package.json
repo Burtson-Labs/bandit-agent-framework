@@ -59,6 +59,7 @@
     "integration": "node build.mjs && node dist/__integration__/ollama.js",
     "eval": "node build.mjs && node dist/__eval__/eval.js",
     "benchmark": "node build.mjs && node dist/__eval__/benchmark.js",
+    "brief": "node build.mjs && node dist/__eval__/brief.js",
     "gen-logo": "node scripts/gen-logo.mjs",
     "preview-banner": "node scripts/preview-banner.mjs",
     "clean": "rm -rf dist",

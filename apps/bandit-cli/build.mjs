@@ -112,6 +112,12 @@ const devEntries = [
     outfile: 'dist/__eval__/benchmark.js'
   },
   {
+    // Deterministic nightly-brief fallback. Bundled (host-kit included) so the
+    // cron can run it with plain `node` — no workspace resolution, no model.
+    entryPoints: ['src/__eval__/brief.ts'],
+    outfile: 'dist/__eval__/brief.js'
+  },
+  {
     // Turn-view demo (Phase 1 checkpoint, docs/ink-turn-view-plan.md).
     // Dev-only — never ships in the publish tarball.
     entryPoints: ['src/__demo__/turnViewDemo.tsx'],
