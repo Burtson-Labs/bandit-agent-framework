@@ -118,6 +118,12 @@ const devEntries = [
     outfile: 'dist/__eval__/brief.js'
   },
   {
+    // Self-improve PR notification. Bundled like the brief so the weekly cron
+    // can announce its PR with plain `node` — no workspace resolution, no model.
+    entryPoints: ['src/__ops__/prNotifyCli.ts'],
+    outfile: 'dist/__ops__/pr-notify.js'
+  },
+  {
     // Turn-view demo (Phase 1 checkpoint, docs/ink-turn-view-plan.md).
     // Dev-only — never ships in the publish tarball.
     entryPoints: ['src/__demo__/turnViewDemo.tsx'],

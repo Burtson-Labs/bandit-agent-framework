@@ -44,6 +44,7 @@ const MIN_ERROR_TURNS = 2;   // …across at least this many distinct turns
 const MIN_PHANTOM = 2;       // same nonexistent tool name invoked this often
 const MIN_FAKE_RESULTS = 2;  // fake/hallucinated tool-result detector firings
 const MAX_LESSONS = 40;      // mirror of host-kit lessons store cap
+const MAX_REASONS_PER_FIXTURE = 2;  // keep a bullet readable; the rest are counted
 
 interface ProposalFile { path: string; content: string; }
 interface Proposal {
@@ -55,6 +56,8 @@ interface Proposal {
 
 interface Args {
   report?: string;
+  /** Structured eval report (`eval --json-out`). Preferred over `report`. */
+  json?: string;
   turnsDir: string;
   repoRoot: string;
   out: string;
@@ -72,6 +75,7 @@ function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--report') args.report = argv[++i];
+    else if (a === '--json') args.json = argv[++i];
     else if (a === '--turns-dir') args.turnsDir = argv[++i];
     else if (a === '--repo-root') args.repoRoot = argv[++i];
     else if (a === '--out') args.out = argv[++i];
@@ -82,6 +86,12 @@ function parseArgs(argv: string[]): Args {
     } else positional.push(a);
   }
   if (!args.report && positional.length > 0) args.report = positional[0];
+  // A sibling JSON next to the markdown is the common layout; prefer it without
+  // needing the caller to name it twice.
+  if (!args.json && args.report) {
+    const sibling = args.report.replace(/\.md$/i, '.json');
+    if (sibling !== args.report && fs.existsSync(sibling)) args.json = sibling;
+  }
   if (!args.turnsDir) args.turnsDir = path.join(args.repoRoot, '.bandit', 'turns');
   return args;
 }
@@ -165,7 +175,68 @@ function mineTurnLogs(turnsDir: string, tail: number): TurnEvidence {
 
 // ── evidence: bench/eval report parsing ─────────────────────────────────────
 
-interface FailingFixture { id: string; passRate: string; description: string; }
+interface FailingFixture {
+  id: string;
+  passRate: string;
+  description: string;
+  /** Distinct assertion failures the runner actually recorded, deduped across
+   *  runs. Empty when only the markdown report was available. */
+  failureReasons: string[];
+  /** True when at least one run passed — an intermittent failure, which must
+   *  not become a standing rule (see buildFixtureBullets). */
+  intermittent: boolean;
+}
+
+/** `"1/3"` → `{ passed: 1, total: 3 }`; null when unparseable. */
+function parsePassRate(passRate: string): { passed: number; total: number } | null {
+  const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(passRate);
+  if (!m) return null;
+  return { passed: parseInt(m[1], 10), total: parseInt(m[2], 10) };
+}
+
+/**
+ * Structured evidence, preferred over scraping the markdown.
+ *
+ * `eval --json-out` records each fixture's distinct assertion failures as data.
+ * That is the difference between "this fixture is failing" and "the agent used
+ * 5 loop iterations where the fixture caps it at 4" — the first is a restatement
+ * of the fixture's own title, the second is something a reviewer can act on.
+ */
+function parseEvalJson(jsonPath: string): FailingFixture[] | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(jsonPath, 'utf8');
+  } catch {
+    return null;
+  }
+
+  let doc: any;
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    process.stderr.write(`propose: ${jsonPath} is not valid JSON — falling back to the markdown report\n`);
+    return null;
+  }
+
+  const fixtures = Array.isArray(doc?.fixtures) ? doc.fixtures : null;
+  if (!fixtures) return null;
+
+  const failing: FailingFixture[] = [];
+  for (const f of fixtures) {
+    if (f?.passed !== false) continue;
+    const rate = parsePassRate(String(f.passRate ?? ''));
+    const reasons: string[] = Array.isArray(f.failureReasons) ? f.failureReasons.filter(Boolean) : [];
+    if (typeof f.error === 'string' && f.error.trim()) reasons.push(`runner error: ${f.error.trim()}`);
+    failing.push({
+      id: String(f.id),
+      passRate: String(f.passRate ?? ''),
+      description: String(f.description ?? '').trim(),
+      failureReasons: reasons,
+      intermittent: rate ? rate.passed > 0 : false
+    });
+  }
+  return failing.sort((a, b) => a.id.localeCompare(b.id));
+}
 
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex
@@ -186,14 +257,26 @@ function parseBenchReport(reportPath: string): FailingFixture[] {
     const md = /^\|\s*`([^`]+)`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.*?)\s*\|\s*$/.exec(line);
     if (md) {
       const [, id, status, passRate, description] = md;
-      if (/❌|✗/.test(status)) failing.set(id, { id, passRate, description });
+      if (/❌|✗/.test(status)) {
+        const rate = parsePassRate(passRate);
+        failing.set(id, {
+          id, passRate, description,
+          failureReasons: [],
+          intermittent: rate ? rate.passed > 0 : false
+        });
+      }
       continue;
     }
     // Live console line (tee'd bench log): ✗ fixture.id  1/3  description
     const live = /^\s*(?:\[\s*\d+\/\d+\]\s*)?[✗❌]\s+([A-Za-z0-9_.:-]+)\s+(\d+\/\d+)\s+(.*)$/.exec(line);
     if (live) {
       const [, id, passRate, description] = live;
-      failing.set(id, { id, passRate, description: description.trim() });
+      const rate = parsePassRate(passRate);
+      failing.set(id, {
+        id, passRate, description: description.trim(),
+        failureReasons: [],
+        intermittent: rate ? rate.passed > 0 : false
+      });
     }
   }
   return [...failing.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -320,6 +403,61 @@ function buildPhantomProposals(evidence: TurnEvidence): { proposals: Proposal[];
   return { proposals, bullets };
 }
 
+/**
+ * Failing fixtures → lesson bullets built from observed evidence.
+ *
+ * The rule this replaces emitted the fixture's own description ("one-line comment
+ * addition should route to apply_edit"), which is the passing criterion restated —
+ * it tells the agent what success looks like, never what it actually did wrong,
+ * and in at least one real case named a cause the run did not have. The assertion
+ * the runner recorded ("agent used 5 loop iterations; fixture caps it at 4") is the
+ * actionable half, and it is already captured in the JSON report.
+ *
+ * Intermittent fixtures are deliberately excluded: a fixture that passed 1 of 3
+ * runs is flaky, and freezing a flake into a permanent standing rule adds prompt
+ * noise for every future turn while fixing nothing.
+ */
+function buildFixtureBullets(failing: FailingFixture[]): {
+  bullets: string[];
+  skippedIntermittent: FailingFixture[];
+  withoutEvidence: number;
+} {
+  const bullets: string[] = [];
+  const skippedIntermittent: FailingFixture[] = [];
+  let withoutEvidence = 0;
+
+  for (const f of failing) {
+    if (f.intermittent) {
+      skippedIntermittent.push(f);
+      continue;
+    }
+
+    const reasons = f.failureReasons.slice(0, MAX_REASONS_PER_FIXTURE);
+    if (reasons.length === 0) {
+      withoutEvidence++;
+      bullets.push(
+        `Eval fixture \`${f.id}\` fails every run (${f.passRate}). No assertion text was recorded; ` +
+        `the fixture expects: ${f.description}`
+      );
+      continue;
+    }
+
+    const observed = reasons.length === 1
+      ? reasons[0]
+      : reasons.map((r, i) => `(${i + 1}) ${r}`).join(' ');
+    const more = f.failureReasons.length > reasons.length
+      ? ` (+${f.failureReasons.length - reasons.length} more)`
+      : '';
+
+    bullets.push(
+      `Eval fixture \`${f.id}\` fails every run (${f.passRate}). Observed: ${observed}${more}. ` +
+      `Expected: ${f.description}`
+    );
+  }
+
+  return { bullets, skippedIntermittent, withoutEvidence };
+}
+
 // ── allowlist enforcement (generator-side; open-pr.sh re-validates) ─────────
 
 const NEW_FILE_PREFIXES = ['apps/bandit-cli/src/__eval__/fixtures/', '.bandit/evals/'];
@@ -351,9 +489,24 @@ function main(): void {
   const evidence = mineTurnLogs(args.turnsDir, args.tail);
   process.stderr.write(`propose: scanned ${evidence.filesScanned} turn log(s) in ${args.turnsDir}\n`);
 
-  const failing = args.report ? parseBenchReport(args.report) : [];
-  if (args.report) {
-    process.stderr.write(`propose: bench report ${args.report} — ${failing.length} failing fixture(s)\n`);
+  // Structured report first — it is the only source that carries the assertion
+  // text. The markdown scrape is the fallback and yields description-only bullets.
+  let failing: FailingFixture[] = [];
+  const fromJson = args.json ? parseEvalJson(args.json) : null;
+  if (fromJson) {
+    failing = fromJson;
+    const withReasons = failing.filter(f => f.failureReasons.length > 0).length;
+    process.stderr.write(
+      `propose: eval json ${args.json} — ${failing.length} failing fixture(s), ` +
+      `${withReasons} with recorded assertion text\n`);
+  } else if (args.report) {
+    if (args.json) {
+      process.stderr.write(`propose: ${args.json} unusable — falling back to the markdown report\n`);
+    }
+    failing = parseBenchReport(args.report);
+    process.stderr.write(
+      `propose: bench report ${args.report} — ${failing.length} failing fixture(s) ` +
+      `(no assertion text; pass --json-out to the eval for real evidence)\n`);
   }
 
   // 1) fixture proposals (independent new files, applied first)
@@ -401,17 +554,34 @@ function main(): void {
   // (it is a memory candidate loaded into the system prompt), so v1
   // materializes prompt-tier proposals there; real prompt-tier file edits
   // stay human-owned.
-  const promptBullets = addBullets(failing.map(f =>
-    `Eval fixture \`${f.id}\` is failing (${f.passRate}): ${f.description} — treat that description as a standing rule in this repo until the fixture passes again.`
-  ));
+  const { bullets: fixtureBullets, skippedIntermittent, withoutEvidence } = buildFixtureBullets(failing);
+  const promptBullets = addBullets(fixtureBullets);
   if (promptBullets.length > 0) {
+    const notes: string[] = [];
+    if (skippedIntermittent.length > 0) {
+      notes.push(
+        `Skipped ${skippedIntermittent.length} intermittent fixture(s) — they passed at least one run, ` +
+        `so the failure is flaky rather than a standing behaviour, and a permanent rule would be noise: ` +
+        skippedIntermittent.map(f => `\`${f.id}\` (${f.passRate})`).join(', ') + '.'
+      );
+    }
+    if (withoutEvidence > 0) {
+      notes.push(
+        `${withoutEvidence} fixture(s) had no recorded assertion text, so those bullets fall back to the ` +
+        `fixture's expected behaviour. Run the eval with \`--json-out\` to get real failure reasons.`
+      );
+    }
+
     proposals.push({
       kind: 'prompt-tier',
-      title: `Steer ${promptBullets.length} failing eval fixture(s) via lessons`,
+      title: `Steer ${promptBullets.length} reproducibly-failing eval fixture(s) via lessons`,
       rationale:
-        `The bench report lists ${failing.length} failing fixture(s). lessons.md is the only ` +
-        `prompt-injected surface the allowlist permits, so each failure becomes a standing-rule bullet. ` +
-        `New bullets:\n${promptBullets.map(b => `  - ${b}`).join('\n')}`,
+        `The bench report lists ${failing.length} failing fixture(s). Each bullet below states what the ` +
+        `runner actually observed — the assertion that fired — not the fixture's own description, which ` +
+        `only restates the passing criterion and tells the agent nothing it did wrong. lessons.md is the ` +
+        `only prompt-injected surface the allowlist permits.` +
+        (notes.length > 0 ? `\n\n${notes.map(n => `Note: ${n}`).join('\n')}` : '') +
+        `\n\nNew bullets:\n${promptBullets.map(b => `  - ${b}`).join('\n')}`,
       files: [{ path: LESSONS_REL.split(path.sep).join('/'), content: renderLessons(lessonsState) }]
     });
   }
