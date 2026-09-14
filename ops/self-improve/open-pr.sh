@@ -40,14 +40,12 @@ if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
   BRANCH="${BRANCH}-$(date -u +%H%M%S)"   # same-day rerun — keep branches unique
 fi
 
-# CI pods have no git identity; set a repo-local one only when unset so local
-# runs keep the operator's own. The commit carries a Bandit co-author trailer:
-# these changes ARE authored by the agent, so the attribution is honest and the
-# history stays searchable for agent-written commits.
-# The agent wrote these changes, so the agent is the author. team@burtson.ai
-# resolves to a human GitHub account, which put a person's face and name on
-# machine-written commits — misleading in `git log` and in review. Local runs
-# still keep whatever identity the operator already has configured.
+# CI pods have no git identity; set a repo-local one only when unset, so local
+# runs keep the operator's own. The agent wrote these changes, so the agent is
+# the author — team@burtson.ai resolves to a human GitHub account, which put a
+# person's face and name on machine-written commits, misleading in `git log`
+# and in review. (The PR itself is still opened by whoever owns GH_TOKEN; a
+# bot identity there needs its own token — see README.md.)
 git config user.name  >/dev/null 2>&1 || git config user.name  "Bandit Stealth"
 git config user.email >/dev/null 2>&1 || git config user.email "bandit@burtson.ai"
 if [[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]; then
