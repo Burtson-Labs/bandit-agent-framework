@@ -44,8 +44,12 @@ fi
 # runs keep the operator's own. The commit carries a Bandit co-author trailer:
 # these changes ARE authored by the agent, so the attribution is honest and the
 # history stays searchable for agent-written commits.
-git config user.name  >/dev/null 2>&1 || git config user.name  "bandit-self-improve"
-git config user.email >/dev/null 2>&1 || git config user.email "team@burtson.ai"
+# The agent wrote these changes, so the agent is the author. team@burtson.ai
+# resolves to a human GitHub account, which put a person's face and name on
+# machine-written commits — misleading in `git log` and in review. Local runs
+# still keep whatever identity the operator already has configured.
+git config user.name  >/dev/null 2>&1 || git config user.name  "Bandit Stealth"
+git config user.email >/dev/null 2>&1 || git config user.email "bandit@burtson.ai"
 if [[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]; then
   gh auth setup-git >/dev/null 2>&1 || true
 fi
@@ -121,7 +125,7 @@ for rel in "${WRITTEN[@]}"; do
 done
 
 TITLES="$(node -e 'for (const p of JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))) console.log(`- [${p.kind}] ${p.title}`);' "$PROPOSALS")"
-git commit -m "self-improve: ${COUNT} proposal(s) (${DATE_UTC})" -m "$TITLES" -m "Co-authored-by: Bandit <bandit@burtson.ai>"
+git commit -m "self-improve: ${COUNT} proposal(s) (${DATE_UTC})" -m "$TITLES"
 git push -u origin "$BRANCH"
 
 BODY="$(mktemp)"
