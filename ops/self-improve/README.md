@@ -92,3 +92,30 @@ bar: a fixture that pins one observed behavior with a trace-level assertion.
   turn's actual prompt shape.
 - **Outcome feedback.** Track which merged proposals moved the bench
   baseline, and let that feed the next week's proposal ranking.
+
+## Identity: who authors these commits and PRs
+
+Two separate identities, and they are set in different places.
+
+**Commit author** — `open-pr.sh` configures `Bandit Stealth <bandit@burtson.ai>`
+when the checkout has no identity (CI pods never do). Previously this fell back
+to `team@burtson.ai`, which GitHub resolves to a human account, so machine-written
+commits appeared under a person's name and avatar.
+
+**PR author** — whoever owns the `GH_TOKEN` the job runs with. Today that is the
+PAT in `bandit-eval-secrets`, so the PR reads as opened by that person even though
+the commit inside it does not. Fixing this needs its own credential; nothing in
+this repo can change it.
+
+The durable fix is a **GitHub App** rather than a machine-user PAT: no seat is
+consumed, the token is short-lived, and the PR is attributed to `<app>[bot]`.
+
+1. Org → Settings → Developer settings → GitHub Apps → New GitHub App.
+2. Repository permissions: **Contents: Read & write**, **Pull requests: Read & write**.
+   Nothing else — this loop only writes allowlisted files and opens PRs.
+3. Install it on `bandit-agent-framework` only.
+4. Store the App ID and private key in `bandit-eval-secrets`, mint an installation
+   token at job start, and export it as `GH_TOKEN` in place of the PAT.
+
+A machine user with its own PAT also works and is quicker, but it occupies a seat
+and the token is long-lived — strictly worse on both counts.
