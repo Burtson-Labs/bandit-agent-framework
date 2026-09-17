@@ -124,6 +124,12 @@ const devEntries = [
     outfile: 'dist/__ops__/pr-notify.js'
   },
   {
+    // Deterministic publish + email with a content denylist. Bundled so a cron
+    // can gate and send an agent's output with plain `node`.
+    entryPoints: ['src/__ops__/publishEmailCli.ts'],
+    outfile: 'dist/__ops__/publish-email.js'
+  },
+  {
     // Turn-view demo (Phase 1 checkpoint, docs/ink-turn-view-plan.md).
     // Dev-only — never ships in the publish tarball.
     entryPoints: ['src/__demo__/turnViewDemo.tsx'],
