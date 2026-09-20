@@ -10,6 +10,30 @@ def validate_dimension(value: int) -> int:
     return value
 
 
+def fit_canvas(
+    width: int,
+    height: int,
+    *,
+    max_side: int = 1344,
+    min_side: int = 256,
+    max_area: int = 1_048_576,
+) -> tuple[int, int]:
+    """Pick the closest legal canvas to a reference image's aspect ratio.
+
+    The workflow's ImageScale stretches the reference to the exact canvas, so a
+    canvas with a different aspect ratio distorts the image before sampling even
+    starts — by itself enough to mangle a logo. Stay within the preset compute
+    budget (~1 MP, 1344 max side), never upscale, and snap to the /64 grid.
+    """
+    scale = min(max_side / max(width, height), (max_area / (width * height)) ** 0.5, 1.0)
+    fitted_width = round(width * scale / 64) * 64
+    fitted_height = round(height * scale / 64) * 64
+    return (
+        min(1536, max(min_side, fitted_width)),
+        min(1536, max(min_side, fitted_height)),
+    )
+
+
 def flux_workflow(
     prompt: str,
     width: int,

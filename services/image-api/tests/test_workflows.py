@@ -1,6 +1,6 @@
 import unittest
 
-from app.workflows import flux_workflow, validate_dimension
+from app.workflows import fit_canvas, flux_workflow, validate_dimension
 
 
 class WorkflowTests(unittest.TestCase):
@@ -23,6 +23,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["8"]["inputs"]["width"], 1024)
         self.assertEqual(workflow["5"]["inputs"]["latent_image"], ["9", 0])
         self.assertEqual(workflow["5"]["inputs"]["denoise"], 0.35)
+
+    def test_fit_canvas_matches_wide_reference_aspect(self):
+        self.assertEqual(fit_canvas(1500, 400), (1344, 384))
+
+    def test_fit_canvas_caps_large_square_at_preset_budget(self):
+        self.assertEqual(fit_canvas(3000, 3000), (1024, 1024))
+
+    def test_fit_canvas_never_upscales_and_respects_floor(self):
+        self.assertEqual(fit_canvas(1024, 1024), (1024, 1024))
+        self.assertEqual(fit_canvas(200, 100), (256, 256))
 
     def test_mask_builds_inpaint_workflow(self):
         workflow = flux_workflow(
