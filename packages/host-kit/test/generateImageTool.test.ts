@@ -61,6 +61,43 @@ describe('generate_image', () => {
     expect(calls.at(-1)).toBe('GET https://anton.test/status');
   });
 
+  it('lets the API size an edit canvas from the reference aspect ratio', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bandit-image-tool-'));
+    roots.push(root);
+    fs.writeFileSync(path.join(root, 'logo.png'), Buffer.from([137, 80, 78, 71]));
+    let generationBody: Record<string, unknown> | null = null;
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith('/image/references')) return json({ id: 'ref-12345678' }, 201);
+      if (url.endsWith('/image') && (init?.method ?? 'GET') === 'GET') return json({ phase: 'ready' });
+      if (url.endsWith('/image/generations')) {
+        generationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return json({
+          id: 'job-1', status: 'completed',
+          images: [{ url: '/image/jobs/job-1/assets/0', seed: 7 }],
+        }, 202);
+      }
+      if (url.endsWith('/image/jobs/job-1/assets/0')) {
+        return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': 'image/png' } });
+      }
+      return json({ message: `unexpected request ${url}` }, 500);
+    };
+    const tool = buildGenerateImageTool({
+      token: 'header.payload.signature', antonBaseUrl: 'https://anton.test', fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const result = await tool.execute(
+      { prompt: 'navy background behind the logo', output_path: 'assets/logo-navy.png', reference_path: 'logo.png' },
+      { ...testCtx, workspaceRoot: root },
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(generationBody).not.toBeNull();
+    expect(generationBody!.referenceId).toBe('ref-12345678');
+    expect(generationBody).not.toHaveProperty('width');
+    expect(generationBody).not.toHaveProperty('height');
+  });
+
   it('rejects output paths outside the workspace before claiming the GPU', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bandit-image-tool-'));
     roots.push(root);

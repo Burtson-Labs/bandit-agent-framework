@@ -80,11 +80,19 @@ async function uploadReference(
 }
 
 async function waitForImageReady(fetchImpl: typeof fetch, base: string, token: string): Promise<void> {
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + 300_000;
+  let lastClaim = Date.now();
   while (Date.now() < deadline) {
     const state = await jsonRequest<ImageState>(fetchImpl, `${base}/image`, token);
     if (state.phase === 'ready') return;
     if (state.phase === 'failed') throw new Error(state.lastError || 'image worker failed to start');
+    if (state.phase === 'idle' && Date.now() - lastClaim > 15_000) {
+      // A transition already holding Anton's gate (say, the auto-release from a
+      // previous job) can outlast our claim's queue window; ask again rather
+      // than polling a phase that will never move on its own.
+      await jsonRequest(fetchImpl, `${base}/image/claim`, token, { method: 'POST' }).catch(() => undefined);
+      lastClaim = Date.now();
+    }
     await sleep(2_000);
   }
   throw new Error('image worker did not become ready in time');
@@ -111,18 +119,23 @@ export function buildGenerateImageTool(options: GenerateImageToolOptions): Agent
       { name: 'output_path', description: 'PNG output path inside the workspace, for example assets/hero.png.', required: true },
       { name: 'reference_path', description: 'Optional PNG/JPEG/WebP path inside the workspace to edit.' },
       { name: 'mask_path', description: 'Optional black-and-white PNG/JPEG/WebP mask; white areas are edited. Requires reference_path.' },
-      { name: 'width', description: 'Output width: 256-1536 and divisible by 64. Default 1024.' },
-      { name: 'height', description: 'Output height: 256-1536 and divisible by 64. Default 1024.' },
+      { name: 'width', description: 'Output width: 256-1536 and divisible by 64. Default 1024 for generation; edits follow the reference image unless set.' },
+      { name: 'height', description: 'Output height: 256-1536 and divisible by 64. Default 1024 for generation; edits follow the reference image unless set.' },
       { name: 'strength', description: 'Edit strength from 0.05 to 1.0. Lower preserves more of the reference. Default 0.68.' },
     ],
     async execute(params, ctx): Promise<ToolResult> {
       const prompt = params.prompt?.trim();
       const requestedOutput = params.output_path?.trim();
       if (!prompt || !requestedOutput) return { output: 'Error: prompt and output_path are required', isError: true };
-      const width = Number(params.width || 1024);
-      const height = Number(params.height || 1024);
+      // For edits, leave omitted dimensions to the image API: it sizes the
+      // canvas from the reference's aspect ratio, and stretching a non-square
+      // reference onto a mismatched canvas is what mangles logos.
+      const isEdit = Boolean(params.reference_path);
+      const width = params.width ? Number(params.width) : isEdit ? undefined : 1024;
+      const height = params.height ? Number(params.height) : isEdit ? undefined : 1024;
       const strength = Number(params.strength || 0.68);
-      if (![width, height].every((value) => Number.isInteger(value) && value >= 256 && value <= 1536 && value % 64 === 0)) {
+      if (![width, height].every((value) => value === undefined
+        || (Number.isInteger(value) && value >= 256 && value <= 1536 && value % 64 === 0))) {
         return { output: 'Error: width and height must be 256-1536 and divisible by 64', isError: true };
       }
       if (!Number.isFinite(strength) || strength < 0.05 || strength > 1) {

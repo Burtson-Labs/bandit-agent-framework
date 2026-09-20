@@ -22,7 +22,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Response, Upload
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
-from .workflows import flux_workflow, validate_dimension
+from .workflows import fit_canvas, flux_workflow, validate_dimension
 
 COMFY_URL = os.getenv("COMFYUI_BASE_URL", "http://image-worker:8188").rstrip("/")
 BUCKET = os.getenv("MINIO_BUCKET", "generated-images")
@@ -39,8 +39,11 @@ logger = logging.getLogger("burtson.image_api")
 
 class GenerationRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=4000)
-    width: int = 1024
-    height: int = 1024
+    # Omitted dimensions default to 1024x1024 for generation; for edits they
+    # follow the reference image's aspect ratio (see fit_canvas) — stretching a
+    # non-square reference onto a mismatched canvas is what mangles logos.
+    width: int | None = None
+    height: int | None = None
     model: Literal["flux-schnell"] = "flux-schnell"
     steps: int = Field(default=4, ge=1, le=12)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
@@ -50,8 +53,8 @@ class GenerationRequest(BaseModel):
 
     @field_validator("width", "height")
     @classmethod
-    def valid_dimension(cls, value: int) -> int:
-        return validate_dimension(value)
+    def valid_dimension(cls, value: int | None) -> int | None:
+        return None if value is None else validate_dimension(value)
 
 
 @dataclass
@@ -222,12 +225,17 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
     owner = x_burtson_owner[:200]
     if request.maskId and not request.referenceId:
         raise HTTPException(400, "maskId requires referenceId")
+    width, height = request.width, request.height
     if request.referenceId:
-        owned_reference(request.referenceId, owner, expected_kind="reference")
+        reference = owned_reference(request.referenceId, owner, expected_kind="reference")
+        if width is None or height is None:
+            width, height = fit_canvas(reference.width, reference.height)
     if request.maskId:
         owned_reference(request.maskId, owner, expected_kind="mask")
     job_id = uuid.uuid4().hex
     payload = request.model_dump()
+    payload["width"] = width or 1024
+    payload["height"] = height or 1024
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**63)
     job = Job(id=job_id, owner=owner, request=payload)
     jobs[job_id] = job
@@ -415,7 +423,16 @@ def normalize_upload(body: bytes, kind: str) -> tuple[bytes, int, int]:
                 raise HTTPException(400, "image must be at least 64x64 pixels")
             if image.width * image.height > MAX_IMAGE_PIXELS:
                 raise HTTPException(413, "image dimensions are too large")
-            image = image.convert("L" if kind == "mask" else "RGBA")
+            if kind == "mask":
+                image = image.convert("L")
+            else:
+                # ComfyUI's LoadImage discards the alpha channel outright, so a
+                # transparent-background logo would arrive on whatever RGB values
+                # hide under the transparency (usually black) and the sampler
+                # eats its edges. Composite onto white before it gets there.
+                rgba = image.convert("RGBA")
+                backdrop = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+                image = Image.alpha_composite(backdrop, rgba).convert("RGB")
             output = io.BytesIO()
             image.save(output, format="PNG", optimize=True)
             return output.getvalue(), image.width, image.height
