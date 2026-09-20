@@ -97,7 +97,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: image-api
-          image: ghcr.io/burtson-labs/image-api:latest
+          image: ghcr.io/burtson-labs/image-api:5c726ea0a4a460c773802a1cc4ec87ba2b3c62cd
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -207,7 +207,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: verify-models
-          image: ghcr.io/burtson-labs/image-worker:latest
+          image: ghcr.io/burtson-labs/image-worker:5c726ea0a4a460c773802a1cc4ec87ba2b3c62cd
           command: ["/bin/sh", "-ec"]
           args:
             - >-
@@ -223,7 +223,7 @@ spec:
         - name: comfyui
           # Build with a CUDA 12.8 + Blackwell-capable PyTorch stack while the
           # node remains on R570. Pin ComfyUI and custom-node commits in-image.
-          image: ghcr.io/burtson-labs/image-worker:latest
+          image: ghcr.io/burtson-labs/image-worker:5c726ea0a4a460c773802a1cc4ec87ba2b3c62cd
           imagePullPolicy: IfNotPresent
           args:
             - --listen
