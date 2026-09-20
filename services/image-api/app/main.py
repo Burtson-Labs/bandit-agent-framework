@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import io
 import json
 import logging
@@ -91,14 +93,28 @@ reaper_task: asyncio.Task | None = None
 
 
 def s3_client():
-    return boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=os.environ["MINIO_ENDPOINT"],
         aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
         aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
-        config=Config(signature_version="s3v4"),
+        # Current botocore prefers flexible CRC checksums, while the deployed
+        # MinIO release requires Content-MD5 for bucket lifecycle requests.
+        config=Config(signature_version="s3v4", request_checksum_calculation="when_required"),
         region_name=os.getenv("MINIO_REGION", "us-east-1"),
     )
+    client.meta.events.register_first(
+        "request-created.s3.PutBucketLifecycleConfiguration",
+        add_lifecycle_content_md5,
+    )
+    return client
+
+
+def add_lifecycle_content_md5(request, **_kwargs) -> None:
+    body = request.body.encode() if isinstance(request.body, str) else request.body
+    if body is not None:
+        digest = hashlib.md5(body, usedforsecurity=False).digest()
+        request.headers["Content-MD5"] = base64.b64encode(digest).decode()
 
 
 @app.on_event("startup")
