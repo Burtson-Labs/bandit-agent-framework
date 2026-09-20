@@ -3,17 +3,21 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
+import math
 import os
 import random
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
+from urllib.parse import urlencode
 
 import boto3
 import httpx
 from botocore.client import Config
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, File, Form, Header, HTTPException, Response, UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
 from .workflows import flux_workflow, validate_dimension
@@ -23,6 +27,12 @@ BUCKET = os.getenv("MINIO_BUCKET", "generated-images")
 WORKFLOW_VERSION = "flux-schnell-v1"
 MODEL_DIGEST = os.getenv("FLUX_MODEL_SHA256", "unverified")
 MODEL_LICENSE = "Apache-2.0"
+ASSET_TTL_HOURS = max(1, min(int(os.getenv("ASSET_TTL_HOURS", "24")), 168))
+ASSET_TTL = timedelta(hours=ASSET_TTL_HOURS)
+REAPER_INTERVAL_SECONDS = max(60, int(os.getenv("REAPER_INTERVAL_SECONDS", "900")))
+MAX_UPLOAD_BYTES = max(1, int(os.getenv("MAX_UPLOAD_MIB", "12"))) * 1024 * 1024
+MAX_IMAGE_PIXELS = max(1_000_000, int(os.getenv("MAX_IMAGE_PIXELS", "25000000")))
+logger = logging.getLogger("burtson.image_api")
 
 
 class GenerationRequest(BaseModel):
@@ -32,6 +42,9 @@ class GenerationRequest(BaseModel):
     model: Literal["flux-schnell"] = "flux-schnell"
     steps: int = Field(default=4, ge=1, le=12)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+    referenceId: str | None = Field(default=None, min_length=8, max_length=64)
+    maskId: str | None = Field(default=None, min_length=8, max_length=64)
+    strength: float = Field(default=0.72, ge=0.05, le=1.0)
 
     @field_validator("width", "height")
     @classmethod
@@ -51,12 +64,30 @@ class Job:
     error: str | None = None
     comfyPromptId: str | None = None
     cancelRequested: bool = False
+    expiresAt: str = field(default_factory=lambda: (datetime.now(UTC) + ASSET_TTL).isoformat())
+
+
+@dataclass
+class Reference:
+    id: str
+    owner: str
+    key: str
+    kind: str
+    filename: str
+    contentType: str
+    width: int
+    height: int
+    bytes: int
+    createdAt: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    expiresAt: str = field(default_factory=lambda: (datetime.now(UTC) + ASSET_TTL).isoformat())
 
 
 app = FastAPI(title="Burtson Image API", version="0.1.0")
 jobs: dict[str, Job] = {}
+references: dict[str, Reference] = {}
 queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("QUEUE_CAPACITY", "20")))
 worker_task: asyncio.Task | None = None
+reaper_task: asyncio.Task | None = None
 
 
 def s3_client():
@@ -72,15 +103,19 @@ def s3_client():
 
 @app.on_event("startup")
 async def startup() -> None:
-    global worker_task
+    global worker_task, reaper_task
     await asyncio.to_thread(ensure_bucket)
+    await asyncio.to_thread(ensure_bucket_lifecycle)
     worker_task = asyncio.create_task(run_queue())
+    reaper_task = asyncio.create_task(run_reaper())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
     if worker_task:
         worker_task.cancel()
+    if reaper_task:
+        reaper_task.cancel()
 
 
 @app.get("/health/live")
@@ -110,14 +145,75 @@ def ensure_bucket() -> None:
     s3_client().head_bucket(Bucket=BUCKET)
 
 
+def ensure_bucket_lifecycle() -> None:
+    """Install a coarse server-side expiry rule as defense in depth.
+
+    S3 lifecycle expiration is day-granular, while the application reaper below
+    enforces the exact hour TTL. A permission failure is non-fatal because some
+    deployments deliberately give runtime credentials object-only access.
+    """
+    if os.getenv("CONFIGURE_BUCKET_LIFECYCLE", "true").lower() not in {"1", "true", "yes"}:
+        return
+    days = max(1, math.ceil(ASSET_TTL_HOURS / 24))
+    try:
+        s3_client().put_bucket_lifecycle_configuration(
+            Bucket=BUCKET,
+            LifecycleConfiguration={"Rules": [{
+                "ID": "expire-burtson-image-assets",
+                "Status": "Enabled",
+                "Filter": {"Prefix": "v1/tenant/"},
+                "Expiration": {"Days": days},
+                "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
+            }]},
+        )
+    except Exception as exc:
+        logger.warning("could not configure bucket lifecycle; app reaper remains active: %s", exc)
+
+
+@app.post("/api/images/references", status_code=201)
+async def upload_reference(
+    file: UploadFile = File(...),
+    kind: Literal["reference", "mask"] = Form(default="reference"),
+    x_burtson_owner: str = Header(default="unknown"),
+) -> dict:
+    body = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"image exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB upload limit")
+    normalized, width, height = normalize_upload(body, kind)
+    reference_id = uuid.uuid4().hex
+    owner = x_burtson_owner[:200]
+    created = datetime.now(UTC)
+    key = (
+        f"v1/tenant/{safe_owner(owner)}/{created:%Y/%m/%d}/"
+        f"references/{reference_id}.png"
+    )
+    expires_at = created + ASSET_TTL
+    await asyncio.to_thread(upload, key, normalized, "image/png", expires_at)
+    reference = Reference(
+        id=reference_id, owner=owner, key=key, kind=kind,
+        filename=(file.filename or f"{kind}.png")[:200], contentType="image/png",
+        width=width, height=height, bytes=len(normalized),
+        createdAt=created.isoformat(), expiresAt=expires_at.isoformat(),
+    )
+    references[reference_id] = reference
+    return public_reference(reference)
+
+
 @app.post("/api/images/generations", status_code=202)
 async def generate(request: GenerationRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
     if queue.full():
         raise HTTPException(429, "image queue is full")
+    owner = x_burtson_owner[:200]
+    if request.maskId and not request.referenceId:
+        raise HTTPException(400, "maskId requires referenceId")
+    if request.referenceId:
+        owned_reference(request.referenceId, owner, expected_kind="reference")
+    if request.maskId:
+        owned_reference(request.maskId, owner, expected_kind="mask")
     job_id = uuid.uuid4().hex
     payload = request.model_dump()
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**63)
-    job = Job(id=job_id, owner=x_burtson_owner[:200], request=payload)
+    job = Job(id=job_id, owner=owner, request=payload)
     jobs[job_id] = job
     await queue.put(job_id)
     return public_job(job)
@@ -142,6 +238,8 @@ async def cancel_job(job_id: str, x_burtson_owner: str = Header(default="unknown
 @app.get("/api/images/jobs/{job_id}/assets/{index}")
 async def get_asset(job_id: str, index: int, x_burtson_owner: str = Header(default="unknown")) -> Response:
     job = owned_job(job_id, x_burtson_owner)
+    if is_expired(job.expiresAt):
+        raise HTTPException(410, "image asset has expired")
     if index < 0 or index >= len(job.images):
         raise HTTPException(404, "image asset not found")
     obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=job.images[index]["key"])
@@ -158,10 +256,34 @@ def owned_job(job_id: str, owner: str) -> Job:
     return job
 
 
+def owned_reference(reference_id: str, owner: str, *, expected_kind: str | None = None) -> Reference:
+    reference = references.get(reference_id)
+    if not reference:
+        raise HTTPException(404, "image reference not found or expired")
+    if reference.owner != owner:
+        raise HTTPException(403, "image reference belongs to another user")
+    if is_expired(reference.expiresAt):
+        raise HTTPException(410, "image reference has expired")
+    if expected_kind and reference.kind != expected_kind:
+        raise HTTPException(400, f"expected a {expected_kind} image")
+    return reference
+
+
 def public_job(job: Job) -> dict:
     value = asdict(job)
     value.pop("owner", None)
     value.pop("cancelRequested", None)
+    value["images"] = [
+        {field: content for field, content in image.items() if field != "key"}
+        for image in value["images"]
+    ]
+    return value
+
+
+def public_reference(reference: Reference) -> dict:
+    value = asdict(reference)
+    value.pop("owner", None)
+    value.pop("key", None)
     return value
 
 
@@ -186,12 +308,15 @@ async def run_queue() -> None:
 
 async def execute(job: Job) -> None:
     request = job.request
-    workflow = flux_workflow(
-        request["prompt"], request["width"], request["height"], request["steps"], request["seed"]
-    )
     job.status = "running"
     job.updatedAt = datetime.now(UTC).isoformat()
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=30)) as client:
+        reference_name = await upload_comfy_reference(client, job, request.get("referenceId"))
+        mask_name = await upload_comfy_reference(client, job, request.get("maskId"))
+        workflow = flux_workflow(
+            request["prompt"], request["width"], request["height"], request["steps"], request["seed"],
+            reference_name=reference_name, mask_name=mask_name, strength=request.get("strength", 0.72),
+        )
         submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
         submitted.raise_for_status()
         prompt_id = submitted.json()["prompt_id"]
@@ -215,26 +340,118 @@ async def execute(job: Job) -> None:
             response = await client.get(f"{COMFY_URL}/view", params=image)
             response.raise_for_status()
             key = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}/image-{index:02d}.png"
-            await asyncio.to_thread(upload, key, response.content, "image/png")
+            expires_at = datetime.fromisoformat(job.expiresAt)
+            await asyncio.to_thread(upload, key, response.content, "image/png", expires_at)
             job.images.append({
                 "url": f"/image/jobs/{job.id}/assets/{index - 1}", "key": key,
                 "width": request["width"], "height": request["height"],
                 "model": request["model"], "seed": request["seed"], "workflowVersion": WORKFLOW_VERSION,
                 "modelDigest": MODEL_DIGEST, "modelLicense": MODEL_LICENSE,
+                "expiresAt": job.expiresAt, "mode": "edit" if reference_name else "generate",
             })
         metadata_key = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}/metadata.json"
         metadata = json.dumps({
             "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt,
             "request": request, "workflowVersion": WORKFLOW_VERSION,
-            "modelDigest": MODEL_DIGEST, "modelLicense": MODEL_LICENSE, "images": job.images,
+            "modelDigest": MODEL_DIGEST, "modelLicense": MODEL_LICENSE,
+            "expiresAt": job.expiresAt, "images": job.images,
         }, indent=2).encode()
-        await asyncio.to_thread(upload, metadata_key, metadata, "application/json")
+        await asyncio.to_thread(upload, metadata_key, metadata, "application/json", datetime.fromisoformat(job.expiresAt))
         job.status = "completed"
 
 
-def upload(key: str, body: bytes, content_type: str) -> None:
+async def upload_comfy_reference(client: httpx.AsyncClient, job: Job, reference_id: str | None) -> str | None:
+    if not reference_id:
+        return None
+    reference = owned_reference(reference_id, job.owner)
+    obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=reference.key)
+    body = await asyncio.to_thread(obj["Body"].read)
+    name = f"burtson-{job.id}-{reference.kind}-{reference.id}.png"
+    response = await client.post(
+        f"{COMFY_URL}/upload/image",
+        files={"image": (name, body, "image/png")},
+        data={"type": "input", "overwrite": "true"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return payload.get("name") or name
+
+
+def upload(key: str, body: bytes, content_type: str, expires_at: datetime) -> None:
     client = s3_client()
-    client.put_object(Bucket=BUCKET, Key=key, Body=io.BytesIO(body), ContentType=content_type)
+    expires_epoch = int(expires_at.timestamp())
+    client.put_object(
+        Bucket=BUCKET, Key=key, Body=io.BytesIO(body), ContentType=content_type,
+        Metadata={"expires-at": expires_at.isoformat()},
+        Tagging=urlencode({"expires-at": str(expires_epoch)}),
+    )
+
+
+def normalize_upload(body: bytes, kind: str) -> tuple[bytes, int, int]:
+    if not body:
+        raise HTTPException(400, "image upload is empty")
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+    try:
+        with Image.open(io.BytesIO(body)) as source:
+            source.load()
+            image = ImageOps.exif_transpose(source)
+            if image.width < 64 or image.height < 64:
+                raise HTTPException(400, "image must be at least 64x64 pixels")
+            if image.width * image.height > MAX_IMAGE_PIXELS:
+                raise HTTPException(413, "image dimensions are too large")
+            image = image.convert("L" if kind == "mask" else "RGBA")
+            output = io.BytesIO()
+            image.save(output, format="PNG", optimize=True)
+            return output.getvalue(), image.width, image.height
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(400, "unsupported or corrupt image upload") from exc
+
+
+def is_expired(value: str) -> bool:
+    return datetime.fromisoformat(value) <= datetime.now(UTC)
+
+
+async def run_reaper() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(reap_expired_objects)
+            now = datetime.now(UTC)
+            for job_id, job in list(jobs.items()):
+                if datetime.fromisoformat(job.expiresAt) <= now:
+                    jobs.pop(job_id, None)
+            for reference_id, reference in list(references.items()):
+                if datetime.fromisoformat(reference.expiresAt) <= now:
+                    references.pop(reference_id, None)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("asset reaper failed")
+        await asyncio.sleep(REAPER_INTERVAL_SECONDS)
+
+
+def reap_expired_objects() -> int:
+    client = s3_client()
+    cutoff = datetime.now(UTC) - ASSET_TTL
+    paginator = client.get_paginator("list_objects_v2")
+    expired: list[dict] = []
+    deleted = 0
+    for page in paginator.paginate(Bucket=BUCKET, Prefix="v1/tenant/"):
+        for item in page.get("Contents", []):
+            modified = item.get("LastModified")
+            if modified and modified <= cutoff:
+                expired.append({"Key": item["Key"]})
+            if len(expired) == 1000:
+                client.delete_objects(Bucket=BUCKET, Delete={"Objects": expired, "Quiet": True})
+                deleted += len(expired)
+                expired = []
+    if expired:
+        client.delete_objects(Bucket=BUCKET, Delete={"Objects": expired, "Quiet": True})
+        deleted += len(expired)
+    if deleted:
+        logger.info("deleted %d expired image assets", deleted)
+    return deleted
 
 
 def safe_owner(owner: str) -> str:

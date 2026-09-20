@@ -111,6 +111,19 @@ spec:
               value: generated-images
             - name: FLUX_MODEL_SHA256
               value: "ead426278b49030e9da5df862994f25ce94ab2ee4df38b556ddddb3db093bf72"
+            # Exact application TTL; a background reaper removes expired
+            # uploads, outputs, metadata and in-memory job records. The API
+            # also installs a day-granular MinIO lifecycle rule as a backstop.
+            - name: ASSET_TTL_HOURS
+              value: "24"
+            - name: REAPER_INTERVAL_SECONDS
+              value: "900"
+            - name: MAX_UPLOAD_MIB
+              value: "12"
+            - name: MAX_IMAGE_PIXELS
+              value: "25000000"
+            - name: CONFIGURE_BUCKET_LIFECYCLE
+              value: "true"
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -301,6 +314,61 @@ spec:
     - name: http
       port: 8188
       targetPort: http
+---
+# Keep the large CUDA/ComfyUI image resident on son-of-anton without claiming
+# a GPU. This turns an image-mode switch into pod/model startup rather than a
+# registry download, matching Voice Studio's pre-pull behavior.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-worker-prepull
+  namespace: ai-image
+  labels:
+    app.kubernetes.io/name: image-worker-prepull
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: image-worker-prepull
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: image-worker-prepull
+    spec:
+      serviceAccountName: image-worker
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-secret
+      nodeSelector:
+        kubernetes.io/hostname: son-of-anton
+        node-role.kubernetes.io/ai: ""
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: ai
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: prepull
+          image: ghcr.io/burtson-labs/image-worker:5c726ea0a4a460c773802a1cc4ec87ba2b3c62cd
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args: ["sleep infinity"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
 ---
 # Confirm CNI NetworkPolicy enforcement before relying on these rules.
 apiVersion: networking.k8s.io/v1
