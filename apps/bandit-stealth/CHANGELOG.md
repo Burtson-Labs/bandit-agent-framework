@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.447
+
+- **Approval cards show the full `run_command` line.** Mobile/remote mirrors and the shared PermissionCard no longer ask you to approve a blank "Allow this run_command?" — cmd + args (and a primary fallback) render in the monospace block.
+- **PDF without the Python install spiral.** CLI adds `render_pdf` / `preview_pdf` (Chrome headless, no headers/footers). Prompts stop steering toward weasyprint/playwright/fpdf2 for ordinary PDF work. Gateway `create_file` `format=pdf` is the cloud path.
+- **CLI xterm harness scaffold** under `ops/demo-videos/harness/cli-xterm/` for Playwright screenshots / future self-improve loops.
+
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
 ## 1.7.445
