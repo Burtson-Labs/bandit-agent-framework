@@ -114,6 +114,7 @@ import {
   buildUpdateArtifactTool,
   buildEmailArtifactTool,
   buildFetchImageTool,
+  buildGenerateImageTool,
   buildTestRunTool,
   registerMcpServersFromDisk,
   loadApprovedMcpFingerprints,
@@ -911,6 +912,11 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     registry.register(buildGetArtifactTool(artifactToolOpts));
     registry.register(buildUpdateArtifactTool(artifactToolOpts));
     registry.register(buildEmailArtifactTool(artifactToolOpts));
+    registry.register(buildGenerateImageTool({
+      token: opts.settings.apiKey,
+      antonBaseUrl: process.env.BANDIT_ANTON_URL ?? 'https://anton.burtson.ai',
+      authBaseUrl: authBase
+    }));
   }
 
   // MCP tools — enumerated lazily on first turn after a server is

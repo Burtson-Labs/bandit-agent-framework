@@ -44,6 +44,7 @@ import {
   buildUpdateArtifactTool,
   buildEmailArtifactTool,
   buildFetchImageTool,
+  buildGenerateImageTool,
   buildReadMemoryTool,
   buildRememberTool,
   buildTestRunTool,
@@ -189,6 +190,15 @@ export async function buildTurnRunContext(
     registry.register(buildGetArtifactTool(artifactToolOpts));
     registry.register(buildUpdateArtifactTool(artifactToolOpts));
     registry.register(buildEmailArtifactTool(artifactToolOpts));
+    // generate_image — coordinated local GPU image generation/editing. The
+    // tool completes the full Anton claim → render → release cycle and waits
+    // for Ollama to recover before the agent loop asks the local model for its
+    // next turn, so local inference is never stranded mid-tool-call.
+    registry.register(buildGenerateImageTool({
+      token: banditApiKey,
+      antonBaseUrl: process.env.BANDIT_ANTON_URL ?? 'https://anton.burtson.ai',
+      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
+    }));
   }
 
   // MCP tools — surface every connected server's tools as

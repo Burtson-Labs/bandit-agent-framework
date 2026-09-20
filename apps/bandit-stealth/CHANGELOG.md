@@ -2,6 +2,12 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.448
+
+- **Bandit can generate and edit images in the repository.** Signed-in CLI and editor turns get a `generate_image` tool that accepts an optional reference image and mask, saves the result inside the workspace, and rejects path escapes.
+- **GPU handoff is graceful.** Bandit claims the image worker only when needed, releases it after the job, and waits for local Ollama inference to recover before continuing the agent loop.
+- **Generated cloud copies expire.** Reference uploads, rendered images, metadata, and in-memory job records use a 24-hour retention window backed by an application reaper and MinIO lifecycle rule.
+
 ## 1.7.447
 
 - **Approval cards show the full `run_command` line.** Mobile/remote mirrors and the shared PermissionCard no longer ask you to approve a blank "Allow this run_command?" — cmd + args (and a primary fallback) render in the monospace block.
