@@ -79,13 +79,18 @@ spec:
     spec:
       serviceAccountName: image-api
       automountServiceAccountToken: false
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node-role.kubernetes.io/ai
-                    operator: DoesNotExist
+      imagePullSecrets:
+        - name: ghcr-secret
+      # The repository image is intentionally amd64-only, matching the GPU
+      # worker. The API does not request a GPU and therefore cannot contend for
+      # it, but it must run on the cluster's amd64 node.
+      nodeSelector:
+        kubernetes.io/hostname: son-of-anton
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: ai
+          effect: NoSchedule
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -182,6 +187,8 @@ spec:
     spec:
       serviceAccountName: image-worker
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-secret
       nodeSelector:
         kubernetes.io/hostname: son-of-anton
         node-role.kubernetes.io/ai: ""
