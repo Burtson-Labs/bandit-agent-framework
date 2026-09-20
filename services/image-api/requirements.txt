@@ -3,3 +3,5 @@ uvicorn[standard]==0.35.0
 httpx==0.28.1
 boto3==1.40.39
 pydantic==2.11.9
+python-multipart==0.0.20
+pillow==11.3.0

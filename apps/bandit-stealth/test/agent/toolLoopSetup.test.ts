@@ -71,6 +71,15 @@ vi.mock('@burtson-labs/host-kit', () => {
     buildReadMemoryTool: makeBuilder('read_memory'),
     buildTestRunTool: makeBuilder('test_run'),
     buildFetchImageTool: makeBuilder('fetch_image'),
+    buildGenerateImageTool: makeBuilder('generate_image'),
+    buildPublishArtifactTool: makeBuilder('publish_artifact'),
+    buildShareArtifactTool: makeBuilder('share_artifact'),
+    buildListArtifactsTool: makeBuilder('list_artifacts'),
+    buildDeleteArtifactTool: makeBuilder('delete_artifact'),
+    buildRestoreArtifactTool: makeBuilder('restore_artifact'),
+    buildGetArtifactTool: makeBuilder('get_artifact'),
+    buildUpdateArtifactTool: makeBuilder('update_artifact'),
+    buildEmailArtifactTool: makeBuilder('email_artifact'),
     loadCombinedMemory: vi.fn(async () => ({ content: 'memo', sources: ['BANDIT.md'] })),
     loadHookSettings: vi.fn(async () => ({ hooks: {} })),
     openTurnLog: vi.fn(async () => ({
@@ -162,6 +171,15 @@ describe('buildTurnRunContext', () => {
       'test_run',
       'fetch_image'
     ]);
+  });
+
+  it('registers image generation only for signed-in Bandit turns', async () => {
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), {
+      ...baseOptions,
+      banditApiKey: 'bai_test',
+    });
+
+    expect(agentCoreMock.registeredTools.map((tool) => tool.name)).toContain('generate_image');
   });
 
   it('MCP failures do not kill turn startup — the factory swallows and returns the rest of the context intact', async () => {

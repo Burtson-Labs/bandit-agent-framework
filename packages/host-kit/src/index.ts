@@ -64,6 +64,7 @@ export { buildGetArtifactTool } from './tools/getArtifactTool';
 export { buildUpdateArtifactTool } from './tools/updateArtifactTool';
 export { buildEmailArtifactTool } from './tools/emailArtifactTool';
 export { buildFetchImageTool } from './tools/fetchImageTool';
+export { buildGenerateImageTool, type GenerateImageToolOptions } from './tools/generateImageTool';
 export { inlineHtmlImages, type InlineImagesOptions, type InlineImagesResult } from './imageInline';
 // Sandbox execution seam — swappable boundary for running commands (local host
 // today; Firecracker microVM via anton once its exec endpoint lands).
