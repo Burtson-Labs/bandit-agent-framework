@@ -56,9 +56,58 @@ const RUNNER_SYSTEM_PROMPT = `You are Bandit, an autonomous coding agent working
 Be decisive:
 - When a detail is unambiguous or has a strong convention, choose it, do it, and state the choice you made. "Bump the version" means increment the patch number (0.9.40 → 0.9.41) unless told otherwise.
 - Prefer completing the requested change over describing what you could do or asking which variant is wanted.
+- For implementation requests, make a first focused edit as soon as you have enough evidence. Do not spend the entire turn auditing unrelated files.
+- A change request is complete only after at least one edit succeeds and you run the most relevant available verification. Never replace the requested work with a report titled "What I didn't get to."
+- If the same operation fails twice for the same reason, stop retrying it, choose another route, and continue the goal.
 - If something genuinely blocks you (missing file, contradictory instructions), finish everything you can, then say exactly what was blocked and why.
 
 Ground every statement in files you actually read with your tools. Keep edits minimal, correct, and consistent with the surrounding code.`;
+
+/** A read-only answer can satisfy an audit or explanation. These verbs mean
+ * the user instead asked for a workspace mutation, so zero artifacts cannot
+ * truthfully be called completion. */
+export function requiresWorkspaceMutation(prompt: string): boolean {
+  const text = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  if (/\b(audit|review|explain|investigate|diagnose|find out|why|what|where|how)\b/.test(text) &&
+      !/\b(fix|implement|change|edit|update|add|remove|refactor|make|build|create|write)\b/.test(text)) {
+    return false;
+  }
+  return /\b(fix|implement|edit|update|add|remove|refactor|build|create|write|apply|make)\b/.test(text) ||
+    /\b(code changes?|mobile improvements?|changes? please)\b/.test(text);
+}
+
+function emitTerminal(
+  req: TurnRequest,
+  artifacts: number,
+  assistantText: string,
+  hitLimit: boolean,
+  emit: (e: RunnerEvent) => void,
+): void {
+  if (artifacts === 0 && requiresWorkspaceMutation(req.prompt)) {
+    emit({
+      type: 'turn.error',
+      taskId: req.taskId,
+      code: 'NO_CHANGES_FOR_MUTATION',
+      message: hitLimit
+        ? 'The iteration/tool budget was exhausted before any requested file change landed.'
+        : 'The model ended an implementation request without changing any files.',
+    });
+    return;
+  }
+  emit({
+    type: 'turn.completed',
+    taskId: req.taskId,
+    artifacts,
+    noChangeReason:
+      artifacts === 0
+        ? hitLimit
+          ? 'Iteration limit reached before any file changed.'
+          : 'The agent answered without needing to change files.'
+        : undefined,
+    assistantText,
+  });
+}
 
 /**
  * Absolute path inside the workspace, or a thrown error — never a path
@@ -227,6 +276,8 @@ export async function runTurn(
   const registry = createCoreToolRegistry();
   const loop = createToolUseLoop(registry, ctx, {
     maxIterations: req.maxIterations ?? 10,
+    maxTotalTools: 120,
+    messageTokenBudget: 24_000,
     beforeToolExecute: toolGate,
     signal,
     emitEvent: (type, payload) => {
@@ -373,18 +424,7 @@ ${(body ?? '').toString().slice(0, 2000)}`);
         emit({ type: 'turn.error', taskId, code: 'GRAPH_ALL_NODES_FAILED', message: `all ${failed} nodes failed` });
         return;
       }
-      emit({
-        type: 'turn.completed',
-        taskId,
-        artifacts,
-        noChangeReason:
-          artifacts === 0
-            ? failed > 0
-              ? `${failed} of ${planned.spec.nodes.length} graph nodes failed before any file changed.`
-              : 'The graph answered without needing to change files.'
-            : undefined,
-        assistantText: finalText,
-      });
+      emitTerminal(req, artifacts, finalText, false, emit);
       return;
     }
   }
@@ -398,17 +438,5 @@ ${(body ?? '').toString().slice(0, 2000)}`);
     return;
   }
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
-  emit({
-    type: 'turn.completed',
-    taskId,
-    artifacts,
-    // Terminal honesty: zero artifacts must carry a reason a human can read.
-    noChangeReason:
-      artifacts === 0
-        ? result.hitLimit
-          ? 'Iteration limit reached before any file changed.'
-          : 'The agent answered without needing to change files.'
-        : undefined,
-    assistantText: result.finalResponse,
-  });
+  emitTerminal(req, artifacts, result.finalResponse, result.hitLimit, emit);
 }

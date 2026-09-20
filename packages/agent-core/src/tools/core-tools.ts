@@ -2306,7 +2306,7 @@ export function buildSkillMarkdown(input: {
 
 const createSkillTool: AgentTool = {
   name: 'create_skill',
-  description: 'Create a reusable Bandit SKILL — a markdown playbook saved to .bandit/skills/<id>.md that teaches you how to do a recurring task with the tools you ALREADY have. Use this whenever the user asks you to "make/create/write a skill". A skill does NOT add a new tool; it captures a workflow (which tools/commands to run, when, with what flags) so it auto-activates next time the topic comes up. Example: a "pdf" skill whose body says to generate a PDF by writing an fpdf2 Python script and running it with run_command. After creating it, tell the user to run /skill reload (or restart) to activate it.',
+  description: 'Create a reusable Bandit SKILL — a markdown playbook saved to .bandit/skills/<id>.md that teaches you how to do a recurring task with the tools you ALREADY have. Use this whenever the user asks you to "make/create/write a skill". A skill does NOT add a new tool; it captures a workflow (which tools/commands to run, when, with what flags) so it auto-activates next time the topic comes up. Example: a "release" skill whose body says which checks to run and in what order. Prefer native tools (e.g. render_pdf / create_file format=pdf) over encoding pip-install scripts. After creating it, tell the user to run /skill reload (or restart) to activate it.',
   parameters: [
     { name: 'name', description: 'Human-readable skill name, e.g. "PDF Generator".', required: true },
     { name: 'description', description: 'One line on when this skill applies — shown to you when it activates (e.g. "Use when the user wants a PDF or Word document").', required: true },

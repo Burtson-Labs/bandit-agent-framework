@@ -97,10 +97,12 @@ degrade to their public variant and say so in the run output.
   steps are best-effort (the web app lives in its own repo); expect to tune
   selectors/paths after the first `STORAGE_STATE` run. Recorded so far:
   the public variant.
-- **CLI terminal capture** — no scene records the Bandit CLI yet. Plan:
-  a Playwright-driven xterm.js page running the CLI (keeps this exact
-  pipeline: same recorder, narration, assembly), or macOS screen capture
-  of a real terminal as a heavier alternative.
+- **CLI terminal capture** — harness scaffold at
+  `ops/demo-videos/harness/cli-xterm/` (xterm.js page + static server).
+  Run `node --import tsx harness/cli-xterm/serve.ts` then point Playwright
+  at `http://127.0.0.1:4177/`. Next: node-pty bridge so a live `bandit`
+  session drives the terminal (same pipeline as other scenes). Until then
+  the page shows a fixture permission card for selector work.
 - **Other authed surfaces** (artifacts dashboard internals, account pages)
   wait on the storage-state flow above.
 

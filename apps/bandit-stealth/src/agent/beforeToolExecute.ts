@@ -355,7 +355,9 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
         notifyUser('approval', 'Bandit needs approval', `${name}${primary ? ` ${primary}` : ''}`);
         permissionPromise = permissionGate.request({
           tool: name,
-          primary,
+          // Card title / fallback detail: full argv for shell so a missing
+          // `command` field can never leave the user approving blind.
+          primary: displayPrimary || primary,
           // The classifier's reason, so the card and the gate agree on how
           // risky the call is instead of computing it from separate string
           // matching that had already drifted between the two hosts.

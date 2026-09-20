@@ -81,10 +81,21 @@ describe('runTurn — happy path', () => {
     expect(events[events.length - 1]).toMatchObject({ artifacts: 1 });
   });
 
-  it('explains itself when it completes without changing anything', async () => {
+  it('fails a mutation request that completes without changing anything', async () => {
     const ws = workspace();
 
     const events = await collect(request(ws, ['Nothing to do here.']));
+    const last = events[events.length - 1];
+
+    expect(last).toMatchObject({ type: 'turn.error', code: 'NO_CHANGES_FOR_MUTATION' });
+  });
+
+  it('allows an evidence-only audit to complete without artifacts', async () => {
+    const ws = workspace();
+
+    const events = await collect(
+      request(ws, ['The mobile layout has three issues.'], 'Audit the mobile layout.'),
+    );
     const last = events[events.length - 1];
 
     expect(last.type).toBe('turn.completed');
