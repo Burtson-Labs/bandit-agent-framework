@@ -83,6 +83,7 @@ function emitTerminal(
   assistantText: string,
   hitLimit: boolean,
   emit: (e: RunnerEvent) => void,
+  stats: { iterations: number; toolCalls: number } = { iterations: 0, toolCalls: 0 },
 ): void {
   if (artifacts === 0 && requiresWorkspaceMutation(req.prompt)) {
     emit({
@@ -92,6 +93,7 @@ function emitTerminal(
       message: hitLimit
         ? 'The iteration/tool budget was exhausted before any requested file change landed.'
         : 'The model ended an implementation request without changing any files.',
+      hitLimit,
     });
     return;
   }
@@ -106,6 +108,9 @@ function emitTerminal(
           : 'The agent answered without needing to change files.'
         : undefined,
     assistantText,
+    hitLimit,
+    iterations: stats.iterations,
+    toolCalls: stats.toolCalls,
   });
 }
 
@@ -256,6 +261,7 @@ export async function runTurn(
   }
 
   let artifacts = 0;
+  let toolCalls = 0;
   const ctx = makeContext(req.workspacePath, (p, kind) => {
     artifacts += 1;
     emit({ type: 'artifact.changed', taskId, path: p, kind });
@@ -274,10 +280,21 @@ export async function runTurn(
     signal?.aborted ? { allow: false, reason: cancellationReason(signal) } : policyGate(call);
 
   const registry = createCoreToolRegistry();
+  const maxIterations = req.maxIterations ?? 10;
   const loop = createToolUseLoop(registry, ctx, {
-    maxIterations: req.maxIterations ?? 10,
-    maxTotalTools: 120,
+    maxIterations,
+    // The tool budget scales with the iteration budget: a 40-iteration turn
+    // that reads a few files per round hit the flat 120 cap long before its
+    // iterations ran out, and the cap ends the turn with hitLimit just like
+    // the iteration cap does.
+    maxTotalTools: Math.max(120, maxIterations * 8),
     messageTokenBudget: 24_000,
+    // Serialise any batch that writes. Two apply_edits to one file in one
+    // batch race on read-modify-write under Promise.all and the first edit
+    // is lost while both report success (caught by the Stealth soak,
+    // 2026-09-20). A zero budget trips the loop's serial gate for batches
+    // carrying file content; read-only batches stay parallel.
+    outputBudgetTokens: 0,
     beforeToolExecute: toolGate,
     signal,
     emitEvent: (type, payload) => {
@@ -286,6 +303,7 @@ export async function runTurn(
       // tool_loop:tool_execute / tool_loop:tool_result (snippets already
       // secret-redacted by the loop).
       if (type === 'tool_loop:tool_execute') {
+        toolCalls += 1;
         emit({
           type: 'tool.call',
           taskId,
@@ -424,7 +442,7 @@ ${(body ?? '').toString().slice(0, 2000)}`);
         emit({ type: 'turn.error', taskId, code: 'GRAPH_ALL_NODES_FAILED', message: `all ${failed} nodes failed` });
         return;
       }
-      emitTerminal(req, artifacts, finalText, false, emit);
+      emitTerminal(req, artifacts, finalText, false, emit, { iterations: 0, toolCalls });
       return;
     }
   }
@@ -438,5 +456,8 @@ ${(body ?? '').toString().slice(0, 2000)}`);
     return;
   }
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
-  emitTerminal(req, artifacts, result.finalResponse, result.hitLimit, emit);
+  emitTerminal(req, artifacts, result.finalResponse, result.hitLimit, emit, {
+    iterations: result.iterations,
+    toolCalls,
+  });
 }
