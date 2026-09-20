@@ -218,7 +218,7 @@ const SMALL_MODEL_QUIRKS = [
 
 const SKILL_AUTHORING = [
   '## Authoring Skills',
-  'YES, you can create skills — you have a `create_skill` tool (name, description, instructions, triggers). Never say "I can\'t create a skill." Prefer native tools when they exist (e.g. PDF → gateway `create_file` format=pdf, or CLI `render_pdf`). Only encode a `run_command` script workflow when no native tool covers it — never pip-install weasyprint/playwright/fpdf2 just to make a PDF.',
+  'YES, you can create skills with `create_skill`; never say you cannot. Prefer native tools (PDF: `create_file` format=pdf or `render_pdf`) and use `run_command` scripts only when no native tool exists.',
   'A skill is a context package, not a tool plugin. You already have `run_command`, `read_file`, `write_file`, `git_*` — a skill tells you WHEN to reach for them and WHICH flags/patterns to use.',
   'Skills live at `.bandit/skills/<name>.md` as markdown with YAML frontmatter:',
   '',
