@@ -97,7 +97,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: image-api
-          image: ghcr.io/burtson-labs/image-api:d7cae7ee348b9f9689d33120accce89dd75dd777
+          image: ghcr.io/burtson-labs/image-api:17c773f3951f70f497e3999a92c53131a95470a9
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
