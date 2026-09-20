@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Bandit CLI · xterm harness</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0b0f; }
+    #term { height: 100vh; padding: 8px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div id="term" data-testid="bandit-cli-xterm"></div>
+  <script type="module">
+    import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
+    import { FitAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
+
+    const params = new URLSearchParams(location.search);
+    const cols = Number(params.get('cols') || 100);
+    const rows = Number(params.get('rows') || 32);
+
+    const term = new Terminal({
+      cols,
+      rows,
+      convertEol: true,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontSize: 13,
+      theme: { background: '#0b0b0f', foreground: '#e2e8f0', cursor: '#f59e0b' },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(document.getElementById('term'));
+    fit.fit();
+
+    // Fixture permission card so Playwright (and agents) can target the
+    // DOM before the Node PTY bridge lands. Real I/O will replace this.
+    const esc = String.fromCharCode(27);
+    term.write(
+      `${esc}[1mbandit${esc}[0m  › permission: run_command\r\n\r\n` +
+      `${esc}[33mgit push origin main --force${esc}[0m\r\n\r\n` +
+      `  1 Allow once   2 Allow session   3 Always allow   4 Deny\r\n`
+    );
+
+    window.__banditCliHarness = {
+      write(text) { term.write(String(text)); },
+      clear() { term.clear(); },
+      getBuffer() {
+        const buf = [];
+        for (let y = 0; y < term.rows; y++) {
+          buf.push(term.buffer.active.getLine(y)?.translateToString(true) ?? '');
+        }
+        return buf.join('\n').replace(/\s+$/gm, '');
+      },
+    };
+  </script>
+</body>
+</html>

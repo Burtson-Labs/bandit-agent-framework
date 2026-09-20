@@ -154,11 +154,28 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
   // pre-computed for this specific tool type. `command` → raw shell
   // string for run_command. `paramsPreview` → key=value dump for
   // other tools (apply_edit, git_checkout, etc). `bodyPreview` with
-  // diff stats → write_file / apply_edit changes. Fallback: show
-  // nothing (the title line already mentions the tool + primary arg).
+  // diff stats → write_file / apply_edit changes.
+  //
+  // Fallback: show `primary` in the same monospace block. Remote /
+  // mobile mirrors sometimes only carry `primary` (full argv for
+  // run_command) and omit `command` — without this fallback the card
+  // was literally "Allow this run_command?" with no details, so users
+  // approved blind.
   const hasCommand = typeof payload.command === "string" && payload.command.trim().length > 0;
   const hasParams = !hasCommand && typeof payload.paramsPreview === "string" && payload.paramsPreview.trim().length > 0;
-  const hasDiff = !hasCommand && !hasParams && typeof payload.bodyPreview === "string" && payload.bodyPreview.trim().length > 0;
+  const primaryDetail = typeof payload.primary === "string" ? payload.primary.trim() : "";
+  const hasPrimaryFallback = !hasCommand && !hasParams && primaryDetail.length > 0;
+  const detailText = hasCommand
+    ? payload.command!.trim()
+    : hasParams
+      ? payload.paramsPreview!.trim()
+      : hasPrimaryFallback
+        ? primaryDetail
+        : "";
+  const detailLabel = hasCommand || (hasPrimaryFallback && /^(run_command|run_shell|exec|bash|shell)/i.test(payload.tool))
+    ? "Command to run"
+    : "Tool details";
+  const hasDiff = !detailText && typeof payload.bodyPreview === "string" && payload.bodyPreview.trim().length > 0;
 
   return (
     <div
@@ -178,14 +195,9 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
         </div>
       </div>
 
-      {hasCommand && (
-        <pre className="permission-card__command" aria-label="Command to run">
-          <code>{payload.command}</code>
-        </pre>
-      )}
-      {hasParams && (
-        <pre className="permission-card__command" aria-label="Tool parameters">
-          <code>{payload.paramsPreview}</code>
+      {detailText && (
+        <pre className="permission-card__command" aria-label={detailLabel}>
+          <code>{detailText}</code>
         </pre>
       )}
 

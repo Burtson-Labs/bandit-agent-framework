@@ -63,7 +63,7 @@ import { createInkLineInterface, type InkLineInterface } from './input/inkInterf
 import { CliToolExecutionContext, expandHome } from './cliToolContext';
 import { readClipboardImage } from './clipboardImage';
 import { openFilePicker } from './filePicker';
-import { pdfReadTool } from './pdfTool';
+import { pdfReadTool, pdfPreviewTool, pdfRenderTool } from './pdfTool';
 import { c, glyph, banner, launchBanner, divider, skillLine, toolLine, errorLine, setActiveTheme, linkify, THEME_NAMES, supportsTrueColor, supportsBlockArt, downsampleTruecolorTo256 } from './ansi';
 import { renderPublishedLink } from './linkShare';
 import { Spinner, StreamFooter, renderTodoTree } from './spinner';
@@ -654,7 +654,18 @@ interface RunOptions {
    *  mirrors, let them answer it (first answer wins vs the local picker),
    *  and announce the resolution. */
   remotePermission?: {
-    announce: (req: { id: string; tool: string; primary: string }) => void;
+    announce: (req: {
+      id: string;
+      tool: string;
+      primary: string;
+      /** Full shell line for run_command — mobile/web cards must show this
+       *  verbatim; `primary` alone used to be the bare binary. */
+      command?: string;
+      description?: string;
+      risk?: string;
+      preview?: string;
+      params?: Record<string, string>;
+    }) => void;
     subscribe: (resolve: (r: import('./permissionPrompt').PermissionPromptResult) => void) => () => void;
     resolved: (id: string, choice: string) => void;
   };
@@ -878,6 +889,8 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   registry.register(buildReadMemoryTool());
   registry.register(buildTestRunTool());
   registry.register(pdfReadTool);
+  registry.register(pdfPreviewTool);
+  registry.register(pdfRenderTool);
   // fetch_image — verify an image URL is usable before embedding it in an artifact
   // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
   registry.register(buildFetchImageTool());
@@ -1432,7 +1445,20 @@ async function runPrompt(opts: RunOptions): Promise<string> {
         opts.remotePermission?.announce({
           id: permId,
           tool: name,
-          primary: previewText(displayPrimary ?? primary ?? ''),
+          // Always the human-auditable form (cmd + args for shell). Remote
+          // PermissionCards render this when `command` is absent.
+          primary: previewText(displayPrimary || primary || ''),
+          // Dedicated field so mobile/web can put the full argv in the
+          // monospace block even if they ignore `primary`.
+          command: name === 'run_command' ? previewText(displayPrimary || primary || '') || undefined : undefined,
+          description: risk.why,
+          risk: risk.why,
+          preview: name === 'run_command'
+            ? previewText(displayPrimary || primary || '') || undefined
+            : (params.path ? previewText(params.path) : undefined),
+          params: Object.fromEntries(
+            Object.entries(params).filter(([, v]) => typeof v === 'string' && v.length > 0 && v.length < 2000)
+          ) as Record<string, string>
         });
         result = await promptPermission({
           rl: replRl,
