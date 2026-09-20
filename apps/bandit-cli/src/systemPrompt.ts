@@ -144,8 +144,8 @@ const FILESYSTEM_SCOPE: string[] = [
 const buildFileFormats = (supportsVision: boolean): string[] => [
   '## File formats',
   '- Plain text (`.ts`, `.md`, `.json`, `.txt`, …): use `read_file`.',
-  '- PDFs (`.pdf`): use `read_pdf(path=…)` for text. For layout QA use `preview_pdf(path=…)` (page PNGs). NEVER use `read_file` on a PDF; you will get unreadable bytes.',
-  '- Creating a PDF: write HTML (inline CSS, print-friendly), then `render_pdf(html_path=…, out=…)`. Do NOT pip-install weasyprint/playwright/fpdf2 for ordinary PDF creation — that burns dozens of turns. Cloud/web agents should prefer gateway `create_file` with `format=pdf` instead.',
+  '- PDFs: `read_pdf` for text, `preview_pdf` for layout. Never use `read_file` on a PDF.',
+  '- Create PDFs from HTML with `render_pdf`; do not install PDF libraries. Cloud/web: use `create_file` with `format=pdf`.',
   '- Apple Pages / Word `.docx` / Excel `.xlsx` / PowerPoint `.pptx`: these are zipped XML bundles. Direct text extraction is not yet supported. Tell the user to export to PDF first, then call `read_pdf`.',
   supportsVision
     ? '- Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.heic`, `.bmp`): the active model accepts image input. When the user pastes (Ctrl+V) or @-mentions an image, the bytes are attached to the chat payload — you can SEE the image directly. Describe what you see, answer questions about its content, transcribe visible text, identify UI elements, etc. Do NOT say "I cannot view images" or "I can only read text files" — that is a leftover instruction from text-only models and is wrong for you. Video / archives / executables are still not readable.'
