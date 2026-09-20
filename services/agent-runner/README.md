@@ -20,6 +20,15 @@ always the final line; a stream that ends without one is a failed turn,
 never a completed one. Completing with zero artifacts requires a
 `noChangeReason` a human can read.
 
+`turn.completed` also says whether the loop was cut off at its iteration or
+tool budget (`hitLimit`, with `iterations` and `toolCalls`), and
+`turn.error` carries `hitLimit` on `NO_CHANGES_FOR_MUTATION`. A turn that
+changed files used to hide this, so a long task looked finished when it had
+stopped halfway; the gateway continues such a turn in a fresh segment
+against the same workspace. The tool budget scales with `maxIterations`
+(`max(120, maxIterations × 8)`), and batches that write are serialised so
+two edits to one file in one batch cannot race.
+
 `pnpm test` runs the service's suite: auth, the workspace jail (`..`,
 absolute and symlink escapes), the request body cap, correlation ids,
 cancellation, the permission gate, and the stream-termination rule.
