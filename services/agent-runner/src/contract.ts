@@ -79,6 +79,13 @@ export type RunnerEvent =
       artifacts: number;
       noChangeReason?: string;
       assistantText: string;
+      /** The loop stopped at its iteration or tool budget rather than by
+       *  choice. A completed turn with files changed used to hide this,
+       *  so a long task looked finished when it had been cut off. The
+       *  gateway uses it to continue the turn in a fresh segment. */
+      hitLimit?: boolean;
+      iterations?: number;
+      toolCalls?: number;
     }
   | {
       /** Graph execution: the accepted plan, one event, nodes in spec order. */
@@ -94,7 +101,15 @@ export type RunnerEvent =
       status: 'running' | 'done' | 'failed' | 'skipped';
       summary?: string;
     }
-  | { type: 'turn.error'; taskId: string; code: string; message: string };
+  | {
+      type: 'turn.error';
+      taskId: string;
+      code: string;
+      message: string;
+      /** Set on NO_CHANGES_FOR_MUTATION when the budget ran out before any
+       *  edit landed — a reason to continue, not to fail. */
+      hitLimit?: boolean;
+    };
 
 export function parseTurnRequest(body: unknown): TurnRequest {
   const b = body as Partial<TurnRequest>;

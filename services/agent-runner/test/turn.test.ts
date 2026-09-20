@@ -81,6 +81,32 @@ describe('runTurn — happy path', () => {
     expect(events[events.length - 1]).toMatchObject({ artifacts: 1 });
   });
 
+  it('reports a hit budget on turn.completed instead of hiding it behind changed files', async () => {
+    const ws = workspace();
+    const writes = ['a', 'b', 'c', 'd'].map(
+      (n) =>
+        `<tool_call>{"name": "write_file", "params": {"path": "${n}.md", "content": "${n}\\n"}}</tool_call>`,
+    );
+    // Four write rounds against a two-iteration budget: the loop is cut off
+    // with files already changed — exactly the case the gateway could not see.
+    const events = await collect({ ...request(ws, [...writes, 'Done.']), maxIterations: 2 });
+    const last = events[events.length - 1] as Extract<RunnerEvent, { type: 'turn.completed' }>;
+
+    expect(last.type).toBe('turn.completed');
+    expect(last.hitLimit).toBe(true);
+    expect(last.artifacts).toBeGreaterThan(0);
+    expect(last.toolCalls).toBeGreaterThan(0);
+    expect(last.iterations).toBeGreaterThan(0);
+  });
+
+  it('does not flag a turn that finished by choice', async () => {
+    const ws = workspace();
+    const events = await collect(request(ws, [WRITE_HELLO, 'I created hello.md.']));
+    const last = events[events.length - 1] as Extract<RunnerEvent, { type: 'turn.completed' }>;
+    expect(last.hitLimit).toBe(false);
+    expect(last.toolCalls).toBe(1);
+  });
+
   it('fails a mutation request that completes without changing anything', async () => {
     const ws = workspace();
 
