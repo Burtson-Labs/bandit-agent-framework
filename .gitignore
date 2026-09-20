@@ -87,6 +87,8 @@ apps/bandit-stealth/.vsce
 
 # Build outputs
 dist/
+__pycache__/
+*.py[cod]
 
 # Bandit Stealth Web generated outputs
 apps/bandit-stealth-web/src/**/*.js
