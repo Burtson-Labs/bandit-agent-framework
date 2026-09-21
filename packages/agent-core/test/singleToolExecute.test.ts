@@ -287,3 +287,33 @@ describe('createToolDispatcher — bare MCP name auto-correction', () => {
     expect(result.output).not.toContain('Did you mean');
   });
 });
+
+describe('createToolDispatcher — reads at different ranges are progress', () => {
+  it('does NOT trip on three read_file calls with different offsets', async () => {
+    const tool = buildEditTool('read_file', async () => ({ output: 'lines' }));
+    const reg = new ToolRegistry();
+    reg.register(tool);
+    const { deps, emitted } = makeDeps({ registry: reg, repeatLimit: 3 });
+    const dispatch = createToolDispatcher(deps);
+    await dispatch(tc('read_file', { path: 'a.html', limit: '60' }));
+    await dispatch(tc('read_file', { path: 'a.html', offset: '120', limit: '80' }));
+    const r3 = await dispatch(tc('read_file', { path: 'a.html', offset: '100', limit: '25' }));
+    expect(r3.isError).toBeFalsy();
+    expect(emitted.find((e) => e.type === 'tool_loop:repeat_breaker')).toBeUndefined();
+  });
+
+  it('still trips on the identical read three times, with a read-specific message', async () => {
+    const tool = buildEditTool('read_file', async () => ({ output: 'lines' }));
+    const reg = new ToolRegistry();
+    reg.register(tool);
+    const { deps } = makeDeps({ registry: reg, repeatLimit: 3 });
+    const dispatch = createToolDispatcher(deps);
+    const call = tc('read_file', { path: 'a.html', offset: '100', limit: '25' });
+    await dispatch(call);
+    await dispatch(call);
+    const r3 = await dispatch(call);
+    expect(r3.isError).toBe(true);
+    expect(r3.output).toContain('identical parameters');
+    expect(r3.output).not.toContain('malformed');
+  });
+});
