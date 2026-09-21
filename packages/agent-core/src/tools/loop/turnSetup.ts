@@ -64,6 +64,55 @@ export function resolveTurnGoal(args: ResolveTurnGoalArgs): ResolvedTurnGoal {
         break;
       }
     }
+  } else if (originalGoal) {
+    // A short reply to a question the assistant just asked ("its the rwt
+    // proposal" after "which artifact?") is a CLARIFICATION of the previous
+    // request, not a new goal. Anchoring on the four-word answer alone told
+    // the model to "answer THIS, nothing else" — and it did, abandoning
+    // the actual job (make the artifact look like the original).
+    const clarified = clarifiedGoal(seedMessages);
+    if (clarified) {originalGoal = clarified;}
   }
   return { originalGoal, priorUserPromptCount };
+}
+
+const MAX_CLARIFICATION_WORDS = 12;
+
+/** True for a message that reads as an answer, not an instruction: short,
+ *  and free of the verbs that open a request. */
+export function isShortClarification(text: string): boolean {
+  const t = text.trim();
+  if (!t || t.length > 120) {return false;}
+  if (t.split(/\s+/).length > MAX_CLARIFICATION_WORDS) {return false;}
+  if (/^(please|can you|could you|make|update|fix|add|remove|change|write|create|build|run|show|find|check|look|help|refactor|delete|rename|move|explain|why|how|what|list|open|deploy|publish|test)\b/i.test(t)) {return false;}
+  return true;
+}
+
+/** Did the assistant's last message end by asking the user something? */
+function assistantAskedQuestion(content: string): boolean {
+  const tail = content.trim().slice(-400);
+  return tail.includes('?');
+}
+
+function clarifiedGoal(seedMessages: ReadonlyArray<ToolLoopMessage>): string | null {
+  // Walk back: latest user (the short reply) → the assistant question
+  // right before it → the substantive user request before that.
+  let i = seedMessages.length - 1;
+  while (i >= 0 && !(seedMessages[i].role === 'user' && typeof seedMessages[i].content === 'string' && seedMessages[i].content.trim())) {i--;}
+  if (i < 0) {return null;}
+  const reply = seedMessages[i].content;
+  if (!isShortClarification(reply)) {return null;}
+  let j = i - 1;
+  while (j >= 0 && seedMessages[j].role !== 'assistant') {
+    if (seedMessages[j].role === 'user') {return null;}
+    j--;
+  }
+  if (j < 0 || !assistantAskedQuestion(seedMessages[j].content)) {return null;}
+  for (let k = j - 1; k >= 0; k--) {
+    const m = seedMessages[k];
+    if (m.role === 'user' && typeof m.content === 'string' && m.content.trim() && !isContinuationPrompt(m.content)) {
+      return `${m.content.trim()}\n\n(The user then clarified: "${reply.trim()}")`;
+    }
+  }
+  return null;
 }

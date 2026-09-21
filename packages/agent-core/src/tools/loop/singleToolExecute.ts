@@ -98,7 +98,14 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
       }
       callKey = `${tc.name}::${pathish}::${h.toString(36)}`;
     } else if (pathish) {
-      callKey = `${tc.name}::${pathish}`;
+      // Reads (and any other path-taking tool) key on the RANGE too: three
+      // read_file calls at different offsets on one file are how a model
+      // finds the line it needs, not a loop. Keying on path alone tripped
+      // the breaker on the 3rd read and then blamed "a malformed write".
+      const range = [tc.params.offset, tc.params.limit, tc.params.start_line, tc.params.end_line, tc.params.pages]
+        .map((v) => (v === undefined || v === null ? '' : String(v)))
+        .join(':');
+      callKey = `${tc.name}::${pathish}::${range}`;
     } else {
       callKey = `${tc.name}::${JSON.stringify(tc.params).slice(0, 160)}`;
     }
@@ -111,7 +118,9 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
       emit('tool_loop:repeat_breaker', { name: tc.name, key: callKey });
       return {
         name: tc.name,
-        output: `Loop detected: ${tc.name} has been invoked ${repeatLimit} times in a row against the same target (${pathish ?? 'identical params'}) without progress. This usually means the last write landed malformed — most often an unescaped \`"\` inside the JSON content string truncated the file. STOP retrying. Either (a) produce a final answer that explains the issue to the user, or (b) break the content into smaller edits. Do not call ${tc.name} with these params again.`,
+        output: isEditTool
+          ? `Loop detected: ${tc.name} has been invoked ${repeatLimit} times in a row against the same target (${pathish ?? 'identical params'}) without progress. This usually means the last write landed malformed — most often an unescaped \`"\` inside the JSON content string truncated the file. STOP retrying. Either (a) produce a final answer that explains the issue to the user, or (b) break the content into smaller edits. Do not call ${tc.name} with these params again.`
+          : `Loop detected: ${tc.name} has been invoked ${repeatLimit} times in a row with identical parameters (${pathish ?? 'same params'}). Repeating the same call returns the same result. Use what you already have, change the parameters (a different offset/limit, pattern or path), or answer the user with what is known.`,
         isError: true
       };
     }

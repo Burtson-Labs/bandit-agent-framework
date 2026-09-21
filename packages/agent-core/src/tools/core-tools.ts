@@ -296,6 +296,11 @@ const writeFileTool: AgentTool = {
         }
       }
       await ctx.writeFile(absPath, content);
+      // The model authored every byte it just wrote, so a follow-up
+      // apply_edit/replace_range on this file is not a blind edit. Without
+      // this, "write the HTML, then add the logo" was rejected with "you
+      // have not read this file" and cost a read + a loop-breaker trip.
+      ctx.markFileRead?.(absPath);
       const lineCount = content.split('\n').length;
       // Same "don't restate" footer as apply_edit — same Qwen failure
       // mode applies here when the model overwrites an entire file.

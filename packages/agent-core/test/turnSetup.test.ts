@@ -105,3 +105,42 @@ describe('resolveTurnGoal — continuation-prompt walkback', () => {
     expect(result.originalGoal).toBe('actually do this thing instead');
   });
 });
+
+describe('resolveTurnGoal — a short answer to the assistant\'s question clarifies the previous goal', () => {
+  // The 2026-09-19 RWT session: "update the artifact to look like the
+  // original" → assistant asks which artifact → "its the rwt proposal".
+  // The anchor then said "CURRENT GOAL: its the rwt proposal — answer THIS,
+  // nothing else", and the model did exactly that.
+  it('merges the clarification into the request it answers', () => {
+    const result = resolveTurnGoal({
+      seedMessages: [
+        u('Can you take a look at the last version of the pdf and update the artifact to look more like the original'),
+        a('I need a little context. Which artifact — the URL, or the file path?'),
+        u('its the rwt proposal')
+      ]
+    });
+    expect(result.originalGoal).toContain('update the artifact to look more like the original');
+    expect(result.originalGoal).toContain('(The user then clarified: "its the rwt proposal")');
+  });
+
+  it('keeps a short message as the goal when the assistant did not ask anything', () => {
+    const result = resolveTurnGoal({
+      seedMessages: [u('first request'), a('Done.'), u('now the logo')]
+    });
+    expect(result.originalGoal).toBe('now the logo');
+  });
+
+  it('keeps a short but imperative message as its own goal', () => {
+    const result = resolveTurnGoal({
+      seedMessages: [u('first request'), a('Which file?'), u('fix the header')]
+    });
+    expect(result.originalGoal).toBe('fix the header');
+  });
+
+  it('still walks back over continuation prompts', () => {
+    const result = resolveTurnGoal({
+      seedMessages: [u('fix the remaining TS errors'), a('Progress so far…'), u('keep going')]
+    });
+    expect(result.originalGoal).toBe('fix the remaining TS errors');
+  });
+});
