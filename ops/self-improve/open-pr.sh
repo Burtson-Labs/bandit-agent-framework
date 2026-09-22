@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Self-improve PR opener (Rung 3). Takes proposals.json (from propose.ts),
 # materializes the proposed files on a fresh `self-improve/<date>` branch,
-# commits, pushes, and opens a PR against main. The PR — not a merge — is
-# this system's terminal output: nothing here ever pushes to main.
+# commits and pushes it for review. By default it does NOT open a PR — the
+# branch's compare link is the output (SELF_IMPROVE_OPEN_PR=1 restores the
+# PR). Nothing here ever pushes to main.
 #
 # Trust boundaries enforced HERE, independently of propose.ts (neither side
 # trusts the other):
@@ -145,11 +146,25 @@ for (const p of proposals) {
   echo "Scope is hard-allowlisted (new eval fixtures + \`.bandit/lessons.md\` only) and this loop only ever opens PRs — it cannot push to main. Merge only if the Eval gate passes — the gate is the reviewer of record."
 } > "$BODY"
 
-PR_URL="$(gh pr create --base main --head "$BRANCH" \
-  --title "self-improve: ${COUNT} proposal(s) — ${DATE_UTC}" \
-  --body-file "$BODY")"
+# Branch-only by default (2026-09-22): the first proposals were not what the
+# job was meant to produce, so it no longer opens pull requests. The branch is
+# pushed for review at the compare URL below; the morning brief / notifier
+# carry that link. Set SELF_IMPROVE_OPEN_PR=1 to open a PR again once the
+# proposals earn that trust.
+REVIEW_URL="https://github.com/Burtson-Labs/bandit-agent-framework/compare/main...${BRANCH}?expand=1"
+if [[ "${SELF_IMPROVE_OPEN_PR:-0}" == "1" ]]; then
+  REVIEW_URL="$(gh pr create --base main --head "$BRANCH" \
+    --title "self-improve: ${COUNT} proposal(s) — ${DATE_UTC}" \
+    --body-file "$BODY")"
+  echo "open-pr: ${REVIEW_URL}"
+else
+  echo "open-pr: pushed ${BRANCH} for review (no PR): ${REVIEW_URL}"
+fi
+# Announce the branch by email when the notifier is built and a key is present.
+if [[ -n "${BANDIT_API_KEY:-}" && -f "apps/bandit-cli/dist/__ops__/pr-notify.js" ]]; then
+  node apps/bandit-cli/dist/__ops__/pr-notify.js --pr "$REVIEW_URL" --proposals "$PROPOSALS" || echo "open-pr: notify failed (non-fatal)"
+fi
 rm -f "$BODY"
-echo "open-pr: ${PR_URL}"
 
 # Leave local checkouts where they started (harmless no-op in throwaway pods).
 if [[ "$START_REF" != "HEAD" && "$START_REF" != "$BRANCH" ]]; then

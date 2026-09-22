@@ -95,7 +95,7 @@ export function renderPrHtml(prUrl: string, proposals: Proposal[]): string {
 
   return (
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:640px;margin:0 auto;color:#24292f;">` +
-    `<h1 style="font-size:18px;margin:0 0 8px;">Bandit self-improve opened a pull request</h1>` +
+    `<h1 style="font-size:18px;margin:0 0 8px;">Bandit self-improve has proposals to review</h1>` +
     `<p style="margin:0 0 20px;font-size:15px;"><a href="${esc(prUrl)}" style="color:#0969da;">${esc(prUrl)}</a></p>` +
     (proposals.length > 0
       ? `<h2 style="font-size:14px;color:#57606a;margin:0 0 12px;">${proposals.length} proposal(s)</h2>${rows}`
@@ -161,7 +161,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         token,
         keyOrUrl: published.url,
         to,
-        message: `Bandit self-improve opened ${args.pr}`
+        message: `Bandit self-improve: proposals to review at ${args.pr}`
       });
       if (result?.emailed) {
         emailed.push(to);

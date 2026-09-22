@@ -23,7 +23,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { publishArtifact, emailShareLink } from '@burtson-labs/host-kit';
+import { publishArtifact, emailShareLink, listArtifacts, deleteArtifact } from '@burtson-labs/host-kit';
 import { loadConfigFiles, resolveConfig } from '../config';
 import { compareToBaseline, type Baseline, type BaselineComparison } from './baselineCompare';
 import { renderBriefHtml, summarizeBrief, type BriefInput } from './briefHtml';
@@ -77,6 +77,43 @@ export interface BriefDeps {
     message: string;
   }) => Promise<{ url: string; emailed: boolean }>;
   log?: (line: string) => void;
+  /** Owner's artifacts, for retention. Optional so tests and the dry run
+   *  need not provide it. */
+  list?: (opts: { s3ApiBaseUrl: string; authBaseUrl: string; token: string }) => Promise<
+    Array<{ key: string; lastModified: string }>
+  >;
+  remove?: (opts: {
+    s3ApiBaseUrl: string;
+    authBaseUrl: string;
+    token: string;
+    keyOrUrl: string;
+  }) => Promise<void>;
+}
+
+/** Default: keep two weeks of briefs. Every nightly run publishes one and
+ *  emails a link; without pruning they accumulate forever. */
+export const BRIEF_RETENTION_DAYS = 14;
+
+/**
+ * Which published briefs are past retention. Pure: the nightly job and the
+ * self-improve notice both publish HTML under a recognizable prefix, and only
+ * those are ever considered — a user's own artifacts are never touched.
+ */
+export function selectExpiredBriefs(
+  items: ReadonlyArray<{ key: string; lastModified: string }>,
+  now: Date,
+  retentionDays: number = BRIEF_RETENTION_DAYS,
+): string[] {
+  const cutoff = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
+  return items
+    .filter((it) => {
+      const name = it.key.split('/').pop() ?? '';
+      // Published keys are <owner>/<32-hex>-<filename>; match on the filename part.
+      if (!/^(?:[0-9a-f]{8,}-)?(banditbench-|self-improve-pr)[^/]*\.html$/i.test(name)) return false;
+      const t = Date.parse(it.lastModified);
+      return Number.isFinite(t) && t < cutoff;
+    })
+    .map((it) => it.key);
 }
 
 export interface BriefResult {
@@ -173,6 +210,20 @@ export async function runBrief(args: BriefArgs, deps: BriefDeps, env: {
       contentType: 'text/html'
     });
     url = artifact.url;
+    // Retention: prune the briefs older than the window, best effort.
+    if (deps.list && deps.remove) {
+      try {
+        const days = Number(process.env.BRIEF_RETENTION_DAYS) || BRIEF_RETENTION_DAYS;
+        const expired = selectExpiredBriefs(await deps.list(env), new Date(), days);
+        for (const key of expired) {
+          await deps.remove({ ...env, keyOrUrl: key });
+          log(`pruned brief older than ${days}d: ${key.split('/').pop()}`);
+        }
+      } catch (err) {
+        log(`retention skipped: ${err instanceof Error ? err.message : String(err)}`);
+        notes.push('retention: could not prune old briefs');
+      }
+    }
     log(`published: ${url}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -235,6 +286,8 @@ export async function main(): Promise<void> {
   const result = await runBrief(args, {
     publish: (opts) => publishArtifact(opts),
     email: (opts) => emailShareLink(opts),
+    list: (opts) => listArtifacts(opts),
+    remove: (opts) => deleteArtifact(opts),
     log
   }, { token: token ?? '', s3ApiBaseUrl, authBaseUrl });
 

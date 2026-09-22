@@ -494,3 +494,24 @@ describe('buildEvalJson', () => {
     expect(JSON.parse(JSON.stringify(json))).toEqual(json);
   });
 });
+
+describe('selectExpiredBriefs — the emailed briefs must not grow forever', () => {
+  it('picks only brief/self-improve HTML artifacts older than the window', async () => {
+    const { selectExpiredBriefs } = await import('../src/__eval__/briefRun');
+    const now = new Date('2026-09-22T09:00:00Z');
+    const day = (n: number) => new Date(now.getTime() - n * 86400000).toISOString();
+    const items = [
+      { key: 'owner-1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-banditbench-red-2026-09-01.html', lastModified: day(21) },
+      { key: 'owner-1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-banditbench-green-2026-09-20.html', lastModified: day(2) },
+      { key: 'owner-1/cccccccccccccccccccccccccccccccc-self-improve-pr.html', lastModified: day(30) },
+      { key: 'owner-1/dddddddddddddddddddddddddddddddd-RWT-Proposal-Draft.pdf', lastModified: day(90) },
+      { key: 'owner-1/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-my-report.html', lastModified: day(90) },
+      { key: 'owner-1/ffffffffffffffffffffffffffffffff-banditbench-brief-2026-08-01.html', lastModified: 'not a date' },
+    ];
+    expect(selectExpiredBriefs(items, now)).toEqual([
+      'owner-1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-banditbench-red-2026-09-01.html',
+      'owner-1/cccccccccccccccccccccccccccccccc-self-improve-pr.html',
+    ]);
+    expect(selectExpiredBriefs(items, now, 60)).toEqual([]);
+  });
+});

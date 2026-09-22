@@ -15,8 +15,11 @@ The whole design is "narrow hands, real review":
   `.bandit/lessons.md`. Nothing else — no source, no prompts, no CI, no
   configs. Both `propose.ts` (at generation) and `open-pr.sh` (at write time)
   enforce the allowlist independently; neither trusts the other.
-- **PRs only.** `open-pr.sh` commits to a fresh `self-improve/<date>` branch
-  and opens a PR. There is no code path that pushes to `main`.
+- **Branches only (since 2026-09-22).** `open-pr.sh` commits to a fresh
+  `self-improve/<date>` branch and pushes it; the compare link is what gets
+  reviewed (and emailed by the notifier when a key is present). It opens a
+  PR only with `SELF_IMPROVE_OPEN_PR=1`, once the proposals have earned that.
+  There is no code path that pushes to `main`.
 - **The eval gate must pass.** Every PR body carries the standing rule:
   *"Merge only if the Eval gate passes — the gate is the reviewer of record."*
 - **Mark merges.** Nothing lands without a human clicking merge.
