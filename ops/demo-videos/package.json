@@ -2,7 +2,7 @@
   "name": "@burtson-labs/demo-videos",
   "version": "0.1.0",
   "private": true,
-  "description": "Playwright-recorded Bandit demo videos with Bandit TTS narration, a ducked music bed, and burned-in subtitles. Output goes to ~/Desktop/bandit-demos only — nothing is published.",
+  "description": "Playwright-recorded Bandit demo videos with Bandit TTS narration, a ducked music bed, and burned-in subtitles. Output goes to ~/Desktop/bandit-demos only \u2014 nothing is published.",
   "type": "module",
   "scripts": {
     "demo": "tsx src/run.ts",
@@ -10,7 +10,8 @@
     "record": "tsx src/record.ts",
     "assemble": "bash assemble.sh",
     "fetch-music": "bash scripts/fetch-music.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fetch-voice": "bash scripts/fetch-voice.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
@@ -18,6 +19,7 @@
     "ffmpeg-static": "^5.3.0",
     "ffprobe-static": "^3.1.0",
     "playwright": "^1.49.0",
+    "sherpa-onnx-node": "1.13.8",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }

@@ -36,18 +36,37 @@ recorded timestamp, so voice, subtitles, and screen always agree.
 
 ## TTS
 
-Narration uses Bandit cloud TTS — the same endpoint the Stealth extension
-uses (`POST {apiUrl}/api/stealth/tts` with `{ Text, ModelName }`, see
-`apps/bandit-stealth/src/voiceProviders.ts`) — authenticated with the
-`bandit.apiKey` from `~/.bandit/config.json` (or `BANDIT_API_KEY` /
-`BANDIT_API_URL` env). Voices: `en_US-brian-premium` (default) and
-`en_US-jessica-premium`; set per scene (`voice:`) or per run
-(`BANDIT_TTS_VOICE`).
+Narration is **Kokoro 82M, running locally on CPU** — default voice
+`af_sarah`. Apache-2.0 weights and Apache-2.0 runtime (sherpa-onnx), no GPU,
+no network, and **no cost per line**, which matters because a scene gets
+re-cut a dozen times while its timing is tuned. A 9-line scene narrates in
+about 18 seconds.
 
-If the endpoint or key is unavailable the pipeline falls back to macOS
-`say` (AIFF → m4a) so you still get a reviewable cut — the engine used per
-line is recorded in `audio/durations.json`. A `macos-say` cut is a draft:
-re-render with Brian/Jessica before showing anyone.
+```bash
+pnpm fetch-voice      # ~326 MB, once; skipped if voice-lab already has it
+pnpm narrate <scene>
+```
+
+Pick a voice per scene (`voice: 'af_sarah'`) or per run (`KOKORO_VOICE`).
+The bundle ships 54 voices, 28 of them English; names are read from the
+model's own metadata, so swapping `KOKORO_BUNDLE` changes the gallery
+without a code edit. An unknown name fails with the list of what is
+available rather than silently narrating in someone else's voice.
+
+Two other engines remain, chosen with `DEMO_TTS_ENGINE=kokoro|bandit|say`:
+
+- **`bandit`** — Bandit cloud TTS, the endpoint the Stealth extension uses
+  (`POST {apiUrl}/api/stealth/tts` with `{ Text, ModelName }`, see
+  `apps/bandit-stealth/src/voiceProviders.ts`), authenticated with the `bai_`
+  key from `~/.bandit/config.json`. Voices `en_US-brian-premium` and
+  `en_US-jessica-premium`. Costs quota per line.
+- **`say`** — macOS `say`, the last resort so a cut still exists with no
+  model and no key. A `macos-say` cut is a draft.
+
+Whichever ran is recorded per line in `audio/durations.json`. Setting
+`DEMO_TTS_ENGINE` explicitly is honoured even when that engine cannot run, so
+a misconfigured container fails loudly instead of quietly narrating in the
+wrong voice.
 
 ## Music bed
 

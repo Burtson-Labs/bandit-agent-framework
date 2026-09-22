@@ -4,3 +4,6 @@ assets/music-bed.mp3
 auth.json
 *.storage-state.json
 *.log
+
+# Kokoro voice bundle — 326MB, fetched with `pnpm fetch-voice`.
+models/

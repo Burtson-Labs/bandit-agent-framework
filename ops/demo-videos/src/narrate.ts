@@ -1,7 +1,11 @@
 /**
  * Turn a scene's narration lines into per-line audio files.
  *
- * Primary engine: Bandit cloud TTS — the exact endpoint + payload the
+ * Primary engine: Kokoro 82M, local and free (see kokoro.ts) — narration is
+ * re-cut constantly while a scene is being tuned, and every re-cut used to
+ * spend TTS quota. Default voice `af_sarah`.
+ *
+ * Second engine: Bandit cloud TTS — the exact endpoint + payload the
  * Stealth extension uses (apps/bandit-stealth/src/voiceProviders.ts):
  * POST {apiUrl}/api/stealth/tts  { Text, ModelName }  → audio/mpeg bytes,
  * authenticated with the bai_ key from ~/.bandit/config.json.
@@ -21,9 +25,16 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadBanditCreds, ttsEndpoint } from './config.js';
 import { ffmpegBin, probeDurationMs } from './ff.js';
+import {
+  DEFAULT_KOKORO_VOICE,
+  kokoroAvailable,
+  kokoroDescribe,
+  kokoroSpeak,
+  kokoroWriteWav,
+} from './kokoro.js';
 import { resolveScene, type ResolvedScene, type Scene } from './types.js';
 
-export type NarrationEngine = 'bandit-tts' | 'macos-say';
+export type NarrationEngine = 'kokoro' | 'bandit-tts' | 'macos-say';
 
 export interface NarrationLine {
   index: number;
@@ -35,6 +46,27 @@ export interface NarrationLine {
 }
 
 export const DEFAULT_VOICE = 'en_US-brian-premium';
+
+/** Kokoro names voices `<lang><gender>_<name>`; Bandit's are `en_US-…`. */
+function looksLikeKokoroVoice(v: string): boolean {
+  return /^[abefhijpz][fm]_/.test(v);
+}
+
+/**
+ * Which engine narrates. `DEMO_TTS_ENGINE` forces one (and is honoured even
+ * when it cannot run, so a container misconfiguration fails loudly instead of
+ * quietly narrating in the wrong voice). Otherwise: Kokoro if a bundle is
+ * installed, else cloud TTS if there is a key, else macOS `say`.
+ */
+function chooseEngine(hasKey: boolean): NarrationEngine {
+  const forced = process.env.DEMO_TTS_ENGINE;
+  if (forced === 'kokoro') return 'kokoro';
+  if (forced === 'bandit') return 'bandit-tts';
+  if (forced === 'say') return 'macos-say';
+  if (forced) throw new Error(`DEMO_TTS_ENGINE must be kokoro|bandit|say, got "${forced}"`);
+  if (kokoroAvailable()) return 'kokoro';
+  return hasKey ? 'bandit-tts' : 'macos-say';
+}
 
 async function banditTts(url: string, apiKey: string, text: string, voice: string): Promise<Uint8Array> {
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -76,28 +108,63 @@ export async function narrateScene(scene: ResolvedScene, outDir: string): Promis
   mkdirSync(audioDir, { recursive: true });
 
   const creds = loadBanditCreds();
-  const voice = process.env.BANDIT_TTS_VOICE ?? scene.voice ?? DEFAULT_VOICE;
   const url = ttsEndpoint(creds.apiUrl);
+  let engineChoice = chooseEngine(Boolean(creds.apiKey));
+
+  const sceneVoice = scene.voice;
+  const kokoroVoice =
+    process.env.KOKORO_VOICE ??
+    (sceneVoice && looksLikeKokoroVoice(sceneVoice) ? sceneVoice : undefined) ??
+    DEFAULT_KOKORO_VOICE;
+  const banditVoice =
+    process.env.BANDIT_TTS_VOICE ??
+    (sceneVoice && !looksLikeKokoroVoice(sceneVoice) ? sceneVoice : undefined) ??
+    DEFAULT_VOICE;
+
+  if (engineChoice === 'kokoro') console.log(`  ${kokoroDescribe()} — voice ${kokoroVoice}`);
+  else if (engineChoice === 'bandit-tts') console.log(`  Bandit cloud TTS — voice ${banditVoice}`);
+  else console.warn('  No Kokoro bundle and no Bandit API key — narrating with macOS `say`.');
+
   let banditAvailable = Boolean(creds.apiKey);
-  if (!banditAvailable) {
-    console.warn('No Bandit API key (env or ~/.bandit/config.json) — narrating with macOS `say`.');
-  }
 
   const lines: NarrationLine[] = [];
   for (let i = 0; i < scene.steps.length; i++) {
     const text = scene.steps[i].narration.trim();
     const base = `line-${String(i + 1).padStart(2, '0')}`;
     let file: string | undefined;
-    let engine: NarrationEngine = 'bandit-tts';
+    let engine: NarrationEngine = engineChoice;
 
-    if (banditAvailable) {
+    if (engineChoice === 'kokoro') {
       try {
-        const bytes = await banditTts(url, creds.apiKey!, text, voice);
+        const speech = await kokoroSpeak(text, kokoroVoice);
+        const wav = `${base}.wav`;
+        kokoroWriteWav(join(audioDir, wav), speech);
+        file = `${base}.mp3`;
+        execFileSync(
+          ffmpegBin(),
+          ['-y', '-v', 'error', '-i', join(audioDir, wav), '-c:a', 'libmp3lame', '-b:a', '160k', join(audioDir, file)],
+          { stdio: 'pipe' },
+        );
+        rmSync(join(audioDir, wav), { force: true });
+      } catch (err) {
+        // A bad voice name is a mistake to surface, not to paper over with a
+        // different voice halfway through a scene.
+        if (err instanceof Error && /is not in this bundle/.test(err.message)) throw err;
+        console.warn(`${err instanceof Error ? err.message : err} — falling back for the rest of this scene.`);
+        engineChoice = banditAvailable ? 'bandit-tts' : 'macos-say';
+        engine = engineChoice;
+      }
+    }
+
+    if (!file && engineChoice === 'bandit-tts' && banditAvailable) {
+      try {
+        const bytes = await banditTts(url, creds.apiKey!, text, banditVoice);
         file = `${base}.mp3`;
         writeFileSync(join(audioDir, file), bytes);
       } catch (err) {
         console.warn(`${err instanceof Error ? err.message : err} — falling back to macOS \`say\` for the rest of this scene.`);
         banditAvailable = false;
+        engineChoice = 'macos-say';
       }
     }
     if (!file) {

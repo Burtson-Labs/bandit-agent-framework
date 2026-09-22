@@ -26,7 +26,11 @@ export interface SceneContext {
 export interface Scene {
   name: string;
   description?: string;
-  /** Bandit TTS voice id — en_US-brian-premium (default) or en_US-jessica-premium. */
+  /**
+   * Voice id. A Kokoro name (`af_sarah` — the default, local and free) or a
+   * Bandit cloud voice (`en_US-brian-premium`, `en_US-jessica-premium`); the
+   * shape of the name picks the engine.
+   */
   voice?: string;
   viewport?: { width: number; height: number };
   /** Either a fixed step list, or a builder that can adapt to auth state. */
