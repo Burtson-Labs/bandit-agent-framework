@@ -11,7 +11,8 @@
     "assemble": "bash assemble.sh",
     "fetch-music": "bash scripts/fetch-music.sh",
     "typecheck": "tsc --noEmit",
-    "fetch-voice": "bash scripts/fetch-voice.sh"
+    "fetch-voice": "bash scripts/fetch-voice.sh",
+    "ffmpeg": "node -e \"require('child_process').execFileSync(process.execPath,[require.resolve('ffmpeg-static/install.js')],{stdio:'inherit'})\""
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
@@ -22,5 +23,11 @@
     "sherpa-onnx-node": "1.13.8",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "ffmpeg-static",
+      "ffprobe-static"
+    ]
   }
 }

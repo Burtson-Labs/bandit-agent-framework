@@ -84,6 +84,14 @@ ffmpeg note: assembly needs the `subtitles` (libass) filter and probes for
 it — some system builds (including slim Homebrew ones) ship without it, in
 which case the bundled `ffmpeg-static` devDependency is used instead.
 
+If assembly reports "no subtitles-capable ffmpeg found", `ffmpeg-static`
+installed its package but not its binary: pnpm v10 blocks dependency build
+scripts unless approved by name, and that 45 MB binary arrives in one.
+`package.json` lists it under `pnpm.onlyBuiltDependencies`, so a fresh install
+is fine — in an existing checkout run `pnpm ffmpeg` to fetch it. (Homebrew's
+build is not a guaranteed substitute: the one on this machine has no
+`subtitles` filter, which is why the probe exists at all.)
+
 ## Adding a scene
 
 Drop `scenes/<name>.ts` default-exporting a `Scene` (see `src/types.ts`):
