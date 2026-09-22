@@ -77,7 +77,10 @@ jobs:
     name: Eval gate (BanditBench)
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 27 fixtures x 3 runs against the production provider take ~50 minutes
+    # sequentially; the first armed run (2026-09-22) was cancelled by the old
+    # 30-minute limit at fixture 17 with 16 passing.
+    timeout-minutes: 90
     env:
       BANDIT_API_KEY: ${{ secrets.BANDIT_EVAL_API_KEY }}
     steps:
