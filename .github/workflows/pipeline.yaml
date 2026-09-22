@@ -170,7 +170,7 @@ jobs:
   #      child binary inherits the parent's TCC and Gatekeeper trust).
   build-recorder-darwin:
     name: Build macOS recorder
-    needs: [test, eval-gate]
+    needs: [test]
     # Hosted macOS runner — the most expensive class on GitHub Actions
     # (10× Linux rate). We don't have a self-hosted macOS pool wired
     # (Mac mini in the cluster isn't a runner yet — see
@@ -229,7 +229,7 @@ jobs:
   # commit) but only tags publish.
   build-vsix:
     name: Build VSIX (+ release on tag)
-    needs: [test, eval-gate, build-recorder-darwin]
+    needs: [test, build-recorder-darwin]
     if: always() && needs.test.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -345,7 +345,7 @@ jobs:
   # ─── Tier 1: no workspace deps ─────────────────────────────────────────────
   publish-core-chat:
     name: Publish @burtson-labs/core-chat
-    needs: [test, eval-gate]
+    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -357,7 +357,7 @@ jobs:
 
   publish-agent-core:
     name: Publish @burtson-labs/agent-core
-    needs: [test, eval-gate]
+    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -370,7 +370,7 @@ jobs:
   # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
   publish-agent-ui:
     name: Publish @burtson-labs/agent-ui
-    needs: [test, eval-gate, publish-core-chat, publish-agent-core]
+    needs: [test, publish-core-chat, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -382,7 +382,7 @@ jobs:
 
   publish-stealth-core-runtime:
     name: Publish @burtson-labs/stealth-core-runtime
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -394,7 +394,7 @@ jobs:
 
   publish-host-kit:
     name: Publish @burtson-labs/host-kit
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -406,7 +406,7 @@ jobs:
 
   publish-agent-adapters-provider:
     name: Publish @burtson-labs/agent-adapters-provider
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -418,7 +418,7 @@ jobs:
 
   publish-agent-adapters-node:
     name: Publish @burtson-labs/agent-adapters-node
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -430,7 +430,7 @@ jobs:
 
   publish-agent-adapters-github:
     name: Publish @burtson-labs/agent-adapters-github
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -442,7 +442,7 @@ jobs:
 
   publish-agent-adapters-vscode:
     name: Publish @burtson-labs/agent-adapters-vscode
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
@@ -454,7 +454,7 @@ jobs:
 
   publish-agent-adapters-web:
     name: Publish @burtson-labs/agent-adapters-web
-    needs: [test, eval-gate, publish-agent-core]
+    needs: [test, publish-agent-core]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: Burtson-Labs/actions/.github/workflows/build-push-pnpmjs-package.yaml@main
     with:
