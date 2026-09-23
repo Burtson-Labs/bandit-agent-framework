@@ -1,6 +1,6 @@
 # Self-improve PR loop (Rung 3)
 
-The nightly bench (`ops/nightly-bench/`) measures. This loop **proposes**: it
+The eval bench (`pnpm --filter @burtson-labs/bandit-stealth-cli eval`, BanditBench) measures; pass its report or a tee'd log to `propose.ts`. This loop **proposes**: it
 mines the bench output and the agent's own turn logs for recurring failure
 patterns and turns them into a pull request against `main`. The PR is the
 system's terminal output — Bandit proposing changes to Bandit, with a human

@@ -19,6 +19,7 @@
     "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
   },
   "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/core-chat#readme",
+  "funding": "https://afsp.org/chapter/missouri",
   "files": [
     "dist"
   ],

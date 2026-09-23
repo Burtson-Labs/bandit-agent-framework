@@ -6,6 +6,7 @@
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
+  "funding": "https://afsp.org/chapter/missouri",
   "bugs": {
     "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues",
     "email": "team@burtson.ai"

@@ -18,6 +18,7 @@
     "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
   },
   "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/stealth-core-runtime#readme",
+  "funding": "https://afsp.org/chapter/missouri",
   "files": [
     "dist"
   ],

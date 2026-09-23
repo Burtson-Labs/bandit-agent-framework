@@ -16,6 +16,7 @@
     "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues"
   },
   "homepage": "https://github.com/Burtson-Labs/bandit-agent-framework#readme",
+  "funding": "https://afsp.org/chapter/missouri",
   "packageManager": "pnpm@9.0.0",
   "pnpm": {
     "overrides": {

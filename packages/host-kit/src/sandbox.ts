@@ -13,7 +13,7 @@
  *
  * The interface is deliberately tiny and backend-agnostic. Today only the local
  * backend exists (no isolation — current behavior). The microVM backend targets
- * the `anton` control plane (Firecracker microVMs on gpu-node), but anton's
+ * the `anton` control plane (Firecracker microVMs), but anton's
  * current API deploys web apps (Caddy rootfs + bundle→serve) and does NOT yet
  * expose command-exec-with-output — see ANTON_EXEC_CONTRACT below for exactly
  * what it must add. Until then, selecting the anton backend fails loudly rather

@@ -17,6 +17,7 @@
     "developer-tools"
   ],
   "homepage": "https://burtson.ai",
+  "funding": "https://afsp.org/chapter/missouri",
   "bugs": {
     "url": "https://github.com/Burtson-Labs/bandit-agent-framework/issues",
     "email": "team@burtson.ai"

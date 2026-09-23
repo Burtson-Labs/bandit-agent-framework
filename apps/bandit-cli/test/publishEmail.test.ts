@@ -31,7 +31,7 @@ describe('findForbidden', () => {
 
   it('matches inside words so a hyphenated or possessive mention still trips', () => {
     expect(findForbidden("initech's repo", ['initech'])).toHaveLength(1);
-    expect(findForbidden('initech', ['initech'])).toHaveLength(1);
+    expect(findForbidden('internal-initech-tooling', ['initech'])).toHaveLength(1);
   });
 
   it('is a no-op when no patterns are configured', () => {
