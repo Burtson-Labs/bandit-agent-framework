@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## Unreleased
+
+- **Gemma 4 e4b and 12b use native tool calls in Ollama.** Both models now get tools through Ollama's tool channel instead of the text protocol, which finished the same edit task more often in testing (e4b 7/7 vs 5/6, 12b 5/5 vs 2/5). Gemma 4 e2b stays on text.
+- **A wrong tool name points at the right tool.** When a model calls a tool Bandit doesn't have, such as `edit_file`, the error names the matching tool (`apply_edit`) or the closest match instead of only saying the tool is unknown.
+
 ## 1.7.449
 
 - **Approval cards can't answer twice.** A double click or a shortcut followed by Esc sends one decision, and a request you already answered doesn't come back when the extension re-sends it after a reconnect. The choices read as buttons to screen readers, and the deny-notes box has a label.
