@@ -879,11 +879,11 @@ function ChatPanel({ messages, onSend }) {
 </tr>
 <tr>
 <td><code>PermissionCard</code></td>
-<td>Inline allow/deny prompt for write-tool execution. Pass <code>status</code> to let the host own the decision state (<code>pending</code>, <code>submitting</code>, <code>resolved</code>, <code>error</code>, <code>expired</code>); a request never reports a decision twice</td>
+<td>Inline allow/deny prompt for write-tool execution. Pass <code>status</code> to let the host own the decision state (<code>pending</code>, <code>submitting</code>, <code>resolved</code>, <code>error</code>, <code>expired</code>); a request never reports a decision twice. Focuses itself while pending (without scrolling the page); <code>autoFocus={false}</code> opts out</td>
 </tr>
 <tr>
 <td><code>QuestionCard</code></td>
-<td><code>ask_user</code> questions: radio options, typed answers, tabs plus a review step for several questions. <code>toUserInputResponse</code> builds the host’s <code>userInputResponse</code> message</td>
+<td><code>ask_user</code> questions: radio options, typed answers, tabs plus a review step for several questions. <code>toUserInputResponse</code> builds the host’s <code>userInputResponse</code> message. Focuses itself on mount without scrolling the page; <code>autoFocus={false}</code> opts out (e.g. a demo below the fold)</td>
 </tr>
 <tr>
 <td><code>TaskList</code></td>

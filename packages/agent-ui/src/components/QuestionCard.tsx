@@ -34,6 +34,12 @@ export interface QuestionCardProps {
   onSubmit: (id: string, answers: Record<string, string>, cancelled?: boolean) => void;
   /** Heading for the card. */
   title?: string;
+  /**
+   * Focus the card when it mounts so Enter and Esc work without a click
+   * (default `true`). The focus never scrolls the page. Pass `false` where
+   * the card is not the user's current task, e.g. a demo further down a page.
+   */
+  autoFocus?: boolean;
 }
 
 /** The `userInputResponse` message for the extension host protocol. */
@@ -67,7 +73,8 @@ export const QuestionCard = ({
   id,
   questions,
   onSubmit,
-  title = "Bandit needs your input"
+  title = "Bandit needs your input",
+  autoFocus = true
 }: QuestionCardProps): JSX.Element => {
   const uid = useId();
   const multi = questions.length > 1;
@@ -109,9 +116,11 @@ export const QuestionCard = ({
   const next = (): void => setActiveTab((t) => Math.min(submitTab, t + 1));
 
   // Auto-focus so Enter/Esc work without clicking first (matches the
-  // permission card's muscle memory).
+  // permission card's muscle memory). preventScroll: a card mounting below
+  // the fold must not drag the host page to it.
   useEffect(() => {
-    cardRef.current?.focus();
+    if (autoFocus) {cardRef.current?.focus({ preventScroll: true });}
+    // Mount only: a later prop change must not steal focus back.
   }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {

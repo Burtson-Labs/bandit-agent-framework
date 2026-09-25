@@ -90,6 +90,11 @@ export interface PermissionCardProps {
    * retry, `expired` when the agent is no longer waiting.
    */
   status?: PermissionCardStatus;
+  /**
+   * Focus the card while it is pending so the 1/2/3 shortcuts work without a
+   * click (default `true`). The focus never scrolls the page.
+   */
+  autoFocus?: boolean;
 }
 
 export type PermissionCardStatus =
@@ -124,7 +129,7 @@ const CHOICE_LABELS: Record<PermissionChoice, { label: string; hint: string; key
   deny: { label: "Deny", hint: "Abort the tool call", key: "4" }
 };
 
-export const PermissionCard = ({ payload, onChoice, status }: PermissionCardProps): JSX.Element => {
+export const PermissionCard = ({ payload, onChoice, status, autoFocus = true }: PermissionCardProps): JSX.Element => {
   const [localResolved, setLocalResolved] = useState<{ choice: PermissionChoice; notes?: string } | null>(null);
   const [notesDraft, setNotesDraft] = useState<string>("");
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -156,8 +161,10 @@ export const PermissionCard = ({ payload, onChoice, status }: PermissionCardProp
   // Auto-focus the card so the numbered keyboard shortcuts work without
   // the user having to click first. Matches Claude's "press 1/2/3 to
   // pick, Esc to cancel" muscle memory out of the box.
+  // preventScroll: a card arriving below the fold must not scroll the host.
   useEffect(() => {
-    if (view.state === "pending") {cardRef.current?.focus();}
+    if (autoFocus && view.state === "pending") {cardRef.current?.focus({ preventScroll: true });}
+    // autoFocus is read, not tracked: toggling it must not refocus the card.
   }, [view.state, payload.id]);
 
   const pick = (choice: PermissionChoice, notes?: string): void => {

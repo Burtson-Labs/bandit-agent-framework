@@ -534,7 +534,7 @@ const writeTextToClipboard = async (text: string): Promise<void> => {
   textarea.style.position = "fixed";
   textarea.style.opacity = "0";
   document.body.appendChild(textarea);
-  textarea.focus();
+  textarea.focus({ preventScroll: true });
   textarea.select();
   try {
     document.execCommand("copy");

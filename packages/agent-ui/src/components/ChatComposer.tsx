@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
   type ChangeEvent,
@@ -234,6 +235,11 @@ export const ChatComposer = ({
   const [skillQuery, setSkillQuery] = useState("");
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillIndex, setSkillIndex] = useState(0);
+  // Focus the skill filter when the picker opens, without scrolling the host
+  // page (the autoFocus attribute scrolls). Stable, so it runs on mount only.
+  const focusSkillFilter = useCallback((el: HTMLInputElement | null): void => {
+    el?.focus({ preventScroll: true });
+  }, []);
   // Slash-command autocomplete: active when value starts with `/` and the
   // user hasn't typed a space yet (i.e. we're still picking the command).
   const [slashIndex, setSlashIndex] = useState(0);
@@ -809,8 +815,8 @@ export const ChatComposer = ({
                   aria-label="Skill picker"
                 >
                   <input
+                    ref={focusSkillFilter}
                     type="text"
-                    autoFocus
                     value={skillQuery}
                     onChange={(e) => setSkillQuery(e.target.value)}
                     onKeyDown={handleSkillKeyDown}

@@ -62,8 +62,8 @@ function ChatPanel({ messages, onSend }) {
 | `TelemetryPanel` | Token usage + per-iteration timing; counts a provider never reported read "Unknown" |
 | `UsageMeter` / `ContextMeter` | Used-of-limit meter that shows unknown usage as unknown and draws no bar without a reported limit |
 | `AgentConsole` | Combined chat + plan + diff cockpit for the simple case |
-| `PermissionCard` | Inline allow/deny prompt for write-tool execution. Pass `status` to let the host own the decision state (`pending`, `submitting`, `resolved`, `error`, `expired`); a request never reports a decision twice |
-| `QuestionCard` | `ask_user` questions: radio options, typed answers, tabs plus a review step for several questions. `toUserInputResponse` builds the host's `userInputResponse` message |
+| `PermissionCard` | Inline allow/deny prompt for write-tool execution. Pass `status` to let the host own the decision state (`pending`, `submitting`, `resolved`, `error`, `expired`); a request never reports a decision twice. Focuses itself while pending (without scrolling the page); `autoFocus={false}` opts out |
+| `QuestionCard` | `ask_user` questions: radio options, typed answers, tabs plus a review step for several questions. `toUserInputResponse` builds the host's `userInputResponse` message. Focuses itself on mount without scrolling the page; `autoFocus={false}` opts out (e.g. a demo below the fold) |
 | `TaskList` | Compact list of in-flight + recent agent runs |
 | `BackgroundTaskTile` | Live tile for a subagent the parent turn spawned |
 

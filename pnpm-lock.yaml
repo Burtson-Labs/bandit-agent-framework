@@ -384,6 +384,9 @@ importers:
       '@mui/material':
         specifier: ^7.3.5
         version: 7.3.5(@emotion/react@11.14.0(@types/react@19.2.2)(react@19.2.0))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.2)(react@19.2.0))(@types/react@19.2.2)(react@19.2.0))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      clsx:
+        specifier: ^2.1.0
+        version: 2.1.1
       dompurify:
         specifier: 3.4.7
         version: 3.4.7
@@ -403,9 +406,6 @@ importers:
       '@types/react':
         specifier: 19.2.2
         version: 19.2.2
-      clsx:
-        specifier: ^2.1.0
-        version: 2.1.1
       happy-dom:
         specifier: '>=20.8.9 <21.0.0'
         version: 20.14.3

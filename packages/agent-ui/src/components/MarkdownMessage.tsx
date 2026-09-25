@@ -5,13 +5,12 @@ import DOMPurify from "dompurify";
 import hljs from "highlight.js";
 import MarkdownIt from "markdown-it";
 import morphdom from "morphdom";
-// The Token constructor lives under markdown-it/lib/token and isn't typed in @types,
-// so suppress the type error on import.
-// @ts-expect-error no types for markdown-it/lib/token
-import Token from "markdown-it/lib/token";
-// @ts-expect-error no types for markdown-it/lib/token
-import type TokenCtor from "markdown-it/lib/token";
-type MarkdownToken = InstanceType<TokenCtor>;
+// The Token constructor, taken from markdown-it's public API. A deep import of
+// "markdown-it/lib/token" does not resolve with markdown-it 14 (its files are
+// .mjs and the exports map adds no extension), which broke the package root
+// in Node and in bundlers.
+const Token = new MarkdownIt().core.State.prototype.Token;
+type MarkdownToken = InstanceType<typeof Token>;
 
 const FILE_REFERENCE_REGEX =
   /(?:[A-Za-z0-9._-]+\/)+(?:[A-Za-z0-9._-]+)(?:\.[A-Za-z0-9]+)?(?::\d+(?:-\d+)?)?/g;
