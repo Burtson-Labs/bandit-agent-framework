@@ -867,7 +867,11 @@ function ChatPanel({ messages, onSend }) {
 </tr>
 <tr>
 <td><code>TelemetryPanel</code></td>
-<td><a href="./glossary.html#token" class="glossary-link" title="Glossary">Token</a> usage + per-iteration timing</td>
+<td><a href="./glossary.html#token" class="glossary-link" title="Glossary">Token</a> usage + per-iteration timing; counts a provider never reported read “Unknown”</td>
+</tr>
+<tr>
+<td><code>UsageMeter</code> / <code>ContextMeter</code></td>
+<td>Used-of-limit meter that shows unknown usage as unknown and draws no bar without a reported limit</td>
 </tr>
 <tr>
 <td><code>AgentConsole</code></td>
@@ -875,7 +879,11 @@ function ChatPanel({ messages, onSend }) {
 </tr>
 <tr>
 <td><code>PermissionCard</code></td>
-<td>Inline allow/deny prompt for write-tool execution</td>
+<td>Inline allow/deny prompt for write-tool execution. Pass <code>status</code> to let the host own the decision state (<code>pending</code>, <code>submitting</code>, <code>resolved</code>, <code>error</code>, <code>expired</code>); a request never reports a decision twice</td>
+</tr>
+<tr>
+<td><code>QuestionCard</code></td>
+<td><code>ask_user</code> questions: radio options, typed answers, tabs plus a review step for several questions. <code>toUserInputResponse</code> builds the host’s <code>userInputResponse</code> message</td>
 </tr>
 <tr>
 <td><code>TaskList</code></td>

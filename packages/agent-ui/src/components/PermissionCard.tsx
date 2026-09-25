@@ -82,7 +82,29 @@ export interface PermissionCardProps {
    * adjusts its plan rather than just seeing "blocked."
    */
   onChoice: (id: string, choice: PermissionChoice, notes?: string) => void;
+  /**
+   * Host-owned decision state. Omit it and the card resolves itself the
+   * moment the user picks (the original behaviour). Pass it and the card
+   * only reports what the host says: `submitting` while the decision is in
+   * flight, `resolved` once the host has applied it, `error` to let the user
+   * retry, `expired` when the agent is no longer waiting.
+   */
+  status?: PermissionCardStatus;
 }
+
+export type PermissionCardStatus =
+  | { state: "pending" }
+  | { state: "submitting"; choice: PermissionChoice }
+  | {
+      state: "resolved";
+      choice: PermissionChoice;
+      notes?: string;
+      /** Where the host stored an "Always allow" rule. The card never claims
+       *  a rule was saved unless the host says where. */
+      savedTo?: string;
+    }
+  | { state: "error"; message: string }
+  | { state: "expired"; reason?: string };
 
 /**
  * Vertical-stacked buttons with numbered keyboard shortcuts. Order
@@ -102,28 +124,52 @@ const CHOICE_LABELS: Record<PermissionChoice, { label: string; hint: string; key
   deny: { label: "Deny", hint: "Abort the tool call", key: "4" }
 };
 
-export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.Element => {
-  const [resolved, setResolved] = useState<PermissionChoice | null>(null);
-  const [resolvedNotes, setResolvedNotes] = useState<string | undefined>(undefined);
+export const PermissionCard = ({ payload, onChoice, status }: PermissionCardProps): JSX.Element => {
+  const [localResolved, setLocalResolved] = useState<{ choice: PermissionChoice; notes?: string } | null>(null);
   const [notesDraft, setNotesDraft] = useState<string>("");
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // The id this card last reported a decision for. A ref, not state, so two
+  // events in the same tick (double click, "1" then Esc) can't both get past
+  // the check before a re-render. Cleared only when the host reports an error
+  // (the user may retry) or hands the card a different request.
+  const firedFor = useRef<string | null>(null);
+  const [trackedId, setTrackedId] = useState(payload.id);
+  if (trackedId !== payload.id) {
+    setTrackedId(payload.id);
+    setLocalResolved(null);
+    setNotesDraft("");
+  }
+  const statusState = status?.state;
+  useEffect(() => {
+    if (statusState === "error") {firedFor.current = null;}
+  }, [statusState]);
+
+  const controlled = status !== undefined;
+  const view: PermissionCardStatus = controlled
+    ? status
+    : localResolved
+      ? { state: "resolved", ...localResolved }
+      : { state: "pending" };
+  const actionable = view.state === "pending" || view.state === "error";
+  const chosen = view.state === "submitting" || view.state === "resolved" ? view.choice : null;
+
   // Auto-focus the card so the numbered keyboard shortcuts work without
   // the user having to click first. Matches Claude's "press 1/2/3 to
   // pick, Esc to cancel" muscle memory out of the box.
   useEffect(() => {
-    if (!resolved) {cardRef.current?.focus();}
-  }, [resolved]);
+    if (view.state === "pending") {cardRef.current?.focus();}
+  }, [view.state, payload.id]);
 
   const pick = (choice: PermissionChoice, notes?: string): void => {
-    if (resolved) {return;}
+    if (!actionable || firedFor.current === payload.id) {return;}
+    firedFor.current = payload.id;
     const trimmed = notes?.trim() || undefined;
-    setResolved(choice);
-    setResolvedNotes(trimmed);
+    if (!controlled) {setLocalResolved({ choice, notes: trimmed });}
     onChoice(payload.id, choice, trimmed);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (resolved) {return;}
+    if (!actionable) {return;}
     // Number keys map to the choice order. 1/2/3/4 = once/session/save/deny.
     // Only fire when the focus target isn't a text input — otherwise
     // typing "1" in the notes textarea would accidentally approve.
@@ -181,9 +227,16 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
     <div
       ref={cardRef}
       tabIndex={-1}
-      className={clsx("permission-card", resolved && "is-resolved", resolved === "deny" && "is-denied")}
+      className={clsx(
+        "permission-card",
+        `is-${view.state}`,
+        view.state === "resolved" && "is-resolved",
+        chosen === "deny" && "is-denied"
+      )}
       role="group"
       aria-label={`Permission prompt for ${payload.tool}`}
+      aria-busy={view.state === "submitting" || undefined}
+      aria-keyshortcuts={actionable ? "1 2 3 4 Escape" : undefined}
       onKeyDown={handleKeyDown}
     >
       <div className="permission-card__header">
@@ -237,7 +290,9 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
         <CollapsibleDiff preview={payload.bodyPreview!} stats={payload.diffStats} />
       )}
 
-      <div className="permission-card__choices" role="radiogroup" aria-label="Approval choices">
+      {/* Each button acts immediately, so these are buttons, not radios: a
+          radio announces "1 of 4, not checked" and implies a later submit. */}
+      <div className="permission-card__choices" role="group" aria-label="Approval choices">
         {CHOICE_ORDER.map((choice) => (
           <button
             key={choice}
@@ -245,13 +300,13 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
             className={clsx(
               "permission-card__choice",
               `permission-card__choice--${choice}`,
-              resolved === choice && "is-selected"
+              chosen === choice && "is-selected"
             )}
-            disabled={resolved !== null}
+            disabled={!actionable}
             onClick={() => pick(choice, choice === "deny" ? notesDraft : undefined)}
             title={payload.scopeHints?.[choice] ?? CHOICE_LABELS[choice].hint}
-            role="radio"
-            aria-checked={resolved === choice}
+            aria-keyshortcuts={CHOICE_LABELS[choice].key}
+            aria-pressed={chosen === choice}
           >
             <span className="permission-card__choice-key" aria-hidden="true">
               {CHOICE_LABELS[choice].key}
@@ -267,7 +322,7 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
           a tooltip. This line is the fix for "the card said one thing and saved
           another" — it is generated from the same call that produces the rule
           the host stores. */}
-      {!resolved && payload.scopeHints && (
+      {actionable && payload.scopeHints && (
         <div className="permission-card__scopes">
           {CHOICE_ORDER.filter((ch) => ch !== "deny" && payload.scopeHints?.[ch]).map((ch) => (
             <div key={ch} className="permission-card__scope">
@@ -278,7 +333,7 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
         </div>
       )}
 
-      {!resolved && (
+      {actionable && (
         <div className="permission-card__notes">
           <textarea
             className="permission-card__notes-input"
@@ -286,6 +341,7 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
             onChange={(e) => setNotesDraft(e.target.value)}
             onKeyDown={handleNotesKeyDown}
             placeholder="Tell Bandit what to do instead (optional)"
+            aria-label="Notes for Bandit if you deny"
             rows={2}
           />
           <span className="permission-card__notes-hint">
@@ -294,18 +350,48 @@ export const PermissionCard = ({ payload, onChoice }: PermissionCardProps): JSX.
         </div>
       )}
 
-      {resolved && (
+      {view.state === "error" && (
+        <div className="permission-card__error" role="alert">
+          {view.message || "Bandit didn't receive your decision."} Choose again to retry.
+        </div>
+      )}
+
+      {view.state !== "pending" && view.state !== "error" && (
         <div className="permission-card__resolved" role="status">
-          {resolved === "deny"
-            ? (resolvedNotes ? `Denied · "${resolvedNotes}"` : "Denied")
-            : resolved === "save" ? "Allowed (saved to .bandit/settings.json)"
-            : resolved === "session" ? "Allowed for this session"
-            : "Allowed once"}
+          {describeOutcome(view, controlled)}
         </div>
       )}
     </div>
   );
 };
+
+const ALLOWED_TEXT: Record<Exclude<PermissionChoice, "deny">, string> = {
+  once: "Allowed once",
+  session: "Allowed for this session",
+  save: "Always allowed"
+};
+
+/** Status line for a card that is no longer waiting on the user. */
+export function describeOutcome(view: PermissionCardStatus, hostConfirmed: boolean): string {
+  switch (view.state) {
+    case "submitting":
+      return view.choice === "deny" ? "Sending denial…" : "Sending approval…";
+    case "expired":
+      return view.reason ? `Expired · ${view.reason}` : "Expired · Bandit is no longer waiting for this decision";
+    case "resolved": {
+      if (view.choice === "deny") {return view.notes ? `Denied · "${view.notes}"` : "Denied";}
+      if (view.choice === "save") {
+        if (view.savedTo) {return `Always allowed (saved to ${view.savedTo})`;}
+        // Uncontrolled cards keep their original wording; a controlled card
+        // only names a location the host confirmed.
+        return hostConfirmed ? ALLOWED_TEXT.save : "Allowed (saved to .bandit/settings.json)";
+      }
+      return ALLOWED_TEXT[view.choice];
+    }
+    default:
+      return "";
+  }
+}
 
 /**
  * Compact diff viewer: collapsed by default showing a "Modified · +N -M"

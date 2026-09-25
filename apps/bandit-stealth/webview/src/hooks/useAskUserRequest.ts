@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { toUserInputResponse } from "@burtson-labs/agent-ui";
 import type { AskUserQuestionPayload } from "../AskUserForm";
 
 export interface AskUserRequestState {
@@ -40,7 +41,7 @@ export function useAskUserRequest(): AskUserRequestHook {
   const handleAskUserSubmit = useCallback(
     (id: string, answers: Record<string, string>, cancelled?: boolean) => {
       setAskUserRequest(null);
-      vscode.postMessage({ type: "userInputResponse", id, answers, cancelled });
+      vscode.postMessage(toUserInputResponse(id, answers, cancelled));
     },
     []
   );

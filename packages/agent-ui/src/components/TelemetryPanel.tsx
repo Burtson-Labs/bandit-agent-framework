@@ -59,13 +59,17 @@ export const TelemetryPanel = ({
   className
 }: TelemetryPanelProps): JSX.Element => {
   const tokens = telemetry.tokens ?? { input: 0, output: 0, total: 0 };
+  // A count the provider never reported reads "Unknown", not 0.
+  const reported = telemetry.tokens ? telemetry.tokensReported : { input: false, output: false, total: false };
+  const tokenFigure = (key: "input" | "output" | "total"): string =>
+    reported && !reported[key] ? "Unknown" : tokens[key].toLocaleString();
   const totalSteps = telemetry.totalSteps ?? telemetry.completedSteps + telemetry.failedSteps;
   return (
     <section className={classNames("agent-ui-panel agent-ui-telemetry", className)}>
       <header className="agent-ui-panel__header">
         <div>
           <p className="agent-ui-panel__eyebrow">{title}</p>
-          <h3 className="agent-ui-panel__title">{telemetry.model ?? telemetry.provider ?? "Unidentified Provider"}</h3>
+          <h3 className="agent-ui-panel__title">{telemetry.model ?? telemetry.provider ?? "Provider not reported"}</h3>
         </div>
         <span className="agent-ui-panel__meta">
           {telemetry.completedSteps} / {totalSteps} steps
@@ -74,15 +78,15 @@ export const TelemetryPanel = ({
       <div className="agent-ui-telemetry__grid">
         <article className="agent-ui-metric" style={METRIC_STYLE}>
           <label>Input Tokens</label>
-          <strong>{tokens.input.toLocaleString()}</strong>
+          <strong>{tokenFigure("input")}</strong>
         </article>
         <article className="agent-ui-metric" style={METRIC_STYLE}>
           <label>Output Tokens</label>
-          <strong>{tokens.output.toLocaleString()}</strong>
+          <strong>{tokenFigure("output")}</strong>
         </article>
         <article className="agent-ui-metric" style={METRIC_STYLE}>
           <label>Total Tokens</label>
-          <strong>{tokens.total.toLocaleString()}</strong>
+          <strong>{tokenFigure("total")}</strong>
         </article>
         {typeof tokens.cache === "number" && (
           <article className="agent-ui-metric" style={METRIC_STYLE}>

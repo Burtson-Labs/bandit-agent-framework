@@ -59,9 +59,11 @@ function ChatPanel({ messages, onSend }) {
 | `PlanActivity` | Per-step activity feed (tool calls, diffs, logs) |
 | `DiffStream` | Live unified-diff viewer for proposed edits |
 | `DiffReview/DiffReviewPanel` | Multi-file accept / reject before applying |
-| `TelemetryPanel` | Token usage + per-iteration timing |
+| `TelemetryPanel` | Token usage + per-iteration timing; counts a provider never reported read "Unknown" |
+| `UsageMeter` / `ContextMeter` | Used-of-limit meter that shows unknown usage as unknown and draws no bar without a reported limit |
 | `AgentConsole` | Combined chat + plan + diff cockpit for the simple case |
-| `PermissionCard` | Inline allow/deny prompt for write-tool execution |
+| `PermissionCard` | Inline allow/deny prompt for write-tool execution. Pass `status` to let the host own the decision state (`pending`, `submitting`, `resolved`, `error`, `expired`); a request never reports a decision twice |
+| `QuestionCard` | `ask_user` questions: radio options, typed answers, tabs plus a review step for several questions. `toUserInputResponse` builds the host's `userInputResponse` message |
 | `TaskList` | Compact list of in-flight + recent agent runs |
 | `BackgroundTaskTile` | Live tile for a subagent the parent turn spawned |
 

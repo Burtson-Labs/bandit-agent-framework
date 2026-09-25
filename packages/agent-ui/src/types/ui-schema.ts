@@ -64,6 +64,12 @@ export interface TaskProgressTelemetry {
 export interface TelemetrySnapshot {
   totalEvents: number;
   tokens: TokenUsage;
+  /**
+   * Which token counts a provider actually reported. `tokens` keeps numbers
+   * for compatibility, so a count nobody reported is 0 there; this says
+   * whether that 0 is real. Absent means every count is known.
+   */
+  tokensReported?: { input: boolean; output: boolean; total: boolean };
   latencyMs?: number;
   model?: string;
   provider?: string;

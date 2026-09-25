@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { BanditPermissionPayload, PermissionChoice } from "@burtson-labs/agent-ui";
 
 /**
@@ -45,8 +45,13 @@ export interface ApprovalQueueHook {
 
 export function useApprovalQueue(): ApprovalQueueHook {
   const [approvalQueue, setApprovalQueue] = useState<BanditPermissionPayload[]>([]);
+  // Ids already decided or resolved. A resume that re-sends a request the
+  // user already answered must not bring the card back, and a second click
+  // must not post a second decision.
+  const settled = useRef(new Set<string>());
 
   const enqueueApproval = useCallback((request: IncomingPermissionRequest) => {
+    if (settled.current.has(request.id)) {return;}
     setApprovalQueue((prev) => {
       if (prev.some((p) => p.id === request.id)) {return prev;}
       const payload: BanditPermissionPayload = {
@@ -67,11 +72,14 @@ export function useApprovalQueue(): ApprovalQueueHook {
   }, []);
 
   const resolveApproval = useCallback((id: string) => {
+    settled.current.add(id);
     setApprovalQueue((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
   const handleApprovalChoice = useCallback(
     (id: string, choice: PermissionChoice, notes?: string) => {
+      if (settled.current.has(id)) {return;}
+      settled.current.add(id);
       setApprovalQueue((prev) => prev.filter((p) => p.id !== id));
       vscode.postMessage({ type: "permissionResponse", id, choice, notes });
     },

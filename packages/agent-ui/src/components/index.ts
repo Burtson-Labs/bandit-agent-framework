@@ -4,6 +4,8 @@ export * from "./ChatComposer";
 export * from "./ChatConversation";
 export * from "./MarkdownMessage";
 export * from "./PermissionCard";
+export * from "./QuestionCard";
+export * from "./UsageMeter";
 export * from "./DiffBlock";
 export * from "./DiffReview";
 export * from "./DiffReviewCard";

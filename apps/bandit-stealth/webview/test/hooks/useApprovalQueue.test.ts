@@ -124,4 +124,30 @@ describe('useApprovalQueue', () => {
     });
     expect(result.current.approvalQueue.map((p) => p.id)).toEqual(['a']);
   });
+
+  it('a re-sent request the user already answered does not come back', () => {
+    const { result } = renderHook(() => useApprovalQueue());
+    act(() => {
+      result.current.enqueueApproval(baseRequest('a'));
+    });
+    act(() => {
+      result.current.handleApprovalChoice('a', 'once');
+    });
+    act(() => {
+      result.current.enqueueApproval(baseRequest('a'));
+    });
+    expect(result.current.approvalQueue).toEqual([]);
+  });
+
+  it('a second decision for the same id posts nothing', () => {
+    const { result } = renderHook(() => useApprovalQueue());
+    act(() => {
+      result.current.enqueueApproval(baseRequest('a'));
+    });
+    act(() => {
+      result.current.handleApprovalChoice('a', 'once');
+      result.current.handleApprovalChoice('a', 'deny');
+    });
+    expect(recorder.calls).toEqual([{ type: 'permissionResponse', id: 'a', choice: 'once', notes: undefined }]);
+  });
 });

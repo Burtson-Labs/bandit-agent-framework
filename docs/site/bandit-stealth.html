@@ -802,6 +802,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <ul>
 <li><strong>Your choice of model.</strong> Runs locally on any Ollama model — Gemma 4, Qwen 3.6, Devstral, your custom fine-tune. Or point at Bandit’s hosted gateway for managed inference with thinking mode and zero local setup.</li>
 <li><strong>Works alongside you.</strong> Bandit autonomously explores your code, reads and writes files, runs shell commands — every write gated by a unified-diff approval so you’re never surprised.</li>
+<li><strong>Permission modes with a floor you can trust.</strong> Read-only <strong>plan</strong> mode, prompt-everything <strong>ask</strong>, and <strong>auto</strong> for routine work — cycled with shift+tab and always visible on screen. Destructive calls (deletes, force-push, credential files, egress) ask every time, in every mode, and that’s not configurable.</li>
 <li><strong>Integrated with the editor.</strong> Auto-context attaches the right files without you picking them. <code>@</code>-mention any file (or folder — drill in until you find it). Inline diffs stream into the editor as the agent works.</li>
 <li><strong>Powerful agentic features.</strong> Skills the agent can author itself, plan preview with go/no-go confirmation, session checkpoints with <code>/rewind</code>, hooks for CI guardrails, and a tool-use loop with pre-write language validation (TypeScript / Python / JSON / C#).</li>
 <li><strong>Voice that’s actually pluggable.</strong> Speech-to-text and text-to-speech are independent of the chat provider. Use Bandit cloud, OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.</li>
@@ -947,6 +948,21 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <li><strong><code>/trace</code> and <code>/profile</code>.</strong> The IDE and CLI share the same debugging data. In the IDE, the Trace Logs toolbar button, Command Palette command, or <code>/trace</code> opens a turn browser with all/needs-attention filters, workspace/global source labels, prompt/final previews, metrics, permission/retry/fallback counts, a timeline, and an Open JSONL action. The CLI keeps the markdown view: <code>/trace list</code> browses recent workspace/global turns and <code>/trace failed</code> filters recovery/debugging runs. <code>/profile</code> explains the active model’s behavior profile — native vs text tools, fallback policy, safe context budget, thinking default, parallelism, and known failure modes.</li>
 </ul>
 <p>Custom model behavior overrides use the same workspace file in both hosts: <code>.bandit/model-profiles.json</code>. Set <code>match</code> prefixes plus protocol, context, prompting, and reliability fields when a <a href="./glossary.html#local-model" class="glossary-link" title="Glossary">local model</a> needs a different harness path than the built-in defaults; the extension watches the file and reloads it when it changes. The loop uses those profile values for native-vs-text selection, native fallback policy, output-budget serialization, and max parallel tool calls.</p>
+<h2>Permission modes — plan, ask, auto</h2>
+<p>One shared permission engine gates every tool call in both hosts, and the active mode is <strong>always on screen</strong>: a colored chip on the CLI’s input frame (and on the mid-turn composer while Bandit works), a status-bar item and composer pill in the editor.</p>
+<ul>
+<li><strong><code>plan</code> — read-only.</strong> Bandit reads, searches, and runs read-only shell (<code>git diff</code>, <code>ls</code>, <code>grep</code>); every edit, write, state-changing command, delete, and network-write is refused, so it <em>presents a plan</em> instead of acting. Great for “tell me what you’d do first.”</li>
+<li><strong><code>ask</code> (default).</strong> Every non-allowlisted call prompts with a risk-tiered permission card.</li>
+<li><strong><code>auto</code>.</strong> Routine work (reads, in-project edits, builds/tests) runs unprompted. <strong>Destructive calls always ask</strong> — deletes, writes outside the project, force-push, global installs, credential files, network egress. That floor is not configurable, on purpose.</li>
+<li><strong><code>dangerous</code></strong> exists for CI/sandboxes only and cannot be enabled from chat — env var or settings file, deliberately.</li>
+</ul>
+<p><strong>shift+tab</strong> cycles ask → auto → plan in the CLI; click the status-bar item or composer pill in the editor. <code>/permissions</code> shows the mode, session grants, and an audit of everything auto mode approved without asking.</p>
+<h2>Experimental previews</h2>
+<p>Shipping dark, behind flags, while they earn their defaults:</p>
+<ul>
+<li><strong>Live-session remote control (<code>/remote on</code>).</strong> Registers your running CLI session with Bandit cloud so it can be watched and driven from another surface: your turns mirror up, input sent from the web runs <em>in the same conversation</em> on your machine (read-only plan mode by default). <code>/remote off</code> stops it; <code>bandit runner</code> is the headless sibling that accepts one-shot dispatched tasks.</li>
+<li><strong>Graph runs (<code>BANDIT_GRAPH=1</code>).</strong> A dependency-graph runtime over the same tool loop: <code>bandit graph demo</code> (two parallel read-only scans → a synthesized brief), <code>bandit graph plan &quot;&lt;task&gt;&quot;</code> (the model classifies direct / loop / graph and proposes a DAG — you see it before anything runs; <code>--run</code> executes with every node read-only), <code>bandit graph resume</code> (checkpointed runs restore finished nodes instantly), and <code>/graph</code> in the REPL (<code>status</code> · <code>inspect &lt;node&gt;</code> · <code>why &lt;node&gt;</code> · <code>retry &lt;node&gt;</code>). Per-node capability envelopes and completion contracts are enforced by the host, never the model.</li>
+</ul>
 <h2>MCP — Model Context Protocol, both directions</h2>
 <p>Bandit speaks <a href="./glossary.html#mcp" class="glossary-link" title="Glossary">MCP</a> as both a <strong>client</strong> and a <strong>server</strong>. Any MCP server you can spawn plugs into the same tool-use loop the IDE uses for <code>read_file</code> / <code>apply_edit</code>. Conversely, any MCP-speaking client (Claude Desktop, Cursor, Cline, Continue, etc.) can drive Bandit’s native tools through the standard JSON-RPC envelope.</p>
 <p><strong>As a client</strong> — Configure at <code>~/.bandit/mcp-servers.json</code> (global) or <code>.bandit/mcp-servers.json</code> (workspace, takes precedence). Each server’s tools surface as <code>&lt;server&gt;.&lt;tool&gt;</code> so collisions with native tools are impossible. Standard MCP schema — copy a working config from any other MCP-speaking client and paste it in:</p>
@@ -1063,6 +1079,22 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <tr>
 <td><code>/doctor</code></td>
 <td>Check setup, provider, workspace context, permissions, active profile, and next best actions.</td>
+</tr>
+<tr>
+<td><code>/auto on | plan | off</code></td>
+<td>Permission mode: auto (routine runs unprompted), plan (read-only), ask. <strong>shift+tab</strong> cycles without typing.</td>
+</tr>
+<tr>
+<td><code>/permissions</code></td>
+<td>Current mode + session grants + an audit of everything auto mode approved without asking.</td>
+</tr>
+<tr>
+<td><code>/remote on | off | status</code></td>
+<td>Live-session remote control — mirror this session to the cloud and drive it from another surface (plan-mode default).</td>
+</tr>
+<tr>
+<td><code>/graph [inspect|why|retry &lt;node&gt;]</code></td>
+<td>Inspect the last graph run: per-node state, evidence, root-cause of blocked nodes, targeted retry (experimental, <code>BANDIT_GRAPH=1</code>).</td>
 </tr>
 <tr>
 <td><code>/plan &lt;goal&gt;</code></td>

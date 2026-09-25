@@ -3809,27 +3809,6 @@ body.bandit-theme-midnight {
   text-transform: capitalize;
 }
 
-.usage-modal__meter-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.82rem;
-  color: var(--vscode-descriptionForeground, #bbb);
-}
-
-.usage-modal__meter {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--vscode-progressBar-background, rgba(255, 255, 255, 0.08));
-  overflow: hidden;
-}
-
-.usage-modal__meter-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #4f9dff, #7bd7c1);
-  transition: width 0.3s ease;
-}
-
 .usage-modal__footer {
   display: flex;
   justify-content: flex-end;

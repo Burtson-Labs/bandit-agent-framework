@@ -128,6 +128,7 @@ export const useTelemetry = (events: AgentEvent[] = []): TelemetrySnapshot => {
     let taskProgress: TaskProgressTelemetry | undefined;
     let resolvedProvider: string | undefined;
     let resolvedModel: string | undefined;
+    const tokensReported = { input: false, output: false, total: false };
     const tokens = telemetryEvents.reduce<TokenUsage>(
       (acc, event) => {
         const payload = asRecord(event.payload);
@@ -139,14 +140,18 @@ export const useTelemetry = (events: AgentEvent[] = []): TelemetrySnapshot => {
         if (tokenSample) {
           if (tokenSample.input !== undefined) {
             acc.input += tokenSample.input;
+            tokensReported.input = true;
           }
           if (tokenSample.output !== undefined) {
             acc.output += tokenSample.output;
+            tokensReported.output = true;
           }
           if (tokenSample.total !== undefined) {
             acc.total += tokenSample.total;
+            tokensReported.total = true;
           } else if (tokenSample.input !== undefined || tokenSample.output !== undefined) {
             acc.total += (tokenSample.input ?? 0) + (tokenSample.output ?? 0);
+            tokensReported.total = true;
           }
           if (tokenSample.cache !== undefined) {
             acc.cache = (acc.cache ?? 0) + tokenSample.cache;
@@ -261,6 +266,7 @@ export const useTelemetry = (events: AgentEvent[] = []): TelemetrySnapshot => {
     return {
       totalEvents: events.length,
       tokens,
+      tokensReported,
       latencyMs:
         lastTelemetryPayload?.latencyMs ??
         (typeof (lastTelemetryPayload as { durationMs?: unknown } | undefined)?.durationMs === "number"

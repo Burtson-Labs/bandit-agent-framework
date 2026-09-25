@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { UsageMeter } from "@burtson-labs/agent-ui";
 import { formatResetCountdown } from "../util/formatResetCountdown";
 
 export type UsageSnapshot = {
@@ -24,8 +25,6 @@ export function AccountUsageModal({
   onClose: () => void;
   onRefresh: () => void;
 }): JSX.Element {
-  const sessionPct = snapshot ? Math.min(100, Math.round((snapshot.session.used / Math.max(1, snapshot.session.limit)) * 100)) : 0;
-  const weeklyPct = snapshot ? Math.min(100, Math.round((snapshot.weekly.used / Math.max(1, snapshot.weekly.limit)) * 100)) : 0;
   return (
     <div className="usage-modal__backdrop" role="dialog" aria-modal="true" aria-label="Account and usage">
       <div className="usage-modal">
@@ -71,25 +70,21 @@ export function AccountUsageModal({
             </section>
 
             <section className="usage-modal__section">
-              <div className="usage-modal__meter-header">
-                <span>Current 5-hour session</span>
-                <span>{snapshot.session.used.toLocaleString()} / {snapshot.session.limit.toLocaleString()}</span>
-              </div>
-              <div className="usage-modal__meter">
-                <div className="usage-modal__meter-fill" style={{ width: `${sessionPct}%` }} />
-              </div>
-              <p className="settings-note">Resets in {formatResetCountdown(snapshot.session.resetsAtUnix)}</p>
+              <UsageMeter
+                label="Current 5-hour session"
+                used={snapshot.session.used}
+                limit={snapshot.session.limit}
+                note={`Resets in ${formatResetCountdown(snapshot.session.resetsAtUnix)}`}
+              />
             </section>
 
             <section className="usage-modal__section">
-              <div className="usage-modal__meter-header">
-                <span>Current weekly window</span>
-                <span>{snapshot.weekly.used.toLocaleString()} / {snapshot.weekly.limit.toLocaleString()}</span>
-              </div>
-              <div className="usage-modal__meter">
-                <div className="usage-modal__meter-fill" style={{ width: `${weeklyPct}%` }} />
-              </div>
-              <p className="settings-note">Resets in {formatResetCountdown(snapshot.weekly.resetsAtUnix)}</p>
+              <UsageMeter
+                label="Current weekly window"
+                used={snapshot.weekly.used}
+                limit={snapshot.weekly.limit}
+                note={`Resets in ${formatResetCountdown(snapshot.weekly.resetsAtUnix)}`}
+              />
             </section>
 
             <section className="usage-modal__section">
