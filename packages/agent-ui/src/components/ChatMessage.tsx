@@ -10,9 +10,9 @@ import {
   XMarkIcon
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
-import type { ChatMessage, ChatMessageContextFile } from "../types/ui-schema";
-import { MarkdownMessage, renderMarkdownToHtml, type MarkdownRenderOptions } from "./MarkdownMessage";
-import { PermissionCard, type BanditPermissionPayload, type PermissionChoice } from "./PermissionCard";
+import type { ChatMessage, ChatMessageContextFile } from "../types/ui-schema.js";
+import { MarkdownMessage, renderMarkdownToHtml, type MarkdownRenderOptions } from "./MarkdownMessage.js";
+import { PermissionCard, type BanditPermissionPayload, type PermissionChoice } from "./PermissionCard.js";
 
 export interface ChatMessageProps extends MarkdownRenderOptions {
   message: ChatMessage;

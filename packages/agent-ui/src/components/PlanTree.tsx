@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { JSX, ReactNode } from "react";
-import { classNames } from "../utils/classNames";
+import { classNames } from "../utils/classNames.js";
 import type { AgentEvent, AgentPlan, AgentStep, AgentStepStatus } from "@burtson-labs/agent-core";
-import type { PlanTreeState, StepCompletePayload } from "../types/ui-schema";
+import type { PlanTreeState, StepCompletePayload } from "../types/ui-schema.js";
 
 export interface PlanTreeProps {
   events?: AgentEvent[];

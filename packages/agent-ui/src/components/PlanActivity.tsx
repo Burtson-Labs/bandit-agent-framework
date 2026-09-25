@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { JSX } from "react";
 import type { AgentEvent, AgentExecutionResult, AgentStep } from "@burtson-labs/agent-core";
-import { classNames } from "../utils/classNames";
+import { classNames } from "../utils/classNames.js";
 import {
   BoltIcon,
   CheckCircleIcon,

@@ -1,7 +1,7 @@
 import { ArrowsPointingInIcon } from "@heroicons/react/24/outline";
 import type { JSX } from "react";
 import type { Goal, Task, TaskStatus } from "@burtson-labs/agent-core";
-import { classNames } from "../utils/classNames";
+import { classNames } from "../utils/classNames.js";
 
 export interface TaskListProps {
   goal: Goal;

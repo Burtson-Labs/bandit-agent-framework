@@ -1,6 +1,6 @@
 import type { JSX, SyntheticEvent } from "react";
 import { useState } from "react";
-import { DiffBlock } from "./DiffBlock";
+import { DiffBlock } from "./DiffBlock.js";
 
 export interface DiffFileGroupProps {
   filePath: string;

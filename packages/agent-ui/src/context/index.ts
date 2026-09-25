@@ -1,1 +1,1 @@
-export * from "./BanditContext";
+export * from "./BanditContext.js";

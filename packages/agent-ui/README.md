@@ -48,6 +48,8 @@ function ChatPanel({ messages, onSend }) {
 }
 ```
 
+Import from the package root. `import` resolves to an ES module build and the package marks only its stylesheet as a side effect, so bundlers keep just the components you use: one card from the root adds about 7 KB, not the whole library. `require` still gets the CommonJS build.
+
 ### What's in the box
 
 | Component | What it renders |

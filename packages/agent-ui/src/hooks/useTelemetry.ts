@@ -7,7 +7,7 @@ import type {
   TelemetrySnapshot,
   TaskProgressTelemetry,
   TokenUsage
-} from "../types/ui-schema";
+} from "../types/ui-schema.js";
 
 const DEFAULT_TOKEN_USAGE: TokenUsage = {
   input: 0,

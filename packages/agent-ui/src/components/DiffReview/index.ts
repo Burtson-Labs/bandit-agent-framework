@@ -1,2 +1,2 @@
-export * from "./DiffFileGroup";
-export * from "./DiffReviewPanel";
+export * from "./DiffFileGroup.js";
+export * from "./DiffReviewPanel.js";

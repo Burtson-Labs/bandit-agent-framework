@@ -1,16 +1,16 @@
-import darkTheme from "./dark.json";
-import lightTheme from "./light.json";
-import midnightTheme from "./midnight.json";
-import draculaTheme from "./dracula.json";
-import nordTheme from "./nord.json";
-import tokyoNightTheme from "./tokyo-night.json";
-import solarizedDarkTheme from "./solarized-dark.json";
-import catppuccinMochaTheme from "./catppuccin-mocha.json";
-import onyxTheme from "./onyx.json";
-import charcoalTheme from "./charcoal.json";
-import solarizedLightTheme from "./solarized-light.json";
-import sepiaTheme from "./sepia.json";
-import { createTheme, type BanditTheme, type ThemeConfig } from "./theme-base";
+import darkTheme from "./dark.js";
+import lightTheme from "./light.js";
+import midnightTheme from "./midnight.js";
+import draculaTheme from "./dracula.js";
+import nordTheme from "./nord.js";
+import tokyoNightTheme from "./tokyo-night.js";
+import solarizedDarkTheme from "./solarized-dark.js";
+import catppuccinMochaTheme from "./catppuccin-mocha.js";
+import onyxTheme from "./onyx.js";
+import charcoalTheme from "./charcoal.js";
+import solarizedLightTheme from "./solarized-light.js";
+import sepiaTheme from "./sepia.js";
+import { createTheme, type BanditTheme, type ThemeConfig } from "./theme-base.js";
 
 // Order here drives the order of chips in the Appearance settings tab.
 // Stealth Light/Dark first (the brand defaults), Midnight third
@@ -19,18 +19,18 @@ import { createTheme, type BanditTheme, type ThemeConfig } from "./theme-base";
 // is the inverse — graphite bg with even-darker panel). Lighter-set
 // adds Solarized Light + Sepia so the picker isn't only-dark.
 const themeConfigs = {
-  light: lightTheme as ThemeConfig,
-  dark: darkTheme as ThemeConfig,
-  midnight: midnightTheme as ThemeConfig,
-  onyx: onyxTheme as ThemeConfig,
-  charcoal: charcoalTheme as ThemeConfig,
-  dracula: draculaTheme as ThemeConfig,
-  nord: nordTheme as ThemeConfig,
-  "tokyo-night": tokyoNightTheme as ThemeConfig,
-  "solarized-dark": solarizedDarkTheme as ThemeConfig,
-  "catppuccin-mocha": catppuccinMochaTheme as ThemeConfig,
-  "solarized-light": solarizedLightTheme as ThemeConfig,
-  sepia: sepiaTheme as ThemeConfig
+  light: lightTheme,
+  dark: darkTheme,
+  midnight: midnightTheme,
+  onyx: onyxTheme,
+  charcoal: charcoalTheme,
+  dracula: draculaTheme,
+  nord: nordTheme,
+  "tokyo-night": tokyoNightTheme,
+  "solarized-dark": solarizedDarkTheme,
+  "catppuccin-mocha": catppuccinMochaTheme,
+  "solarized-light": solarizedLightTheme,
+  sepia: sepiaTheme
 } satisfies Record<string, ThemeConfig>;
 
 export type RegisteredThemeId = keyof typeof themeConfigs;

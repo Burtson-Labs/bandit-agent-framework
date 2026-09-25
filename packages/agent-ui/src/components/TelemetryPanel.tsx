@@ -1,6 +1,6 @@
 import type { CSSProperties, JSX } from "react";
-import { classNames } from "../utils/classNames";
-import type { TelemetrySnapshot } from "../types/ui-schema";
+import { classNames } from "../utils/classNames.js";
+import type { TelemetrySnapshot } from "../types/ui-schema.js";
 
 export interface TelemetryPanelProps {
   telemetry: TelemetrySnapshot;

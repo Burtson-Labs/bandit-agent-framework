@@ -4,7 +4,7 @@ import {
   type BanditTheme,
   type ThemeAppearance,
   type ThemePalette
-} from "./theme-base";
+} from "./theme-base.js";
 
 const tokenMap: Record<keyof ThemePalette, readonly string[]> = {
   background: ["--vscode-editor-background", "--vscode-sideBar-background"],

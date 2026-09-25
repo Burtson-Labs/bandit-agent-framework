@@ -1,7 +1,7 @@
 import { useMemo, type JSX } from "react";
-import type { ChatMessage, ChatMessageContextFile } from "../types/ui-schema";
-import { ChatMessageBubble } from "./ChatMessage";
-import { renderMarkdownToHtml, type MarkdownRenderOptions } from "./MarkdownMessage";
+import type { ChatMessage, ChatMessageContextFile } from "../types/ui-schema.js";
+import { ChatMessageBubble } from "./ChatMessage.js";
+import { renderMarkdownToHtml, type MarkdownRenderOptions } from "./MarkdownMessage.js";
 
 const GROUP_TIME_GAP_MS = 5 * 60 * 1000;
 const ROLE_LABELS: Partial<Record<ChatMessage["role"], string>> = {

@@ -1,2 +1,2 @@
-export * from "./useAgentEvents";
-export * from "./useTelemetry";
+export * from "./useAgentEvents.js";
+export * from "./useTelemetry.js";

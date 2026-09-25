@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import { applyTheme, themePaletteKeys, type BanditTheme } from "./theme-base";
+import { applyTheme, themePaletteKeys, type BanditTheme } from "./theme-base.js";
 import {
   DEFAULT_THEME_ID,
   banditThemes,
   getThemeById,
   type RegisteredThemeId
-} from "./theme-registry";
-import { readVsCodeTheme } from "./vscode-theme";
+} from "./theme-registry.js";
+import { readVsCodeTheme } from "./vscode-theme.js";
 
 const STORAGE_KEY = "bandit-theme-preference";
 const MANUAL_STORAGE_KEY = "bandit-theme-manual";

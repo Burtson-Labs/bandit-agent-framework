@@ -8,7 +8,33 @@
   },
   "description": "UI primitives for the Bandit Agent Framework.",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./styles/*": "./styles/*",
+    "./dist/*.js": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./dist/*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Burtson-Labs/bandit-agent-framework.git",
@@ -25,7 +51,7 @@
   ],
   "scripts": {
     "prebuild": "pnpm -C ../.. --filter @burtson-labs/core-chat build && pnpm -C ../.. --filter @burtson-labs/agent-core build",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.esm.json && node scripts/mark-esm.mjs",
     "dev": "tsc -p tsconfig.build.json --watch",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "clean": "rm -rf dist",

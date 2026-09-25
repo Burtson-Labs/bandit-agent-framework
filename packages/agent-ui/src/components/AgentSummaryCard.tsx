@@ -3,8 +3,8 @@ import type {
   AgentSummaryContextItem,
   AgentSummaryData,
   AgentSummaryFile
-} from "../types/ui-schema";
-import { DiffReviewPanel, type DiffItem } from "./DiffReview";
+} from "../types/ui-schema.js";
+import { DiffReviewPanel, type DiffItem } from "./DiffReview/index.js";
 
 export interface AgentSummaryCardProps {
   data: AgentSummaryData;

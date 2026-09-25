@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { classNames } from "../utils/classNames";
+import { classNames } from "../utils/classNames.js";
 
 const DIFF_META_PATTERN =
   /^(diff --git|index|--- |\+\+\+|rename |similarity |new file|deleted file|\\ No newline)/;

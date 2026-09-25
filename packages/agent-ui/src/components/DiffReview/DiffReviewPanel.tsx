@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { DiffFileGroup } from "./DiffFileGroup";
+import { DiffFileGroup } from "./DiffFileGroup.js";
 
 export interface DiffItem {
   filePath: string;

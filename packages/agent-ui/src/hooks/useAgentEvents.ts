@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent } from "@burtson-labs/agent-core";
-import type { AgentEventSource, AgentUIEventType } from "../types/ui-schema";
+import type { AgentEventSource, AgentUIEventType } from "../types/ui-schema.js";
 
 const DEFAULT_EVENT_TYPES: AgentUIEventType[] = [
   "plan:start",

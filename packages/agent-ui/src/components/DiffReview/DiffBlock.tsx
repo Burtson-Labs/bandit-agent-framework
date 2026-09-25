@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { DiffBlock as BaseDiffBlock } from "../DiffBlock";
+import { DiffBlock as BaseDiffBlock } from "../DiffBlock.js";
 
 export interface DiffReviewBlockProps {
   diffText?: string | null;

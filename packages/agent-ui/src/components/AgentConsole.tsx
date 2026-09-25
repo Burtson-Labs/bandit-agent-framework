@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { JSX, ReactNode } from "react";
 import type { AgentEvent, AgentStep } from "@burtson-labs/agent-core";
-import type { AgentConsoleEntry, StepCompletePayload } from "../types/ui-schema";
-import { classNames } from "../utils/classNames";
+import type { AgentConsoleEntry, StepCompletePayload } from "../types/ui-schema.js";
+import { classNames } from "../utils/classNames.js";
 
 export interface AgentConsoleProps {
   events?: AgentEvent[];

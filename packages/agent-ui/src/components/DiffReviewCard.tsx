@@ -1,6 +1,6 @@
 import type { JSX } from "react";
-import { classNames } from "../utils/classNames";
-import type { DiffReviewPayload } from "../types/ui-schema";
+import { classNames } from "../utils/classNames.js";
+import type { DiffReviewPayload } from "../types/ui-schema.js";
 
 export interface DiffReviewCardProps {
   data: DiffReviewPayload;

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import type { JSX, ReactNode } from "react";
 import type { AgentDiff, AgentEvent, AgentStep } from "@burtson-labs/agent-core";
-import type { DiffStreamEntry } from "../types/ui-schema";
-import { classNames } from "../utils/classNames";
-import { DiffBlock } from "./DiffBlock";
+import type { DiffStreamEntry } from "../types/ui-schema.js";
+import { classNames } from "../utils/classNames.js";
+import { DiffBlock } from "./DiffBlock.js";
 
 interface DiffStreamProps {
   events?: AgentEvent[];

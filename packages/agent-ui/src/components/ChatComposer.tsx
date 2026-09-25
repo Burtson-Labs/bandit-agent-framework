@@ -19,7 +19,7 @@ import {
   XMarkIcon
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
-import type { ChatMessageContextFile } from "../types/ui-schema";
+import type { ChatMessageContextFile } from "../types/ui-schema.js";
 
 export interface ComposerContextAttachment extends ChatMessageContextFile {
   preview?: string;

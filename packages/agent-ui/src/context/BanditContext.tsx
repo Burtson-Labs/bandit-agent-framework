@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { JSX, ReactNode } from "react";
-import { BanditThemeProvider } from "../theme";
+import { BanditThemeProvider } from "../theme/index.js";
 
 export type BanditRuntimeContext = "web" | "vscode";
 
