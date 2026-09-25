@@ -66,7 +66,10 @@ describe('nativeTools gating — every tool-calling model with a built-in profil
     // profile was flipped to native-tools to use it.
     'gemma3:27b',
     'gemma4:26b',
-    'gemma4:31b'
+    'gemma4:31b',
+    // Ollama serves these with a tool template too (checked 2026-09-25).
+    'gemma4:e4b',
+    'gemma4:12b'
   ];
 
   it.each(NATIVE_TOOLS_MODELS)('resolves nativeTools=true for %s on ollama', (modelId) => {
@@ -96,7 +99,7 @@ describe('nativeTools gating — every tool-calling model with a built-in profil
 });
 
 describe('nativeTools gating — text-tools models must NOT route through native-tools regardless of provider', () => {
-  // Small gemma sizes (4b/12b, e2b/e4b) and llama3 base stay on text-tools —
+  // Small gemma3 sizes, gemma4:e2b (unmeasured) and llama3 base stay on text-tools —
   // too small to rely on the native envelope / llama3 base is text-only. The
   // larger gemma3-derived sizes (≥26B) DO advertise native tools and live in
   // NATIVE_TOOLS_MODELS above. These must NEVER flip to native just because
@@ -105,7 +108,6 @@ describe('nativeTools gating — text-tools models must NOT route through native
     'gemma3:4b',
     'gemma3:12b',
     'gemma4:e2b',
-    'gemma4:e4b',
     'llama3',
     'llama3:latest'
   ];
@@ -132,7 +134,7 @@ describe('nativeTools gating — openai-compatible providers gate by capability,
   });
 
   it('still returns false for text-tools models on openai-compatible', () => {
-    expect(gateNativeTools('gemma4:e4b', 'openai-compatible')).toBe(false);
+    expect(gateNativeTools('gemma4:e2b', 'openai-compatible')).toBe(false);
   });
 
   it('still returns false for unknown models on openai-compatible (conservative default)', () => {
@@ -167,23 +169,22 @@ describe('nativeTools gating — unknown models with PROBED tool support default
   });
 
   it('built-in capability profiles are NOT overridden by a probed tools=true cache entry', () => {
-    // gemma4:e4b is excluded from native tools at the CAPABILITY layer:
-    // the built-in caps profile says supportsToolCalling=false (Ollama
-    // doesn't serve tools for the small Gemma sizes), and built-ins win
-    // over the runtime cache. A polluted cache entry claiming tool
+    // gemma4:e2b is excluded from native tools at the CAPABILITY layer
+    // (unmeasured; the built-in caps profile says supportsToolCalling=false),
+    // and built-ins win over the runtime cache. A polluted cache entry claiming tool
     // support must not flip the gate. (The gemma4 family BEHAVIOR
-    // profile prefers native-tools — that's for the ≥26B sizes that do
-    // support it; the capability layer is what keeps e4b on text.)
-    registerModelCapabilities('gemma4:e4b', {
+    // profile prefers native-tools; the capability layer is what keeps
+    // e2b on text.)
+    registerModelCapabilities('gemma4:e2b', {
       contextWindow: 16384,
       supportsJsonMode: true,
       supportsToolCalling: true,
       supportsVision: true,
       tier: 'small',
-      label: 'gemma4:e4b'
+      label: 'gemma4:e2b'
     });
-    expect(getModelCapabilities('gemma4:e4b').supportsToolCalling).toBe(false);
-    expect(gateNativeTools('gemma4:e4b', 'ollama')).toBe(false);
+    expect(getModelCapabilities('gemma4:e2b').supportsToolCalling).toBe(false);
+    expect(gateNativeTools('gemma4:e2b', 'ollama')).toBe(false);
   });
 });
 

@@ -32,6 +32,7 @@ import type { ParsedToolCall } from '../tool-use-parser';
 import type { ToolExecutionContext, ToolResult } from '../tool-types';
 import type { ToolRegistry } from '../tool-registry';
 import { applySecretRedactionIfEnabled } from '../tool-use-parser';
+import { unknownToolMessage } from './toolNameSuggest';
 
 export type DispatchEmit = (type: string, payload?: unknown) => void;
 export type BeforeToolExecuteFn = (
@@ -162,10 +163,18 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
           return lower.endsWith(`.${wanted}`) || lower.endsWith(`__${wanted}`);
         })
         .slice(0, 3);
-      const hint = suggestions.length > 0
-        ? ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}? MCP tools must be called with their server prefix.`
-        : '';
-      return { name: tc.name, output: `Error: tool "${tc.name}" is not registered.${hint}`, isError: true };
+      if (suggestions.length > 0) {
+        const hint = ` Did you mean ${suggestions.map((s) => `"${s}"`).join(' or ')}? MCP tools must be called with their server prefix.`;
+        return { name: tc.name, output: `Error: tool "${tc.name}" is not registered.${hint}`, isError: true };
+      }
+      // Not an MCP bare name: point at the registered tool that does the job
+      // (`edit_file` → `apply_edit`) instead of a dead end the model reads as
+      // "this environment can't edit". See toolNameSuggest.ts.
+      return {
+        name: tc.name,
+        output: unknownToolMessage(tc.name, registry.getAll().map((t) => t.name)),
+        isError: true
+      };
     }
     // Also surface the RAW tool_call block (first 400 chars) so
     // observers can diagnose parser-edge cases. When a param

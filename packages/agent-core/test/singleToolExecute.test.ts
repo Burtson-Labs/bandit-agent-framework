@@ -100,6 +100,21 @@ describe('createToolDispatcher — registry lookup', () => {
     expect(result.output).toContain('not registered');
     expect(emitted.find((e) => e.type === 'tool_loop:tool_not_found')).toBeDefined();
   });
+
+  it('points a foreign tool name at the registered tool that does the job', async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'apply_edit',
+      description: 'edit',
+      parameters: {},
+      execute: async () => ({ output: 'ok' })
+    } as AgentTool);
+    const { deps } = makeDeps({ registry });
+    const dispatch = createToolDispatcher(deps);
+    const result = await dispatch(tc('edit_file', { path: 'README.md' }));
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Use "apply_edit" instead');
+  });
 });
 
 describe('createToolDispatcher — beforeToolExecute gate', () => {

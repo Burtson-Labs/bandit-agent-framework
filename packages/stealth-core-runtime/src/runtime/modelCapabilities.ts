@@ -146,9 +146,15 @@ const BUILT_IN_PROFILES: Array<{ prefix: string; caps: ModelCapabilities }> = [
     prefix: 'gemma4:e2b',
     caps: { contextWindow: 16384, supportsJsonMode: true, supportsToolCalling: false, supportsVision: true, tier: 'small', label: 'Gemma 4 e2B' }
   },
+  // Ollama serves gemma4:e4b and gemma4:12b with a tool template
+  // (`/api/show` → capabilities: tools, checked 2026-09-25), so the
+  // "small Gemmas get no tools" premise no longer holds. Same README-edit
+  // task through the IDE's loop: e4b 7/7 native vs 5/6 text, 12b 5/5
+  // native vs 2/5 text (text failures: malformed `<tool_call name=…>`
+  // XML). e2b is unmeasured and stays on text.
   {
     prefix: 'gemma4:e4b',
-    caps: { contextWindow: 16384, supportsJsonMode: true, supportsToolCalling: false, supportsVision: true, tier: 'small', label: 'Gemma 4 e4B' }
+    caps: { contextWindow: 16384, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'small', label: 'Gemma 4 e4B' }
   },
   {
     prefix: 'gemma4:31b',
@@ -166,7 +172,7 @@ const BUILT_IN_PROFILES: Array<{ prefix: string; caps: ModelCapabilities }> = [
     // budget. Medium is a safer guess; explicit large variants
     // (31b+) match their own prefix above first.
     prefix: 'gemma4',
-    caps: { contextWindow: 32768, supportsJsonMode: true, supportsToolCalling: false, supportsVision: true, tier: 'medium', label: 'Gemma 4' }
+    caps: { contextWindow: 32768, supportsJsonMode: true, supportsToolCalling: true, supportsVision: true, tier: 'medium', label: 'Gemma 4' }
   },
 
   // ── Llama 3.x (text only) ─────────────────────────────────────────────────
