@@ -1,6 +1,6 @@
 {
   "name": "bandit-stealth-cli",
-  "version": "1.7.373",
+  "version": "1.7.374",
   "description": "Bandit — a local-first AI coding agent for your terminal. Unscoped alias for @burtson-labs/bandit-stealth-cli.",
   "keywords": [
     "ai",

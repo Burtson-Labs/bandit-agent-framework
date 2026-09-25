@@ -2,7 +2,7 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
-## Unreleased
+## 1.7.449
 
 - **Approval cards can't answer twice.** A double click or a shortcut followed by Esc sends one decision, and a request you already answered doesn't come back when the extension re-sends it after a reconnect. The choices read as buttons to screen readers, and the deny-notes box has a label.
 - **Question cards are keyboard complete.** Arrow keys, Home and End move between question tabs, each question is labelled for screen readers, and Enter that confirms an IME candidate no longer submits the form.
