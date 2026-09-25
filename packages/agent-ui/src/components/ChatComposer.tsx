@@ -389,6 +389,8 @@ export const ChatComposer = ({
   };
 
   const handleSkillKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    // IME Enter confirms a candidate; it must not select a suggestion or send.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {return;}
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setSkillIndex((i) => Math.min(i + 1, Math.max(orderedSkills.length - 1, 0)));
@@ -430,6 +432,8 @@ export const ChatComposer = ({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
+    // IME Enter confirms a candidate; it must not select a suggestion or send.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {return;}
     // Mention menu takes precedence when visible — same keyboard nav
     // contract as the slash menu (ArrowUp/Down to move, Tab/Enter to
     // complete, Escape to dismiss). Escape just clears the token from
