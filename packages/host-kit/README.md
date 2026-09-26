@@ -14,13 +14,13 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/host-kit
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's in the box
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's in the box
 
 - **Memory loader** — discovers and merges `BANDIT.md` / `CLAUDE.md` / `AGENTS.md` files across workspace + global locations; deduplicates overlapping content at load time; `consolidateMemory()` unifies multiple entry files into a single canonical `BANDIT.md` (symlink on macOS/Linux, copy-with-drift-warning on Windows)
 - **Topic memory** — lazy-load index at `.bandit/memory/MEMORY.md` (preferred) with back-compat reads from legacy root `MEMORY.md`; writes always go to `.bandit/memory/`; `migrateMemoryToBanditDir()` moves an existing root `memory/` layout into `.bandit/memory/` idempotently
@@ -32,7 +32,7 @@ pnpm add @burtson-labs/host-kit
 - **Insights** — usage analytics aggregator (CLI sessions → human report)
 - **Extra tool builders** — `todo_write`, `web_fetch`, `web_search`, `task` (subagent), `remember`, `test_run`, `pdf_read`
 
-## <img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> What you can do
+## <img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> What you can do
 
 **Load and merge project memory** — `BANDIT.md` / `CLAUDE.md` / `AGENTS.md`, deduped:
 
@@ -105,11 +105,11 @@ const traces = await listTurnTraces(cwd);
 console.log(formatTurnTraceMarkdown(await readTurnTrace(cwd, traces[0].id)));
 ```
 
-## <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status
+## <img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status
 
 Stable. Imported by both [`apps/bandit-cli/`](../../apps/bandit-cli/) and [`apps/bandit-stealth/`](../../apps/bandit-stealth/) — breaking changes here require coordinated PRs to both hosts.
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import { loadMemory, expandMentions, registerMcpServersFromDisk } from '@burtson-labs/host-kit';
@@ -119,7 +119,7 @@ const { prompt, images } = await expandMentions(rawUserInput, workspaceCwd);
 const count = await registerMcpServersFromDisk(workspaceCwd, mcpPool);
 ```
 
-## <img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Tests
+## <img src="https://icons.burtson.ai/svg-accent/beaker.svg" width="22" align="absmiddle"> Tests
 
 ```bash
 pnpm --filter @burtson-labs/host-kit test

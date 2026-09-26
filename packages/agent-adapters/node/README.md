@@ -14,19 +14,19 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters-node @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 - `runCommand` / `CommandRunOptions` / `CommandRunResult` — promise-wrapped `child_process.exec` with cwd, env, and timeout knobs
 - Node-targeted `AgentRuntime` factory built on top of `createAgentRuntime` from `agent-core`
 - Step executors that read/write files through `fs/promises`
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import { runCommand } from "@burtson-labs/agent-adapters-node";

@@ -14,13 +14,13 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/stealth-core-runtime @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick start
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick start
 
 `stealth-core-runtime` is the higher-level convenience layer on top of [`@burtson-labs/agent-core`](https://www.npmjs.com/package/@burtson-labs/agent-core) — it ships the provider implementations, the model capabilities + behavior profile catalogs, the task queue for subagents, and the system-prompt builders. Use this when you want CLI / extension parity without re-wiring every piece yourself.
 
@@ -71,7 +71,7 @@ The catalog covers Bandit, Gemma 3 / 4, Qwen 2.5 / 3.6, Llama 3.x, GPT, Claude, 
 | Run on Node host | [`@burtson-labs/agent-adapters-node`](https://www.npmjs.com/package/@burtson-labs/agent-adapters-node) |
 | Run in browser host | [`@burtson-labs/agent-adapters-web`](https://www.npmjs.com/package/@burtson-labs/agent-adapters-web) |
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's in the box
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's in the box
 
 - **Provider implementations** — `OllamaProvider`, `BanditEngineProvider` (cloud), `OpenAIProvider`, plus shape adapters for OpenAI-compatible endpoints
 - **Model capabilities catalog** — `getModelCapabilities(modelId)` returns context window, tool-calling support, vision support, tier, and runtime options for every known model (Bandit, Gemma 3/4, Qwen 2.5/3.6, Llama, GPT, Claude, etc.)
@@ -80,11 +80,11 @@ The catalog covers Bandit, Gemma 3 / 4, Qwen 2.5 / 3.6, Llama 3.x, GPT, Claude, 
 - **Rewrite generator** — small-model-friendly streaming patch emitter, used when the model can't reliably produce `apply_edit` find/replace pairs
 - **System prompt builders** — both CLI and extension variants, with capability-aware branches (vision-on, tool-calling-on, etc.)
 
-## <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status
+## <img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status
 
 Stable. This is the most-tested package in the monorepo after [`@burtson-labs/agent-core`](../agent-core/). Breaking changes need a coordinated PR across both hosts.
 
-## <img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Tests
+## <img src="https://icons.burtson.ai/svg-accent/beaker.svg" width="22" align="absmiddle"> Tests
 
 ```bash
 pnpm --filter stealth-core-runtime test

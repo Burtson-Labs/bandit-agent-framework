@@ -14,13 +14,13 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick start
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick start
 
 `agent-core` is provider-agnostic — pair it with a provider client (`@burtson-labs/agent-adapters-provider` wraps Ollama, OpenAI-compatible endpoints, and the hosted Bandit gateway) and a host-side tool set (`@burtson-labs/host-kit` ships the extras the CLI and extension use). The minimal shape:
 
@@ -53,7 +53,7 @@ The host wires up streaming + auth on the provider; the loop owns iteration, ret
 | Pre-built runtime (CLI + extension parity) | [`@burtson-labs/stealth-core-runtime`](https://www.npmjs.com/package/@burtson-labs/stealth-core-runtime) |
 | React UI for plan / chat / diff / telemetry | [`@burtson-labs/agent-ui`](https://www.npmjs.com/package/@burtson-labs/agent-ui) |
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 | Path | Purpose |
 |---|---|
@@ -66,7 +66,7 @@ The host wires up streaming + auth on the provider; the loop owns iteration, ret
 | `src/security/secretPatterns.ts` | Secret detection + `redactSecretsString` (used everywhere user/tool text is surfaced). |
 | `src/telemetry/otlpExporter.ts` | Opt-in, SDK-less OTLP exporter (`TelemetryExporter`, `resolveTelemetryConfig`). Host-agnostic (Web Crypto + `fetch`); maps a turn to a trace + token/TTFT/duration metrics. Shared by the CLI and IDE host. |
 
-## <img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Running tests
+## <img src="https://icons.burtson.ai/svg-accent/beaker.svg" width="22" align="absmiddle"> Running tests
 
 ```bash
 pnpm --filter @burtson-labs/agent-core test
@@ -92,13 +92,13 @@ The suite is split across **synthetic contract tests** (one file per detector cl
 
 When you see a weird agent behavior in a real run, drop the turn-log fixture into the test suite so a future loop change can't silently regress it. **See [test/fixtures/turns/README.md](test/fixtures/turns/README.md)** for the full guide — replay-completeness limits, naming conventions, what to assert, and a copy-paste test template.
 
-## <img src="https://api.iconify.design/lucide/book-open.svg?color=%23a60ee5&width=22" align="absmiddle"> Conventions
+## <img src="https://icons.burtson.ai/svg-accent/book-open.svg" width="22" align="absmiddle"> Conventions
 
 - **Every detector is one-shot per turn.** Each `tool_loop:*_nudge` event fires at most once before the loop terminates or the model recovers. Adding a new detector means adding the gate flag + a contract test.
 - **Constructor options must flow through to runtime.** `ToolUseLoopOptions` set at construction time apply to every `runWithMessages` call. The merge happens in `runWithMessages` — see `effectiveOptions = { ...defaultOptions, ...perCall }`. New options need a corresponding entry in [test/constructorOptionsContract.test.ts](test/constructorOptionsContract.test.ts) (the file's exhaustiveness check fails build if you forget).
 - **Helpers go in `test/_helpers.ts`; the replay harness in `test/_replay.ts`.** Both file names start with `_` so they're excluded from vitest's `test/**/*.test.ts` glob.
 
-## <img src="https://api.iconify.design/lucide/network.svg?color=%23a60ee5&width=22" align="absmiddle"> Position in the framework
+## <img src="https://icons.burtson.ai/svg-accent/network.svg" width="22" align="absmiddle"> Position in the framework
 
 ```
 [host: VS Code extension or CLI]

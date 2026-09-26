@@ -14,20 +14,20 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters-provider @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 - `ProviderClient` — base provider abstraction consumed by `agent-core`'s tool-use loop
 - `DeterministicProviderClient` — replay-friendly client for tests and trace fixtures
 - `ProviderChatOptions` — normalized request shape across providers
 - A polyfilled `TextDecoder` fallback for runtimes that don't ship one (some constrained worker environments)
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import { DeterministicProviderClient } from "@burtson-labs/agent-adapters-provider";

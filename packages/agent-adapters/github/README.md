@@ -14,20 +14,20 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters-github @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 - `GithubAdapterOptions` — extends `CreateAgentRuntimeOptions` with `repository`, `headSha`, and `workflowName`
 - `GithubCheckRunPayload` — the shape POSTed to the GitHub `/check-runs` endpoint after a planned run
 - `GithubCheckRunOutput` — title / summary / text fields that render in the workflow UI
 - An adapter that maps agent plan + execution + report into a single check-run payload
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import { createGithubAdapter } from "@burtson-labs/agent-adapters-github";

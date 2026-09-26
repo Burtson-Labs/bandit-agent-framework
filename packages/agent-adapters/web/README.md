@@ -14,19 +14,19 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters-web @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 - `WebAdapter` — wraps an `AgentRuntime` with `plan` / `execute` / `report` plus a `subscribe(listener)` returning an unsubscribe function
 - `WebAdapterOptions` — extends `CreateAgentRuntimeOptions` with `target` (custom `EventTarget`) and `eventName` for the dispatched event type
 - `MinimalEventTarget` — structural type for hosts that ship a partial event target (workers, custom impls)
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import { createWebAdapter } from "@burtson-labs/agent-adapters-web";

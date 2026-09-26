@@ -14,7 +14,7 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-ui
@@ -22,7 +22,7 @@ pnpm add @burtson-labs/agent-ui
 
 Peer-depends on React 19, MUI 7, and emotion — the host app provides them. The runtime side (the event stream the components consume) comes from [`@burtson-labs/agent-core`](https://www.npmjs.com/package/@burtson-labs/agent-core) or the pre-wired [`@burtson-labs/stealth-core-runtime`](https://www.npmjs.com/package/@burtson-labs/stealth-core-runtime).
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick start
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick start
 
 Components are pure — they consume props and don't reach for any host. Import the CSS once at your app root, then drop components in:
 
@@ -69,11 +69,11 @@ Import from the package root. `import` resolves to an ES module build and the pa
 | `TaskList` | Compact list of in-flight + recent agent runs |
 | `BackgroundTaskTile` | Live tile for a subagent the parent turn spawned |
 
-## <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status
+## <img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status
 
 Stable. Used by the Bandit Stealth web app, the Bandit VS Code extension webview, and a mock-driven dev workbench. Breaking changes need a coordinated PR across the consumers.
 
-## <img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> Authoring a new component
+## <img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> Authoring a new component
 
 Components live under `src/components/`. Each one should:
 

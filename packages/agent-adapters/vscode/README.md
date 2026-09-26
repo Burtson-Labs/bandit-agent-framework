@@ -14,20 +14,20 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters-vscode @burtson-labs/agent-core
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's inside
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's inside
 
 - `VscodeLike` — minimal structural type for the `vscode` namespace so the adapter compiles outside a real extension host (useful in tests)
 - `VscodeAdapterFs` — `workspace.fs` shim used by step executors that read/write files
 - An adapter that streams `AgentEvent`s through `postMessage` so the webview can render plan + diff + log timelines
 - `Buffer` import comes from the `buffer` package so the adapter runs in the extension's Node host without relying on globals
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import * as vscode from "vscode";

@@ -14,13 +14,13 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/agent-adapters
 ```
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What's here
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What's here
 
 | Subdir | What |
 |---|---|
@@ -30,11 +30,11 @@ pnpm add @burtson-labs/agent-adapters
 | `web/` | Browser-runtime shims (used by the standalone web UI and the extension webview) |
 | `node/` | Node.js-runtime shims (filesystem, child_process) |
 
-## <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status
+## <img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status
 
 Stable. Adding a new provider goes here; adding a new tool generally does NOT (that's [`@burtson-labs/agent-core`](../agent-core/) or [`@burtson-labs/host-kit`](../host-kit/)).
 
-## <img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> When to extend this package
+## <img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> When to extend this package
 
 - **New LLM provider** — add a class under `provider/` that implements the `ChatProvider` shape from `@burtson-labs/agent-core`. See `OllamaProvider` for the reference implementation.
 - **New embedding backend** — same pattern under `provider/`. Embedding adapters are simpler — single method, deterministic output.

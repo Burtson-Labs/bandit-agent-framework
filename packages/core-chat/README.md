@@ -14,17 +14,17 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 pnpm add @burtson-labs/core-chat
 ```
 
-## <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status
+## <img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status
 
 Stable. The type surface is intentionally narrow; expanding it requires coordinated PRs across the hosts that consume it (CLI, VS Code extension, web UI).
 
-## <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example
+## <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example
 
 ```ts
 import type { ChatMessage } from '@burtson-labs/core-chat';

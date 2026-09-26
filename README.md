@@ -18,7 +18,7 @@
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
   [![CI](https://github.com/Burtson-Labs/bandit-agent-framework/actions/workflows/pr-checks.yaml/badge.svg)](https://github.com/Burtson-Labs/bandit-agent-framework/actions/workflows/pr-checks.yaml)
 
-  **<img src="https://api.iconify.design/lucide/book-open.svg?color=%23a60ee5&width=16" align="absmiddle"> Full documentation: [docs.burtson.ai](https://docs.burtson.ai)**
+  **<img src="https://icons.burtson.ai/svg-accent/book-open.svg" width="16" align="absmiddle"> Full documentation: [docs.burtson.ai](https://docs.burtson.ai)**
 
 </div>
 
@@ -71,7 +71,7 @@ Search **Bandit Stealth** in the Extensions panel, install, and open the side pa
 
 ## Features
 
-### <img src="https://api.iconify.design/lucide/brain.svg?color=%23a60ee5&width=22" align="absmiddle"> Skills that auto-activate
+### <img src="https://icons.burtson.ai/svg-accent/sparkles.svg" width="22" align="absmiddle"> Skills that auto-activate
 
 Drop a markdown skill into `.bandit/skills/` and it loads on the next turn.
 Skills are context packages — YAML frontmatter for metadata, a markdown body
@@ -93,7 +93,7 @@ Run `/skills` inside the REPL for the full list with descriptions and tool sets.
 See [examples/skills/README.md](examples/skills/README.md) for the authoring guide
 and copy-paste starters.
 
-### <img src="https://api.iconify.design/lucide/notebook-pen.svg?color=%23a60ee5&width=22" align="absmiddle"> Project memory
+### <img src="https://icons.burtson.ai/svg-accent/notebook-pen.svg" width="22" align="absmiddle"> Project memory
 
 Drop a `BANDIT.md`, `CLAUDE.md`, or `AGENTS.md` at the workspace root — the
 agent auto-loads it into the system prompt so it learns your conventions
@@ -159,7 +159,7 @@ file (capped at 32 KB).
 This repo's own [`BANDIT.md`](BANDIT.md) is the reference implementation of
 the always-loaded half.
 
-### <img src="https://api.iconify.design/lucide/search.svg?color=%23a60ee5&width=22" align="absmiddle"> File mentions
+### <img src="https://icons.burtson.ai/svg-accent/search.svg" width="22" align="absmiddle"> File mentions
 
 Prefix a path with `@` in any prompt and the CLI inlines the file contents before the model sees it:
 
@@ -169,7 +169,7 @@ Prefix a path with `@` in any prompt and the CLI inlines the file contents befor
 
 Up to 8 mentions per prompt, 64 KB each, auto-truncated.
 
-### <img src="https://api.iconify.design/lucide/save.svg?color=%23a60ee5&width=22" align="absmiddle"> Session persistence
+### <img src="https://icons.burtson.ai/svg-accent/save.svg" width="22" align="absmiddle"> Session persistence
 
 Every REPL session is saved as JSONL under `~/.bandit/sessions/`. Resume anytime:
 
@@ -180,11 +180,11 @@ bandit --resume 20260419-124501-ab3c
 › /session resume 20260419-124501-ab3c
 ```
 
-### <img src="https://api.iconify.design/lucide/list-todo.svg?color=%23a60ee5&width=22" align="absmiddle"> In-agent todos
+### <img src="https://icons.burtson.ai/svg-accent/list-checks.svg" width="22" align="absmiddle"> In-agent todos
 
 The agent can call `todo_write` to track multi-step work. Useful for longer tasks — the model sees its own plan and checks off steps as it finishes them.
 
-### <img src="https://api.iconify.design/lucide/globe.svg?color=%23a60ee5&width=22" align="absmiddle"> Web fetch and search
+### <img src="https://icons.burtson.ai/svg-accent/globe.svg" width="22" align="absmiddle"> Web fetch and search
 
 `web_fetch <url>` pulls docs, RFCs, release notes directly into the conversation.
 HTML is stripped to readable text, 16 KB cap, no auth. SSRF-guarded — refuses
@@ -195,7 +195,7 @@ to hit RFC1918, loopback, or cloud-metadata addresses unless
 `TAVILY_API_KEY`). The model gets titles, URLs, and short content blurbs — it can
 follow up with `web_fetch` on a result when it needs the full page.
 
-### <img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Slash commands (REPL)
+### <img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Slash commands (REPL)
 
 | Command | Does |
 |---|---|
@@ -211,7 +211,7 @@ follow up with `web_fetch` on a result when it needs the full page.
 | `/insights` | Generate a local HTML report that synthesizes sessions + turn logs into cross-repo wins, tool stats, and friction |
 | `/exit` | Quit |
 
-### <img src="https://api.iconify.design/lucide/scissors.svg?color=%23a60ee5&width=22" align="absmiddle"> Unified-diff approval gate
+### <img src="https://icons.burtson.ai/svg-accent/scissors.svg" width="22" align="absmiddle"> Unified-diff approval gate
 
 Every file edit (`write_file`, `apply_edit`, `replace_range`, `apply_patch`) goes through the approval gate. The CLI and extension show a compact diff before touching disk:
 
@@ -263,7 +263,7 @@ asking. For unattended CI where nothing should prompt, set
 
 For large files, `read_file` paginates with line numbers and a `shown_hash`. The agent can call `replace_range` with `start_line`, `end_line`, replacement `content`, and optional `expected_hash` copied from `read_file` to land a method/component-sized refactor without resending the whole file or a giant exact-match string.
 
-### <img src="https://api.iconify.design/lucide/webhook.svg?color=%23a60ee5&width=22" align="absmiddle"> Hooks
+### <img src="https://icons.burtson.ai/svg-accent/webhook.svg" width="22" align="absmiddle"> Hooks
 
 Drop `.bandit/settings.json` in any project:
 
@@ -281,7 +281,7 @@ Drop `.bandit/settings.json` in any project:
 - `{{name}}`, `{{primary}}`, `{{duration}}` are expanded at call time.
 - A non-zero exit from a `PreToolUse` hook prints a warning (but doesn't yet abort — planned).
 
-### <img src="https://api.iconify.design/lucide/chart-line.svg?color=%23a60ee5&width=22" align="absmiddle"> Insights — local-only activity report
+### <img src="https://icons.burtson.ai/svg-accent/activity.svg" width="22" align="absmiddle"> Insights — local-only activity report
 
 `/insights` (CLI) or **Bandit Stealth: Open Insights** (IDE) generates a single self-contained HTML file from your local session and turn-log data — no server, no external resources, no telemetry, opens in any browser, sharable as one file. The report synthesizes how you and the agent have actually been working over time, broken into panels:
 
@@ -297,25 +297,25 @@ Drop `.bandit/settings.json` in any project:
 
 Data sources are all local: `~/.bandit/sessions/*.jsonl` (every REPL session) + `<cwd>/.bandit/turns/*.jsonl` (per-turn telemetry for the current workspace). The report writes to `~/.bandit/insights.html` by default. The AI summary is the only path that touches a model — disable it with `insightsAiConsent: deny` in `~/.bandit/config.json` (or the equivalent setting in the IDE) for a fully offline report.
 
-### <img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> Native tool calling (when the model supports it)
+### <img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> Native tool calling (when the model supports it)
 
 The runtime checks each model's built-in capability profile first (`bandit-logic`, the Qwen 3.6 family, Qwen 2.5 / 2.5-Coder, Llama 3.1+, Devstral, the bandit-core ≥12B fine-tunes) and routes tool schemas through Ollama's `tools:` field instead of the XML system-prompt block. Saves ~1.5–3 KB per turn and removes a whole class of "the model forgot the envelope" failures. Gemma 3 / Gemma 4 and other text-only families fall back to the XML protocol with the full mitigation stack armed. As of v1.7.340, the dispatch is gated on the built-in profile so an Ollama auto-detect glitch can't silently downgrade a tool-calling model — and the same retry ladder (3 native attempts → text channel switch → 3 text attempts → outer-text-retry → 3 more attempts → final-anchor re-prompt) protects every native-tools turn from transient gateway blips.
 
-### <img src="https://api.iconify.design/lucide/plug.svg?color=%23a60ee5&width=22" align="absmiddle"> Model Context Protocol — both directions
+### <img src="https://icons.burtson.ai/svg-accent/plug.svg" width="22" align="absmiddle"> Model Context Protocol — both directions
 
 Bandit speaks MCP as a **client** and a **server**. Drop any MCP server (filesystem, GitHub, Slack, GitLab, Gmail, Postgres, your own) into `~/.bandit/mcp-servers.json` or `<workspace>/.bandit/mcp-servers.json` and its tools surface as `<server>.<tool>` alongside the native ones. Stdio (`command`/`args`/`env`) and remote Streamable HTTP (`url` + `auth`, including `auth: "bandit"` for the hosted gateway) both supported as of v1.7.333. First spawn of any server requires user approval; "Always allow" persists a fingerprint to `~/.bandit/mcp-trust.json`. Connector wizards in the IDE Settings → Connections for GitHub/Slack/GitLab/Gmail/Custom; CLI parity via `/mcp add github <token>` etc.
 
 `bandit mcp serve` turns the CLI into an MCP server exposing the native tool surface over stdio — any MCP client (Claude Desktop, Cursor, Cline, Continue) can drive Bandit's tools through the standard JSON-RPC envelope. `--read-only` strips write/exec tools for view-only clients.
 
-### <img src="https://api.iconify.design/lucide/mic.svg?color=%23a60ee5&width=22" align="absmiddle"> Voice — pluggable providers, independent of chat
+### <img src="https://icons.burtson.ai/svg-accent/mic.svg" width="22" align="absmiddle"> Voice — pluggable providers, independent of chat
 
 Speech-to-text and text-to-speech are configured separately from the chat provider. Run Ollama locally for chat and pair it with whichever voice setup matches your privacy / cost / latency preference. STT: Bandit cloud, OpenAI-compatible Whisper (faster-whisper-server, whisper.cpp HTTP, OpenAI, LiteLLM), or any custom multipart endpoint. TTS: Bandit cloud, OpenAI (`tts-1` / `tts-1-hd`), ElevenLabs, a local Piper HTTP server, or any custom URL. Local-only setups (Ollama + self-hosted Whisper + Piper) work without a cloud account.
 
-### <img src="https://api.iconify.design/lucide/workflow.svg?color=%23a60ee5&width=22" align="absmiddle"> Mid-turn queue + background subagents
+### <img src="https://icons.burtson.ai/svg-accent/workflow-branch.svg" width="22" align="absmiddle"> Mid-turn queue + background subagents
 
 Type a follow-up while the agent is still working and it queues (`queued: N · sends after this turn` in the status row); Esc cancels the run and clears the queue. The agent can spawn background subagents for long investigations and keep iterating in the foreground — when a subagent finishes, its synopsis injects into the parent's next iteration instead of forcing a `check_task` poll loop (v1.7.336+). Inspect with `/tasks`, cancel with `/tasks cancel <id>`. Stop cascades to all in-flight subagents (v1.7.338).
 
-### <img src="https://api.iconify.design/lucide/palette.svg?color=%23a60ee5&width=22" align="absmiddle"> UI/UX polish
+### <img src="https://icons.burtson.ai/svg-accent/palette.svg" width="22" align="absmiddle"> UI/UX polish
 
 - ANSI color, box-drawn headers, "shifty eyes" spinner with a breathing glow on truecolor terminals
 - Clean `→ tool-name arg` tool-call lines with `✦ using skill: …` markers

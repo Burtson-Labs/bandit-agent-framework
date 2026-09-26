@@ -14,7 +14,7 @@
 
 ---
 
-## <img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> Available skills
+## <img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> Available skills
 
 | File | Triggers on | Tools |
 |------|-------------|-------|
@@ -22,7 +22,7 @@
 | [rust.json](./rust.json) | `.rs` files, `cargo *`, `clippy`, `rustfmt`, `rust` | `cargo_check`, `cargo_test`, `cargo_clippy`, `cargo_fmt_check` |
 | [python.json](./python.json) | `.py` files, `pytest`, `mypy`, `ruff`, `python` | `py_ruff`, `py_mypy`, `py_pytest`, `py_black_check` |
 
-## <img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install
+## <img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install
 
 ```bash
 mkdir -p .bandit/skills
@@ -31,7 +31,7 @@ cp path/to/bandit-agent-framework/examples/skills/go.json .bandit/skills/
 
 Restart the agent / reload the window and ask something like *"run go vet on ./..."* — the skill activates and the agent calls `go_vet` for you.
 
-## <img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> Authoring your own
+## <img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> Authoring your own
 
 A skill manifest is a JSON file with:
 
