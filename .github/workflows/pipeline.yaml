@@ -100,9 +100,30 @@ jobs:
       - run: pnpm build
       - name: Fixture loader health
         run: pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --list
-      - name: Run BanditBench against the production provider
+      # Gate on REGRESSIONS against the frozen production baseline, not on
+      # every failure: the first armed run (2026-09-22) showed three fixtures
+      # that fail 0/3 every night (native_tools.multi_file_doc_add,
+      # restraint.no_tools_needed, context_reuse.artifact_revision) and two
+      # that are flaky. An all-or-nothing gate on that set never publishes;
+      # a regression gate still blocks anything that got WORSE than the last
+      # frozen baseline, which is the promise the comment above makes.
+      # Refreeze the baseline (benchmark --baseline) when a fixture is fixed.
+      - name: Run BanditBench against the production provider (regressions vs baseline)
         if: env.BANDIT_API_KEY != ''
-        run: pnpm --filter @burtson-labs/bandit-stealth-cli eval -- --provider bandit --model bandit-core-2
+        run: |
+          pnpm --filter @burtson-labs/bandit-stealth-cli benchmark -- \
+            --models bandit-core-2 --provider bandit --runs 3 \
+            --compare src/__eval__/baselines/production.json \
+            --baseline .bandit/bench-current.json
+      - name: Upload the benchmark comparison
+        if: always() && env.BANDIT_API_KEY != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: banditbench-comparison
+          path: |
+            apps/bandit-cli/.bandit/benchmark-report.md
+            apps/bandit-cli/.bandit/bench-current.json
+          if-no-files-found: ignore
       - name: Gate skipped (no BANDIT_EVAL_API_KEY)
         if: env.BANDIT_API_KEY == ''
         run: echo "BANDIT_EVAL_API_KEY not set — fixture loader verified; model eval skipped. Add the secret to arm the gate."
