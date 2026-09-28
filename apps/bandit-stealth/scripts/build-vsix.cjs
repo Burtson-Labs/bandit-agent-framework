@@ -88,31 +88,24 @@ function copyWorkspace(source, destination) {
 console.log('Copying workspace files into staging directory...');
 copyWorkspace(packageRoot, deployDir);
 
-console.log('Copying existing node_modules...');
-const sourceNodeModules = path.join(packageRoot, 'node_modules');
-if (!existsSync(sourceNodeModules)) {
-  throw new Error('node_modules not found. Run pnpm install before packaging.');
-}
-// dereference: true follows pnpm's symlinks during the copy so the
-// staging tree contains real files instead of relative-path symlinks
-// that would dangle once VS Code unpacks the VSIX into
-// ~/.vscode/extensions. Observed 2026-04-29: the MCP SDK (added in
-// v1.7.103) requires `zod/v3`; with dereference: false the SDK's
-// nested zod symlink ended up dangling at install time and extension
-// activation crashed with MODULE_NOT_FOUND. Cost: a few MB of duplicated
-// transitive deps. Worth it — the alternative is hand-deploying the
-// dependency graph.
-cpSync(sourceNodeModules, path.join(deployDir, 'node_modules'), { recursive: true, dereference: true });
+// node_modules is deliberately NOT copied. Since 1.7.450 the extension host is
+// a single esbuild bundle (scripts/bundle-extension.cjs → out/extension.js)
+// with the @burtson-labs/* workspace packages, the MCP SDK, TypeScript and
+// zod inlined; only `vscode` and Node built-ins are required at runtime.
+// The previous approach — copying pnpm's symlinked node_modules with
+// dereference: true — shipped 1.7.448 with an EMPTY node_modules/@burtson-labs,
+// and the extension failed to activate on every clean install
+// ("Cannot find module '@burtson-labs/agent-adapters-vscode'").
 
 const deployedPackageJson = path.join(deployDir, 'package.json');
 const deployedPackage = JSON.parse(readFileSync(deployedPackageJson, 'utf8'));
-if (deployedPackage.scripts?.['vscode:prepublish']) {
-  delete deployedPackage.scripts['vscode:prepublish'];
-  if (deployedPackage.scripts && Object.keys(deployedPackage.scripts).length === 0) {
-    delete deployedPackage.scripts;
-  }
-  writeFileSync(deployedPackageJson, JSON.stringify(deployedPackage, null, 2));
-}
+// Everything runtime is inside the bundle, so the published manifest lists no
+// dependencies at all — in particular no `workspace:*` entries, which only
+// resolve inside this monorepo and which vsce would otherwise copy verbatim.
+delete deployedPackage.dependencies;
+delete deployedPackage.devDependencies;
+delete deployedPackage.scripts;
+writeFileSync(deployedPackageJson, JSON.stringify(deployedPackage, null, 2));
 
 console.log('Packaging VSIX...');
 const preFlag = options.preRelease ? '--pre-release ' : '';
@@ -128,32 +121,15 @@ run(
   deployDir
 );
 
-console.log('Injecting node_modules into VSIX...');
-// Pure-Node zip round trip via adm-zip. Replaces a previous shell-out
-// to system `unzip` + `zip -qrX` because:
-//   1. The minimal ARC self-hosted runner image doesn't ship them.
-//   2. Even with them installed, Linux `zip` adds Unix extra fields
-//      (UID/GID, extended timestamps) that Open VSX's strict
-//      validator rejects with "unsupported extra fields." VS Code
-//      Marketplace tolerated them but Open VSX never has.
-// adm-zip writes a minimal zip without those extra fields, so the
-// resulting VSIX passes both registries' validators. Same VSIX
-// structure as before — we unpack, splice node_modules into the
-// `extension/` folder, then re-pack at the same output path.
+console.log('Setting file modes in VSIX...');
+// Pure-Node zip round trip via adm-zip (system `zip` adds Unix extra fields
+// that Open VSX's validator rejects). We unpack, fix the recorder binaries'
+// mode bits, and re-pack at the same output path.
 const AdmZip = require('adm-zip');
 const inputZip = new AdmZip(vsixPath);
 rmSync(unpackDir, { recursive: true, force: true });
 mkdirSync(unpackDir, { recursive: true });
 inputZip.extractAllTo(unpackDir, /* overwrite */ true);
-
-// Same dereference reasoning as the deploy-dir copy above: ship real
-// files into the VSIX so the installed extension's transitive deps
-// (e.g. zod nested under @modelcontextprotocol/sdk) don't end up as
-// dangling pnpm symlinks.
-cpSync(path.join(deployDir, 'node_modules'), path.join(unpackDir, 'extension', 'node_modules'), {
-  recursive: true,
-  dereference: true
-});
 
 const outputZip = new AdmZip();
 outputZip.addLocalFolder(unpackDir);
@@ -184,3 +160,6 @@ outputZip.writeZip(vsixPath);
 rmSync(unpackDir, { recursive: true, force: true });
 
 console.log(`VSIX written to ${vsixPath}`);
+
+// Refuse to hand over a package that would fail on a clean install.
+run(`node "${path.join(packageRoot, 'scripts', 'verify-vsix.cjs')}" "${vsixPath}"`, packageRoot);

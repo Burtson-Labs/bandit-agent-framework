@@ -278,6 +278,17 @@ jobs:
       - name: Build VSIX
         working-directory: apps/bandit-stealth
         run: pnpm run build:vsix
+      # 1.7.448 shipped with an empty node_modules and failed to activate on
+      # every clean install. The extension is now one bundle; this refuses a
+      # package that still carries `workspace:*`, node_modules, or an
+      # unbundled require, before anything is released or published.
+      - name: Verify the VSIX is self-contained
+        working-directory: apps/bandit-stealth
+        run: |
+          pnpm run verify:vsix
+          if unzip -p bandit-stealth.vsix extension/package.json | grep -q 'workspace:'; then
+            echo '::error::extension/package.json still contains workspace: dependencies'; exit 1
+          fi
       # ─── Release path (tag-only) ──────────────────────────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

@@ -208,6 +208,9 @@ importers:
       adm-zip:
         specifier: '>=0.6.0 <0.7.0'
         version: 0.6.1
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
       eslint:
         specifier: ^9.39.1
         version: 9.39.1

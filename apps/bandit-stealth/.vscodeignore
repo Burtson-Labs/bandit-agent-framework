@@ -10,4 +10,18 @@ dist/**
 out/test/**
 # Recorder source — only the built binary under media/recorders/ ships.
 native/**
-!node_modules/**
+# The extension host is one bundle (scripts/bundle-extension.cjs → out/extension.js);
+# nothing is loaded from node_modules at runtime and no source ships. Only
+# src/python/bandit_agent.py is read by path at runtime.
+node_modules/**
+out/**
+!out/extension.js
+src/**
+!src/python/**
+test/**
+webview/**
+scripts/**
+tsconfig*.json
+vitest.config.ts
+eslint.config.*
+.eslintrc*

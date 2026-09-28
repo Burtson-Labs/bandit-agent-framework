@@ -4,6 +4,10 @@ All notable changes to **Bandit Stealth** are listed here. Versions follow the e
 
 ## Unreleased
 
+## 1.7.450
+
+- **The extension activates again on a clean install.** 1.7.448 reached the Marketplace with an empty `node_modules` and failed on `Cannot find module '@burtson-labs/agent-adapters-vscode'`, so the panel stayed blank. The extension host is now one bundled file with no runtime dependencies; the build refuses to package anything that still needs `node_modules`, and CI checks the VSIX before it is published.
+
 - **Gemma 4 e4b and 12b use native tool calls in Ollama.** Both models now get tools through Ollama's tool channel instead of the text protocol, which finished the same edit task more often in testing (e4b 7/7 vs 5/6, 12b 5/5 vs 2/5). Gemma 4 e2b stays on text.
 - **A wrong tool name points at the right tool.** When a model calls a tool Bandit doesn't have, such as `edit_file`, the error names the matching tool (`apply_edit`) or the closest match instead of only saying the tool is unknown.
 
