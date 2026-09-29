@@ -169,6 +169,19 @@ describe('false-completion detector (tool_loop:false_completion_nudge)', () => {
 });
 
 describe('partial-completion detector (tool_loop:partial_completion_nudge)', () => {
+  it('does not count published artifact URLs as extra file edits', async () => {
+    const registry = new ToolRegistry();
+    registry.register(buildWriteFileTool({ writes: 0 }));
+    const final = 'Created `report.md`. Artifact: https://stealth.banditailabs.com/artifacts?a=owner%2Fid-report.md';
+    const { chat, recorder } = buildMockChat((turn) => turn === 1
+      ? '<tool_call>{"name":"write_file","params":{"path":"report.md","content":"report"}}</tool_call>'
+      : final);
+    const { events, emit } = buildEmitRecorder();
+    const result = await new ToolUseLoop(registry, testCtx, { emitEvent: emit }).run('Create a report.', chat);
+    expect(result.finalResponse).toBe(final);
+    expect(recorder.callCount).toBe(2);
+    expect(events.some((e) => e.type === 'tool_loop:partial_completion_nudge')).toBe(false);
+  });
   it('fires when model references more files than actually edited', async () => {
     const captured = { writes: 0 };
     const registry = new ToolRegistry();

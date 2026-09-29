@@ -499,6 +499,14 @@ describe('narrate-but-no-action terminal annotator (loop.run finalResponse)', ()
     expect(result.finalResponse).toMatch(/Re-prompt with the same request/);
   });
 
+  it('does not label a completed artifact plus optional follow-up as a stalled action', async () => {
+    const final = 'Done. Published the SVG. If you want an external share link, a second diagram zooming into the tool-use loop, or the diagram embedded in a PDF report, let me know.';
+    const { chat, recorder } = buildMockChat(() => final);
+    const result = await new ToolUseLoop(new ToolRegistry(), testCtx).run('Explain the available artifact.', chat);
+    expect(result.finalResponse).toBe(final);
+    expect(recorder.callCount).toBe(1);
+  });
+
   it('does NOT annotate a normal final answer that happens to contain "let me know" or other false-positive phrases', async () => {
     // Regression guard: NARRATE_VERB_RE doesn't include "know",
     // "thank", "happy", etc., so a closing "Let me know if you'd

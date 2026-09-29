@@ -154,7 +154,9 @@ export interface ToolUseLoopOptions {
    * Hard cap on total tool calls executed across the full turn.
    * Independent of `maxIterations` because a single iteration can fire
    * many calls in parallel. Hitting this terminates the loop with
-   * `hitLimit: true`. Default 60.
+   * `hitLimit: true`. By default the budget covers every iteration's
+   * parallel batch (at least 60 calls) and grows with healthy-progress
+   * iteration extensions. An explicit value is a hard, non-extending cap.
    */
   maxTotalTools?: number;
   /**
@@ -358,7 +360,7 @@ export class ToolUseLoop {
     const beforeToolExecute = effectiveOptions.beforeToolExecute ?? this.defaultBeforeToolExecute;
     const signal = effectiveOptions.signal;
     const maxParallelTools = Math.max(1, effectiveOptions.maxParallelTools ?? 8);
-    const maxTotalTools = Math.max(1, effectiveOptions.maxTotalTools ?? 60);
+    let maxTotalTools = Math.max(1, effectiveOptions.maxTotalTools ?? Math.max(60, max * maxParallelTools));
     const outputBudgetTokens = effectiveOptions.outputBudgetTokens ?? Infinity;
     const outputBudgetRatio = effectiveOptions.outputBudgetRatio ?? 0.6;
     let totalToolsExecuted = 0;
@@ -830,13 +832,17 @@ export class ToolUseLoop {
         if (canExtend) {
           const prevMax = max;
           max += CAP_EXTENSION_SIZE;
+          if (effectiveOptions.maxTotalTools === undefined) {
+            maxTotalTools = Math.max(maxTotalTools, max * maxParallelTools);
+          }
           iterationCapExtensions++;
           emit('tool_loop:iteration_cap_extended', {
             iteration: iterations,
             previousMax: prevMax,
             newMax: max,
             extension: iterationCapExtensions,
-            hardCap
+            hardCap,
+            maxTotalTools
           });
           // Drop a single-sentence nudge so the model knows the budget
           // grew and tightens up. Without this it might keep its
@@ -866,7 +872,7 @@ export class ToolUseLoop {
       }
       if (totalToolsExecuted >= maxTotalTools && !hitLimit) {
         hitLimit = true;
-        emit('tool_loop:total_tool_cap', { iteration: iterations, totalToolsExecuted });
+        emit('tool_loop:total_tool_cap', { iteration: iterations, totalToolsExecuted, maxTotalTools });
         messages.push({
           role: 'user',
           content:
@@ -1326,7 +1332,7 @@ export class ToolUseLoop {
       // session ended with zero work shipped. Missing a verb here =
       // silent stall = user has to re-prompt manually. Cheap to add.
       const NARRATE_VERB_RE = /\b(use|uses|used|using|call|calls|called|calling|invoke|invokes|invoked|invoking|execute|executes|executed|executing|run|runs|running|ran|search|searches|searched|searching|look|looks|looked|looking|read|reads|reading|check|checks|checked|checking|find|finds|finding|found|list|lists|listed|listing|fetch|fetches|fetched|fetching|grep|greps|grepped|grepping|explore|explores|explored|exploring|locate|locates|located|locating|plan|plans|planned|planning|start|starts|started|starting|begin|begins|began|beginning|create|creates|created|creating|write|writes|wrote|writing|rewrite|rewrites|rewrote|rewriting|rewritten|build|builds|built|building|rebuild|rebuilds|rebuilt|rebuilding|update|updates|updated|updating|implement|implements|implemented|implementing|refactor|refactors|refactored|refactoring|redesign|redesigns|redesigned|redesigning|design|designs|designed|designing|generate|generates|generated|generating|scaffold|scaffolds|scaffolded|scaffolding|set\s+up|setting\s+up|tackle|tackles|tackled|tackling|do|does|did|doing|make|makes|made|making|batch|batches|batched|batching|execute|prepare|prepares|prepared|preparing|draft|drafts|drafted|drafting|outline|outlines|outlined|outlining|organize|organizes|organized|organizing|structure|structures|structured|structuring|kick\s+off|kicking\s+off|fix|fixes|fixed|fixing|edit|edits|edited|editing|modify|modifies|modified|modifying|patch|patches|patched|patching|adjust|adjusts|adjusted|adjusting|replace|replaces|replaced|replacing|swap|swaps|swapped|swapping|polish|polishes|polished|polishing|clean\s+up|cleaning\s+up|tidy|tidies|tidied|tidying|finalize|finalizes|finalized|finalizing|finish|finishes|finished|finishing|complete|completes|completed|completing|wire|wires|wired|wiring|hook|hooks|hooked|hooking|render|renders|rendered|rendering|style|styles|styled|styling|theme|themes|themed|theming|redo|redoes|redid|redoing|port|ports|ported|porting|migrate|migrates|migrated|migrating|configure|configures|configured|configuring|install|installs|installed|installing|remove|removes|removed|removing|delete|deletes|deleted|deleting|rename|renames|renamed|renaming)\b/i;
-      const NARRATE_INTENT_RE = /\b(we (?:will|need to|should)|we'?ll|we'?re going to|i'?ll|i will|let me|let'?s|going to|i'?m going to|i need to)\b/i;
+      const NARRATE_INTENT_RE = /\b(we (?:will|need to|should)|we'?ll|we'?re going to|i'?ll|i will|let me(?!\s+know\b)|let'?s|going to|i'?m going to|i need to)\b/i;
       // Real code fences pass through; narrate only fires when the
       // model emitted no structured payload at all. Use the
       // reasoning-stripped response (NOT `stripped`, which also removes
@@ -1723,10 +1729,14 @@ export class ToolUseLoop {
         // from the response. If the count exceeds the actual successful
         // edit count, the model is overclaiming. One nudge per turn.
         if (!hitLimit && !falseCompletionNudged && editToolsInvoked > 0) {
-          const filePathRe = /[`"']?([\w./\\-]+\.(?:cs|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|swift|cpp|cc|c|h|hpp|md|json|ya?ml|html|css|scss|sql|toml|sh|bash))[`"']?/gi;
+          // URLs identify publications/references, not extra filesystem edits.
+          // Strip them before counting so ".com" cannot be parsed as ".c",
+          // nor an artifact's encoded path counted as another edited file.
+          const fileClaims = finalResponse.replace(/https?:\/\/[^\s<>"'`]+/gi, '');
+          const filePathRe = /[`"']?([\w./\\-]+\.(?:cs|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|swift|cpp|cc|c|h|hpp|md|json|ya?ml|html|css|scss|sql|toml|sh|bash))(?![\w.])[`"']?/gi;
           const fileSet = new Set<string>();
           let m: RegExpExecArray | null;
-          while ((m = filePathRe.exec(finalResponse)) !== null) {
+          while ((m = filePathRe.exec(fileClaims)) !== null) {
             // Normalize so `S3Api/Controllers/Foo.cs` and `Foo.cs` count
             // separately only when they really are different files. Last
             // segment is the cheapest disambiguator.
