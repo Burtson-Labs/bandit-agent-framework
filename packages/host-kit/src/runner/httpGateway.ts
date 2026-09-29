@@ -10,9 +10,16 @@
  *
  * Both carry the Bandit cloud JWT as a bearer token and a stable device id, so
  * the gateway can authorize the device and scope tasks to its owner. This file
- * is the WIRE CONTRACT the gateway side must implement; it has no tests here
- * because it only exercises against a live gateway (the engine is what's unit-
- * tested, with a fake gateway).
+ * is the WIRE CONTRACT the gateway side must implement. The SSE reader and the
+ * stall watchdog are covered in test/httpGateway.test.ts with a fake fetch.
+ *
+ * Proxies: the gateway sits behind ingress-nginx and Cloudflare, which drops a
+ * connection after 100 s with no bytes. The gateway writes `: ping` comments
+ * every few seconds, so the reader ignores comments and non-`data` fields
+ * (`event: ping` included) and treats ANY bytes as proof of life. A stream
+ * that goes silent for `stallTimeoutMs` is a half-open connection (a dropped
+ * tunnel, a sleeping laptop) — it is torn down and reconnected rather than
+ * waited on forever.
  */
 import type { RemoteTask, RunnerEvent, RunnerGateway } from './contract';
 
@@ -29,7 +36,15 @@ export interface HttpGatewayOptions {
   fetchImpl?: typeof fetch;
   /** Reconnect backoff ceiling (ms). */
   maxBackoffMs?: number;
+  /**
+   * Reconnect when the inbox stream delivers no bytes at all for this long
+   * (ms). The gateway pings every few seconds, so silence means the
+   * connection is dead even if the socket has not noticed. Default 60 s.
+   */
+  stallTimeoutMs?: number;
 }
+
+const DEFAULT_INBOX_STALL_MS = 60_000;
 
 export class HttpRunnerGateway implements RunnerGateway {
   private readonly fetchImpl: typeof fetch;
@@ -61,7 +76,8 @@ export class HttpRunnerGateway implements RunnerGateway {
           throw new Error(`inbox ${res.status} ${res.statusText}`);
         }
         backoff = 1_000; // healthy connection resets the backoff
-        for await (const data of readSseData(res.body, signal)) {
+        const stallMs = this.opts.stallTimeoutMs ?? DEFAULT_INBOX_STALL_MS;
+        for await (const data of readSseData(res.body, signal, stallMs)) {
           const task = parseTask(data);
           if (task) yield task;
         }
@@ -104,17 +120,23 @@ function parseTask(data: string): RemoteTask | null {
  * Minimal SSE reader over a fetch ReadableStream: yields the `data:` payload of
  * each event (concatenating multi-line data blocks), ignoring comments and
  * other fields. Enough for the inbox, which only sends `data:` task JSON +
- * keep-alive comments.
+ * keep-alive comments. CRLF line endings are normalised. When no bytes arrive
+ * for `stallMs` the read is cancelled and an error thrown, so the caller
+ * reconnects.
  */
-async function* readSseData(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncIterable<string> {
+export async function* readSseData(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  stallMs = DEFAULT_INBOX_STALL_MS
+): AsyncIterable<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   try {
     while (!signal.aborted) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithStall(reader, stallMs);
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
       let sep: number;
       // Events are separated by a blank line.
       while ((sep = buffer.indexOf('\n\n')) !== -1) {
@@ -130,6 +152,24 @@ async function* readSseData(body: ReadableStream<Uint8Array>, signal: AbortSigna
   } finally {
     try { await reader.cancel(); } catch { /* already closed */ }
   }
+}
+
+/** `reader.read()` that rejects when nothing — not even a keepalive — arrives in `stallMs`. */
+function readWithStall<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  stallMs: number
+): Promise<ReadableStreamReadResult<T>> {
+  if (!(stallMs > 0) || !Number.isFinite(stallMs)) return reader.read();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      // Reject BEFORE cancelling: cancel settles the pending read as
+      // `done`, which would otherwise win the race and look like a clean end.
+      reject(new Error(`inbox stream stalled: no bytes for ${stallMs}ms`));
+      reader.cancel().catch(() => { /* already closed */ });
+    }, stallMs);
+  });
+  return Promise.race([reader.read(), stalled]).finally(() => clearTimeout(timer));
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {

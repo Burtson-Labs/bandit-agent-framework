@@ -352,6 +352,37 @@ describe('turn streaming', () => {
   });
 });
 
+describe('keepalive (proxy idle limits)', () => {
+  it('streams unbuffered and keeps a quiet turn alive without breaking NDJSON', async () => {
+    const { root, ws } = workspace();
+    const { url } = await start(
+      { workspaceRoot: root },
+      {
+        keepaliveIntervalMs: 20,
+        runTurn: async (req, emit) => {
+          emit({ type: 'turn.started', taskId: req.taskId, protocol: 1, runnerVersion: 'test' });
+          // A model cold-load: nothing to say for a while.
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          emit({ type: 'turn.completed', taskId: req.taskId, artifacts: 1, assistantText: 'done' });
+        },
+      },
+    );
+
+    const res = await post(url, turnBody(ws));
+    const body = await res.text();
+
+    expect(res.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(res.headers.get('cache-control')).toBe('no-cache, no-transform');
+    expect(res.headers.get('x-accel-buffering')).toBe('no');
+    expect(body).toMatch(/\n +\{/);
+    const events = body
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as RunnerEvent);
+    expect(events.map((e) => e.type)).toEqual(['turn.started', 'turn.completed']);
+  });
+});
+
 describe('cancellation (COMP-004)', () => {
   it('aborts the in-flight turn when the client disconnects', async () => {
     const { root, ws } = workspace();

@@ -20,6 +20,13 @@ always the final line; a stream that ends without one is a failed turn,
 never a completed one. Completing with zero artifacts requires a
 `noChangeReason` a human can read.
 
+Keepalive: while a turn is idle (model cold-load, a long tool call) the
+runner writes a single space between lines every 15 s, so no proxy on the
+path drops the quiet stream (Cloudflare cuts after 100 s with no bytes). A
+reader must tolerate leading whitespace on a line. The stream also carries
+`Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no` so
+nginx and compressors pass it through unbuffered.
+
 `turn.completed` also says whether the loop was cut off at its iteration or
 tool budget (`hitLimit`, with `iterations` and `toolCalls`), and
 `turn.error` carries `hitLimit` on `NO_CHANGES_FOR_MUTATION`. A turn that
