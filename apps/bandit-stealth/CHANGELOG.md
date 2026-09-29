@@ -4,6 +4,10 @@ All notable changes to **Bandit Stealth** are listed here. Versions follow the e
 
 ## Unreleased
 
+## 1.7.451
+
+- **Remote sessions reconnect after a silent drop.** The runner inbox now reconnects when it receives no bytes for 60 seconds (the gateway pings every few seconds), so a dropped tunnel or a laptop that slept no longer leaves the session hanging. The inbox reader also accepts CRLF line endings and ignores gateway keepalive pings.
+
 ## 1.7.450
 
 - **The extension activates again on a clean install.** 1.7.448 reached the Marketplace with an empty `node_modules` and failed on `Cannot find module '@burtson-labs/agent-adapters-vscode'`, so the panel stayed blank. The extension host is now one bundled file with no runtime dependencies; the build refuses to package anything that still needs `node_modules`, and CI checks the VSIX before it is published.
