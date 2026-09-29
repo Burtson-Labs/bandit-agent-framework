@@ -33,6 +33,7 @@ import { runTurn } from './turn.js';
 import { DEFAULT_MAX_BODY_BYTES, loadRunnerConfig, type RunnerConfig } from './config.js';
 import { createLogger, REQUEST_ID_HEADER, resolveRequestId, type Logger } from './logger.js';
 import { resolveWorkspacePath, validateProvider } from './policy.js';
+import { openKeepaliveStream } from './streaming/keepalive.js';
 
 type BodyStream = Readable & { headers?: http.IncomingHttpHeaders };
 
@@ -111,6 +112,8 @@ export interface RunnerServerDeps {
   logger?: Logger;
   /** Test seam: the turn executor. Defaults to the real `runTurn`. */
   runTurn?: typeof runTurn;
+  /** Idle time before a keepalive is written on a turn stream. Defaults to 15 s. */
+  keepaliveIntervalMs?: number;
 }
 
 export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps = {}): http.Server {
@@ -206,16 +209,16 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
         }
 
         log.info('turn.accepted', { taskId: turn.taskId, provider: turn.provider.kind });
-        res.writeHead(200, {
-          'content-type': 'application/x-ndjson',
-          'cache-control': 'no-cache',
+        // A turn can sit silent for minutes (model cold-load, a long tool
+        // call); the keepalive stream writes whitespace between lines while
+        // it is idle so no proxy on the path cuts it (Cloudflare: 100 s).
+        const stream = openKeepaliveStream(res, {
+          format: 'ndjson',
+          intervalMs: deps.keepaliveIntervalMs,
         });
         // Writes after the caller hung up are dropped rather than thrown:
         // the turn is already unwinding and the stream has no reader left.
-        const emit = (e: unknown) => {
-          if (res.writableEnded || res.destroyed) return;
-          res.write(JSON.stringify(e) + '\n');
-        };
+        const emit = (e: unknown) => stream.write(JSON.stringify(e) + '\n');
         try {
           await executeTurn(turn, emit, {
             permissionMode: config.permissionMode,
@@ -232,7 +235,7 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
           });
         }
         if (cancel.signal.aborted) log.warn('turn.cancelled', { taskId: turn.taskId });
-        if (!res.writableEnded) res.end();
+        stream.end();
         return;
       }
 

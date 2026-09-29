@@ -64,6 +64,10 @@ export type TurnProvider =
  * NDJSON stream, one event per line. `turn.completed` or `turn.error` is
  * always the final line — a stream that ends without one means the runner
  * died and the gateway must treat the turn as failed, never as completed.
+ *
+ * While a turn is idle the runner writes a single space between lines as a
+ * keepalive (see `streaming/keepalive.ts`), so a reader must tolerate
+ * leading whitespace on a line — JSON parsers and trimming line readers do.
  */
 export type RunnerEvent =
   | { type: 'turn.started'; taskId: string; protocol: number; runnerVersion: string }
