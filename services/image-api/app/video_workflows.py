@@ -103,7 +103,15 @@ CAMERA_PROMPTS: dict[str, str] = {
 
 FIDELITY_PROMPT = (
     "Preserve the subject exactly as in the source image: every logo, sign, and "
-    "painted lettering stays sharp, legible, and unchanged."
+    "painted lettering stays sharp, legible, and unchanged. Flat signs and "
+    "painted surfaces stay matte and unlit, do not glow, and no text is added."
+)
+# Extra negatives when preserving lettering. Found on a real sign: prompts that
+# mention light moving turned a flat sign into a glowing one and invented extra
+# text lines under the logo; these terms plus the guard above stopped it.
+FIDELITY_NEGATIVE = (
+    ", glowing sign, backlit sign, neon text, added text, extra lettering, "
+    "new words, sparkles, lens flare on text"
 )
 
 DEFAULT_CONTROL: dict[str, str | None] = {"restyle": "edges", "motion": "pose", "extend": None}
@@ -178,6 +186,7 @@ class VideoPlan:
     source_video: str | None = None
     source_start: int = 0
     source_frames: int = 0
+    preserve_text: bool = False
 
     @property
     def workflow_version(self) -> str:
@@ -230,6 +239,7 @@ class VideoPlan:
             "accelerated": self.accelerated if self.model.alias == "video-quality" else None,
             "seed": self.seed,
             "firstLastFrame": self.end_image is not None,
+            "preserveText": self.preserve_text,
         }
 
 
@@ -397,6 +407,7 @@ def plan_video(
         source_video=source_video if kind == "vace" else None,
         source_start=source_start,
         source_frames=source_frames,
+        preserve_text=preserve_text,
     )
 
 
@@ -506,7 +517,8 @@ def wan_video_workflow(plan: VideoPlan, filename_prefix: str = "burtson-video/cl
 
     clip = g.add("clip", "CLIPLoader", clip_name=TEXT_ENCODER, type="wan", device="default")
     positive = g.add("positive", "CLIPTextEncode", text=plan.prompt, clip=clip)
-    negative = g.add("negative", "CLIPTextEncode", text=NEGATIVE_PROMPT, clip=clip)
+    negative = g.add("negative", "CLIPTextEncode",
+                     text=NEGATIVE_PROMPT + (FIDELITY_NEGATIVE if plan.preserve_text else ""), clip=clip)
     start = g.add("start_image", "LoadImage", image=plan.start_image) if plan.start_image else None
     end = g.add("end_image", "LoadImage", image=plan.end_image) if plan.end_image else None
 

@@ -97,6 +97,11 @@ class PlanValidationTests(unittest.TestCase):
         self.assertIn("push-in", composed)
         self.assertIn("lettering", composed)
         self.assertEqual(plan(camera="auto").prompt, "a lighthouse at dusk")
+        self.assertIn("do not glow", composed)
+        guarded = vw.wan_video_workflow(plan(preserve_text=True))["negative"]["inputs"]["text"]
+        plain = vw.wan_video_workflow(plan())["negative"]["inputs"]["text"]
+        self.assertIn("added text", guarded)
+        self.assertNotIn("added text", plain)
         with self.assertRaises(ValueError):
             plan(camera="barrel-roll")
 
