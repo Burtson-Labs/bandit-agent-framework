@@ -200,7 +200,9 @@ class VideoPlan:
     @property
     def steps(self) -> int:
         if self.model.alias == "video-fast":
-            return 30
+            # 30 steps (the template default) measured 246 s for 5 s at 720p on
+            # the 5090 — slower than A14B + Lightning. 20 keeps it a draft tier.
+            return 20
         return 4 if self.accelerated else 20
 
     def describe(self) -> dict[str, Any]:

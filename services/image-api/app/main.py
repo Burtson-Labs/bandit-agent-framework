@@ -76,7 +76,9 @@ class VideoRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=4000)
     # video-fast = Wan2.2-TI2V-5B (text or image to video);
     # video-quality = Wan2.2 A14B: T2V (text), I2V (image), VACE-Fun (video).
-    model: Literal["video-fast", "video-quality"] = "video-fast"
+    # Default is the A14B family: with Lightning it measured faster per clip
+    # than the 5B model at 30 steps, and holds lettering better.
+    model: Literal["video-fast", "video-quality"] = "video-quality"
     aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["480p", "720p", "1080p"] = "720p"
     # Clamped to what the workflow supports (2-10 s; >5 s chains two passes).

@@ -20,7 +20,10 @@ GPU claim, job/asset endpoints and TTL as images (Anton proxies it as
 in `app/video_workflows.py`:
 
 One request shape covers every input combination; the inputs present pick the
-pipeline:
+pipeline. `video-quality` is the default: on the 5090 an A14B clip with the
+Lightning 4-step LoRAs measured faster than the 5B model at 30 steps (5 s at
+720p: 5B 246 s; A14B 1080p about 190 s per take including upscaling), so the 5B
+model now runs 20 steps and is the lighter-VRAM draft option.
 
 | Inputs | `video-fast` | `video-quality` |
 |---|---|---|

@@ -175,7 +175,7 @@ class WorkflowCompilationTests(unittest.TestCase):
                         self.assertIn(value[0], workflow)
 
     def test_sampler_progress_nodes(self):
-        self.assertEqual(vw.sampler_nodes(plan(duration_seconds=10)), [("seg1_sampler", 30), ("seg2_sampler", 30)])
+        self.assertEqual(vw.sampler_nodes(plan(duration_seconds=10)), [("seg1_sampler", 20), ("seg2_sampler", 20)])
         quality = plan(model="video-quality", start_image="a.png")
         self.assertEqual(vw.sampler_nodes(quality), [("seg1_high", 2), ("seg1_low", 2)])
 
@@ -242,7 +242,7 @@ class VideoEndpointTests(unittest.TestCase):
 
     def test_text_to_video_fast_is_accepted(self):
         job = asyncio.run(main.generate_video(
-            main.VideoRequest(prompt="city timelapse", aspect="9:16", durationSeconds=4),
+            main.VideoRequest(prompt="city timelapse", model="video-fast", aspect="9:16", durationSeconds=4),
             x_burtson_owner="tester"))
         self.assertFalse(job["request"]["preserveText"])
         self.assertEqual(job["request"]["plan"]["outputSize"], [720, 1280])
@@ -303,7 +303,7 @@ class ExecuteVideoTests(unittest.TestCase):
         async def no_progress(*_args):
             return None
 
-        request = main.VideoRequest(prompt="city timelapse", aspect="16:9", resolution="720p",
+        request = main.VideoRequest(prompt="city timelapse", model="video-fast", aspect="16:9", resolution="720p",
                                     durationSeconds=2, fps=24, variants=2, seed=5)
         job = asyncio.run(main.generate_video(request, x_burtson_owner="tester"))
         stored = main.jobs[job["id"]]
@@ -470,7 +470,7 @@ class SourceVideoTests(unittest.TestCase):
     def test_source_on_fast_model_is_400(self):
         self._source()
         with self.assertRaises(HTTPException) as caught:
-            self.submit(sourceVideoId="src-video-test", mode="restyle")
+            self.submit(model="video-fast", sourceVideoId="src-video-test", mode="restyle")
         self.assertEqual(caught.exception.status_code, 400)
 
     def test_image_id_is_not_a_source_video(self):
