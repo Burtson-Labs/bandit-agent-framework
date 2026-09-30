@@ -1,0 +1,318 @@
+import asyncio
+import unittest
+
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from app import main
+from app import video_workflows as vw
+
+
+def plan(**overrides):
+    values = dict(
+        model="video-fast", prompt="a lighthouse at dusk", seed=7, aspect="16:9",
+        resolution="720p", duration_seconds=5, output_fps=24,
+    )
+    values.update(overrides)
+    return vw.plan_video(**values)
+
+
+def classes(workflow):
+    return [node["class_type"] for node in workflow.values()]
+
+
+class SegmentPlanTests(unittest.TestCase):
+    def test_five_seconds_is_one_native_pass(self):
+        self.assertEqual(vw.segment_frames(vw.VIDEO_MODELS["video-fast"], 5), (121,))
+        self.assertEqual(vw.segment_frames(vw.VIDEO_MODELS["video-quality"], 5), (81,))
+
+    def test_frames_snap_to_4k_plus_1(self):
+        for seconds in (2, 3, 3.3, 4.7):
+            for frames in vw.segment_frames(vw.VIDEO_MODELS["video-fast"], seconds):
+                self.assertEqual((frames - 1) % 4, 0)
+
+    def test_ten_seconds_chains_two_passes(self):
+        fast = plan(duration_seconds=10)
+        self.assertEqual(fast.segments, (121, 121))
+        self.assertEqual(fast.native_frames, 241)
+        self.assertEqual(fast.duration_seconds, 10.0)
+        quality = plan(model="video-quality", start_image="a.png", duration_seconds=10)
+        self.assertEqual(quality.segments, (81, 81))
+        self.assertEqual(quality.duration_seconds, 10.0)
+
+    def test_duration_is_clamped(self):
+        self.assertEqual(plan(duration_seconds=0.5).duration_seconds, 2.0)
+        self.assertEqual(plan(duration_seconds=45).duration_seconds, 10.0)
+
+    def test_interpolation_multiplier(self):
+        self.assertEqual(vw.interpolation_multiplier(16, 24), 3)
+        self.assertEqual(vw.interpolation_multiplier(16, 30), 2)
+        self.assertEqual(vw.interpolation_multiplier(24, 24), 1)
+        self.assertEqual(vw.interpolation_multiplier(24, 30), 2)
+
+
+class PlanValidationTests(unittest.TestCase):
+    def test_quality_requires_start_image(self):
+        with self.assertRaises(ValueError):
+            plan(model="video-quality")
+
+    def test_end_frame_requires_quality_and_start(self):
+        with self.assertRaises(ValueError):
+            plan(end_image="end.png", start_image="a.png")
+        with self.assertRaises(ValueError):
+            plan(model="video-quality", end_image="end.png")
+
+    def test_first_last_frame_is_single_pass(self):
+        flf = plan(model="video-quality", start_image="a.png", end_image="b.png", duration_seconds=9)
+        self.assertEqual(flf.segments, (81,))
+
+    def test_aspect_presets(self):
+        self.assertEqual((plan(aspect="9:16").gen_width, plan(aspect="9:16").gen_height), (704, 1280))
+        vertical = plan(aspect="9:16", resolution="1080p")
+        self.assertEqual((vertical.out_width, vertical.out_height), (1080, 1920))
+        square = plan(model="video-quality", start_image="a.png", aspect="1:1", resolution="480p")
+        self.assertEqual((square.out_width, square.out_height), (640, 640))
+
+    def test_generation_sizes_respect_model_grid(self):
+        for alias, spec in vw.VIDEO_MODELS.items():
+            for tier in spec.dimensions.values():
+                for width, height in tier.values():
+                    self.assertEqual(width % spec.grid, 0, alias)
+                    self.assertEqual(height % spec.grid, 0, alias)
+
+    def test_camera_and_fidelity_prompting(self):
+        composed = plan(camera="push-in", preserve_text=True).prompt
+        self.assertIn("push-in", composed)
+        self.assertIn("lettering", composed)
+        self.assertEqual(plan(camera="auto").prompt, "a lighthouse at dusk")
+        with self.assertRaises(ValueError):
+            plan(camera="barrel-roll")
+
+
+class WorkflowCompilationTests(unittest.TestCase):
+    def test_fast_text_to_video(self):
+        workflow = vw.wan_video_workflow(plan())
+        self.assertIn("Wan22ImageToVideoLatent", classes(workflow))
+        self.assertNotIn("start_image", workflow["seg1_latent"]["inputs"])
+        self.assertNotIn("LoadImage", classes(workflow))
+        self.assertEqual(workflow["seg1_latent"]["inputs"]["length"], 121)
+        self.assertEqual(workflow["seg1_sampler"]["inputs"]["seed"], 7)
+        # 1280x704 native -> exact 1280x720 delivery size.
+        self.assertEqual(workflow["resize"]["inputs"]["height"], 720)
+        self.assertNotIn("interpolate", workflow)
+        self.assertEqual(workflow["video"]["inputs"]["fps"], 24.0)
+        self.assertEqual(workflow["save"]["inputs"]["format"], "mp4")
+
+    def test_fast_image_to_video(self):
+        workflow = vw.wan_video_workflow(plan(start_image="photo.png"))
+        self.assertEqual(workflow["start_image"]["inputs"]["image"], "photo.png")
+        self.assertEqual(workflow["seg1_latent"]["inputs"]["start_image"], ["start_image", 0])
+
+    def test_quality_image_to_video_uses_both_experts(self):
+        workflow = vw.wan_video_workflow(plan(
+            model="video-quality", start_image="truck.png", resolution="1080p", aspect="16:9",
+        ))
+        self.assertEqual(workflow["seg1_cond"]["class_type"], "WanImageToVideo")
+        high, low = workflow["seg1_high"]["inputs"], workflow["seg1_low"]["inputs"]
+        self.assertEqual((high["start_at_step"], high["end_at_step"]), (0, 2))
+        self.assertEqual((low["start_at_step"], low["add_noise"]), (2, "disable"))
+        self.assertEqual(low["latent_image"], ["seg1_high", 0])
+        self.assertEqual(high["cfg"], 1.0)
+        self.assertIn("LoraLoaderModelOnly", classes(workflow))
+        # 1080p: Real-ESRGAN x2, exact resize, RIFE x3 (16 -> 48 fps).
+        self.assertEqual(workflow["upscale_model"]["inputs"]["model_name"], vw.UPSCALE_MODEL)
+        self.assertEqual((workflow["resize"]["inputs"]["width"], workflow["resize"]["inputs"]["height"]), (1920, 1080))
+        self.assertEqual(workflow["interpolate"]["inputs"]["multiplier"], 3)
+        self.assertEqual(workflow["video"]["inputs"]["fps"], 48.0)
+
+    def test_quality_full_schedule_without_lora(self):
+        workflow = vw.wan_video_workflow(plan(model="video-quality", start_image="a.png", accelerated=False))
+        self.assertNotIn("LoraLoaderModelOnly", classes(workflow))
+        self.assertEqual(workflow["seg1_high"]["inputs"]["steps"], 20)
+        self.assertEqual(workflow["seg1_high"]["inputs"]["end_at_step"], 10)
+        self.assertEqual(workflow["seg1_high"]["inputs"]["cfg"], 3.5)
+
+    def test_lanczos_1080p_skips_model_upscaler(self):
+        workflow = vw.wan_video_workflow(plan(resolution="1080p", upscaler="lanczos"))
+        self.assertNotIn("upscale", workflow)
+        self.assertEqual(workflow["resize"]["inputs"]["upscale_method"], "lanczos")
+
+    def test_chained_segments_continue_from_last_frame(self):
+        workflow = vw.wan_video_workflow(plan(model="video-quality", start_image="a.png", duration_seconds=10))
+        self.assertEqual(workflow["seg2_start"]["inputs"], {"image": ["seg1_decode", 0], "batch_index": -1, "length": 1})
+        self.assertEqual(workflow["seg2_cond"]["inputs"]["start_image"], ["seg2_start", 0])
+        self.assertEqual(workflow["seg2_tail"]["inputs"]["batch_index"], 1)
+        self.assertEqual(workflow["seg2_concat"]["inputs"]["image1"], ["seg1_decode", 0])
+        self.assertEqual(workflow["seg2_high"]["inputs"]["noise_seed"], 8)
+
+    def test_first_last_frame(self):
+        workflow = vw.wan_video_workflow(plan(model="video-quality", start_image="a.png", end_image="b.png"))
+        self.assertEqual(workflow["seg1_cond"]["class_type"], "WanFirstLastFrameToVideo")
+        self.assertEqual(workflow["seg1_cond"]["inputs"]["end_image"], ["end_image", 0])
+
+    def test_every_link_points_at_an_existing_node(self):
+        for candidate in (
+            plan(), plan(start_image="a.png", duration_seconds=9, resolution="1080p", output_fps=30),
+            plan(model="video-quality", start_image="a.png", duration_seconds=10, resolution="1080p"),
+            plan(model="video-quality", start_image="a.png", end_image="b.png", accelerated=False),
+        ):
+            workflow = vw.wan_video_workflow(candidate)
+            for node in workflow.values():
+                for value in node["inputs"].values():
+                    if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                        self.assertIn(value[0], workflow)
+
+    def test_sampler_progress_nodes(self):
+        self.assertEqual(vw.sampler_nodes(plan(duration_seconds=10)), [("seg1_sampler", 30), ("seg2_sampler", 30)])
+        quality = plan(model="video-quality", start_image="a.png")
+        self.assertEqual(vw.sampler_nodes(quality), [("seg1_high", 2), ("seg1_low", 2)])
+
+    def test_provenance_lists_only_loaded_models(self):
+        quality = plan(model="video-quality", start_image="a.png", accelerated=False, resolution="1080p")
+        names = vw.plan_checkpoints(quality)
+        self.assertFalse(any("lightx2v" in name for name in names))
+        self.assertIn(vw.UPSCALE_MODEL, names)
+        self.assertTrue(all(name in vw.CHECKPOINT_SHA256 for name in names))
+
+
+class VideoEndpointTests(unittest.TestCase):
+    def tearDown(self):
+        main.references.clear()
+        main.jobs.clear()
+        while not main.queue.empty():
+            main.queue.get_nowait()
+
+    def _reference(self, reference_id="ref-video-test", owner="tester"):
+        reference = main.Reference(
+            id=reference_id, owner=owner, key="unused", kind="reference",
+            filename="truck.png", contentType="image/png", width=1600, height=900, bytes=1024,
+        )
+        main.references[reference.id] = reference
+        return reference
+
+    def test_request_bounds(self):
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", variants=5)
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", aspect="4:3")
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", fps=60)
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", camera="barrel-roll")
+
+    def test_quality_without_reference_is_rejected(self):
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(main.generate_video(main.VideoRequest(prompt="truck", model="video-quality"),
+                                            x_burtson_owner="tester"))
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_other_users_reference_is_forbidden(self):
+        self._reference(owner="someone-else")
+        request = main.VideoRequest(prompt="truck", model="video-quality", referenceId="ref-video-test")
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(main.generate_video(request, x_burtson_owner="tester"))
+        self.assertEqual(caught.exception.status_code, 403)
+
+    def test_accepted_job_records_plan_and_defaults(self):
+        self._reference()
+        request = main.VideoRequest(
+            prompt="slow reveal of the truck", model="video-quality", referenceId="ref-video-test",
+            aspect="16:9", resolution="1080p", durationSeconds=7, variants=3, camera="orbit-left",
+        )
+        job = asyncio.run(main.generate_video(request, x_burtson_owner="tester"))
+        self.assertEqual(job["kind"], "video")
+        self.assertEqual(job["status"], "queued")
+        self.assertTrue(job["request"]["preserveText"])
+        self.assertEqual(job["request"]["plan"]["outputSize"], [1920, 1080])
+        self.assertEqual(job["request"]["plan"]["segments"], [81, 33])
+        self.assertEqual(job["request"]["durationSeconds"], 7.0)
+        self.assertNotIn("assetKeys", job)
+        self.assertEqual(main.queue.qsize(), 1)
+
+    def test_text_to_video_fast_is_accepted(self):
+        job = asyncio.run(main.generate_video(
+            main.VideoRequest(prompt="city timelapse", aspect="9:16", durationSeconds=4),
+            x_burtson_owner="tester"))
+        self.assertFalse(job["request"]["preserveText"])
+        self.assertEqual(job["request"]["plan"]["outputSize"], [720, 1280])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+@unittest.skipUnless(__import__("shutil").which("ffmpeg"), "ffmpeg not installed")
+class ExecuteVideoTests(unittest.TestCase):
+    """Drives execute_video against a fake ComfyUI and captures MinIO uploads."""
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as handle:
+            subprocess.run([
+                "ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=48",
+                "-t", "2.0", "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", handle.name,
+            ], check=True)
+            with open(handle.name, "rb") as clip:
+                self.clip = clip.read()
+
+    def tearDown(self):
+        main.jobs.clear()
+        while not main.queue.empty():
+            main.queue.get_nowait()
+
+    def test_variants_are_encoded_uploaded_and_recorded(self):
+        from unittest import mock
+
+        import httpx
+
+        prompts = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/prompt":
+                prompts.append(__import__("json").loads(request.content))
+                return httpx.Response(200, json={"prompt_id": f"p{len(prompts)}"})
+            if request.url.path.startswith("/history/"):
+                pid = request.url.path.rsplit("/", 1)[-1]
+                return httpx.Response(200, json={pid: {
+                    "status": {"status_str": "success", "messages": []},
+                    "outputs": {"save": {"images": [{"filename": f"{pid}.mp4", "subfolder": "burtson-video", "type": "output"}]}},
+                }})
+            if request.url.path == "/view":
+                return httpx.Response(200, content=self.clip)
+            return httpx.Response(404)
+
+        real_client = httpx.AsyncClient
+        uploads = {}
+
+        async def no_sleep(_seconds):
+            return None
+
+        async def no_progress(*_args):
+            return None
+
+        request = main.VideoRequest(prompt="city timelapse", aspect="16:9", resolution="720p",
+                                    durationSeconds=2, fps=24, variants=2, seed=5)
+        job = asyncio.run(main.generate_video(request, x_burtson_owner="tester"))
+        stored = main.jobs[job["id"]]
+        with mock.patch.object(main.httpx, "AsyncClient",
+                               lambda **kw: real_client(transport=httpx.MockTransport(handler), base_url="http://w")), \
+             mock.patch.object(main, "upload", lambda key, body, ctype, exp: uploads.__setitem__(key, (ctype, body))), \
+             mock.patch.object(main, "watch_progress", no_progress), \
+             mock.patch.object(main.asyncio, "sleep", no_sleep):
+            asyncio.run(main.execute_video(stored))
+
+        self.assertEqual(stored.status, "completed", stored.error)
+        self.assertEqual(len(prompts), 2)
+        seeds = [p["prompt"]["seg1_sampler"]["inputs"]["seed"] for p in prompts]
+        self.assertEqual(seeds, [5, 1005])
+        self.assertEqual(len(stored.videos), 2)
+        first = stored.videos[0]
+        self.assertEqual((first["codec"], first["pixelFormat"], first["width"], first["height"]), ("h264", "yuv420p", 1280, 720))
+        self.assertEqual(first["url"], f"/image/jobs/{stored.id}/assets/0")
+        self.assertEqual(first["posterUrl"], f"/image/jobs/{stored.id}/assets/1")
+        self.assertEqual(len(stored.assetKeys), 4)
+        kinds = sorted(ctype for ctype, _ in uploads.values())
+        self.assertEqual(kinds, ["application/json", "image/jpeg", "image/jpeg", "video/mp4", "video/mp4"])
+        self.assertNotIn("assetKeys", main.public_job(stored))

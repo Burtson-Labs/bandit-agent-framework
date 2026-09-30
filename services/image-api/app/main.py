@@ -9,6 +9,10 @@ import logging
 import math
 import os
 import random
+import shutil
+import subprocess
+import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -22,6 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Response, Upload
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
+from . import video_workflows as vw
 from .workflows import fit_canvas, flux_workflow, validate_dimension
 
 COMFY_URL = os.getenv("COMFYUI_BASE_URL", "http://image-worker:8188").rstrip("/")
@@ -34,6 +39,10 @@ ASSET_TTL = timedelta(hours=ASSET_TTL_HOURS)
 REAPER_INTERVAL_SECONDS = max(60, int(os.getenv("REAPER_INTERVAL_SECONDS", "900")))
 MAX_UPLOAD_BYTES = max(1, int(os.getenv("MAX_UPLOAD_MIB", "12"))) * 1024 * 1024
 MAX_IMAGE_PIXELS = max(1_000_000, int(os.getenv("MAX_IMAGE_PIXELS", "25000000")))
+# Ceiling per video variant, including model load. A 10 s 1080p quality clip
+# with the full 20-step schedule is the slowest legal request.
+VIDEO_VARIANT_TIMEOUT_SECONDS = max(300, int(os.getenv("VIDEO_VARIANT_TIMEOUT_SECONDS", "3600")))
+VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
 logger = logging.getLogger("burtson.image_api")
 
 
@@ -57,6 +66,29 @@ class GenerationRequest(BaseModel):
         return None if value is None else validate_dimension(value)
 
 
+class VideoRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=4000)
+    # video-fast = Wan2.2-TI2V-5B (text or image to video);
+    # video-quality = Wan2.2-I2V-A14B (image to video, best source fidelity).
+    model: Literal["video-fast", "video-quality"] = "video-fast"
+    aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
+    resolution: Literal["480p", "720p", "1080p"] = "720p"
+    # Clamped to what the workflow supports (2-10 s; >5 s chains two passes).
+    durationSeconds: float = Field(default=5.0, gt=0, le=60)
+    fps: Literal[24, 30] = 24
+    camera: vw.CameraMotion = "auto"
+    # Adds explicit "keep logos/lettering unchanged" guidance. Defaults on when
+    # a start image is supplied.
+    preserveText: bool | None = None
+    # video-quality only: Lightning 4-step LoRAs (fast) vs the full 20-step schedule.
+    accelerated: bool = True
+    upscaler: Literal["esrgan", "lanczos"] = "esrgan"
+    variants: int = Field(default=1, ge=1, le=4)
+    seed: int | None = Field(default=None, ge=0, le=2**62)
+    referenceId: str | None = Field(default=None, min_length=8, max_length=64)
+    endReferenceId: str | None = Field(default=None, min_length=8, max_length=64)
+
+
 @dataclass
 class Job:
     id: str
@@ -70,6 +102,11 @@ class Job:
     comfyPromptId: str | None = None
     cancelRequested: bool = False
     expiresAt: str = field(default_factory=lambda: (datetime.now(UTC) + ASSET_TTL).isoformat())
+    kind: str = "image"
+    videos: list[dict] = field(default_factory=list)
+    progress: dict | None = None
+    # Private MinIO keys addressed by /assets/{index}; never serialized.
+    assetKeys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -92,6 +129,7 @@ jobs: dict[str, Job] = {}
 references: dict[str, Reference] = {}
 queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("QUEUE_CAPACITY", "20")))
 worker_task: asyncio.Task | None = None
+active_job_id: str | None = None
 reaper_task: asyncio.Task | None = None
 
 
@@ -144,7 +182,10 @@ async def live() -> dict:
 
 @app.get("/health/ready")
 async def ready() -> dict:
-    return {"status": "ok", "queueDepth": queue.qsize()}
+    # Anton's idle reaper reads `active` so it never releases the GPU under a
+    # long-running job whose caller stopped polling.
+    return {"status": "ok", "queueDepth": queue.qsize(), "activeJob": active_job_id is not None,
+            "active": active_job_id is not None or queue.qsize() > 0}
 
 
 @app.get("/health/worker")
@@ -243,6 +284,58 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
     return public_job(job)
 
 
+@app.post("/api/videos/generations", status_code=202)
+async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    if queue.full():
+        raise HTTPException(429, "generation queue is full")
+    owner = x_burtson_owner[:200]
+    if request.model == "video-quality" and not request.referenceId:
+        raise HTTPException(400, "video-quality is image-to-video: attach a start image (referenceId)")
+    if request.endReferenceId and not request.referenceId:
+        raise HTTPException(400, "endReferenceId requires referenceId")
+    if request.endReferenceId and request.model != "video-quality":
+        raise HTTPException(400, "first/last-frame video requires the video-quality model")
+    if request.referenceId:
+        owned_reference(request.referenceId, owner, expected_kind="reference")
+    if request.endReferenceId:
+        owned_reference(request.endReferenceId, owner, expected_kind="reference")
+    payload = request.model_dump()
+    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**62)
+    if payload["preserveText"] is None:
+        payload["preserveText"] = request.referenceId is not None
+    # Compile once up front so impossible combinations fail with 400 at submit
+    # time rather than minutes later on the GPU.
+    try:
+        plan = video_plan(payload, variant=0, start_image="start.png" if request.referenceId else None,
+                          end_image="end.png" if request.endReferenceId else None)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    payload["plan"] = plan.describe()
+    payload["durationSeconds"] = plan.duration_seconds
+    job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="video")
+    jobs[job.id] = job
+    await queue.put(job.id)
+    return public_job(job)
+
+
+def video_plan(request: dict, *, variant: int, start_image: str | None, end_image: str | None) -> vw.VideoPlan:
+    return vw.plan_video(
+        model=request["model"], prompt=request["prompt"],
+        # Variants are independent takes; segments inside one take use seed+n.
+        seed=request["seed"] + variant * 1000,
+        aspect=request["aspect"], resolution=request["resolution"],
+        duration_seconds=request["durationSeconds"], output_fps=request["fps"],
+        camera=request["camera"], preserve_text=request["preserveText"],
+        accelerated=request["accelerated"], upscaler=request["upscaler"],
+        start_image=start_image, end_image=end_image,
+    )
+
+
+@app.get("/api/videos/jobs/{job_id}")
+async def get_video_job(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    return public_job(owned_job(job_id, x_burtson_owner))
+
+
 @app.get("/api/images/jobs/{job_id}")
 async def get_job(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
     job = owned_job(job_id, x_burtson_owner)
@@ -264,9 +357,10 @@ async def get_asset(job_id: str, index: int, x_burtson_owner: str = Header(defau
     job = owned_job(job_id, x_burtson_owner)
     if is_expired(job.expiresAt):
         raise HTTPException(410, "image asset has expired")
-    if index < 0 or index >= len(job.images):
+    keys = job.assetKeys or [image["key"] for image in job.images]
+    if index < 0 or index >= len(keys):
         raise HTTPException(404, "image asset not found")
-    obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=job.images[index]["key"])
+    obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=keys[index])
     body = await asyncio.to_thread(obj["Body"].read)
     return Response(content=body, media_type=obj.get("ContentType", "image/png"))
 
@@ -297,6 +391,7 @@ def public_job(job: Job) -> dict:
     value = asdict(job)
     value.pop("owner", None)
     value.pop("cancelRequested", None)
+    value.pop("assetKeys", None)
     value["images"] = [
         {field: content for field, content in image.items() if field != "key"}
         for image in value["images"]
@@ -312,20 +407,26 @@ def public_reference(reference: Reference) -> dict:
 
 
 async def run_queue() -> None:
+    global active_job_id
     while True:
         job_id = await queue.get()
         job = jobs[job_id]
+        active_job_id = job_id
         try:
             if job.cancelRequested:
                 job.status = "cancelled"
+            elif job.kind == "video":
+                await execute_video(job)
             else:
                 await execute(job)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            logger.warning("job %s (%s) failed: %s", job.id, job.kind, type(exc).__name__)
             job.status = "failed"
             job.error = str(exc)[:1000]
         finally:
+            active_job_id = None
             job.updatedAt = datetime.now(UTC).isoformat()
             queue.task_done()
 
@@ -366,6 +467,7 @@ async def execute(job: Job) -> None:
             key = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}/image-{index:02d}.png"
             expires_at = datetime.fromisoformat(job.expiresAt)
             await asyncio.to_thread(upload, key, response.content, "image/png", expires_at)
+            job.assetKeys.append(key)
             job.images.append({
                 "url": f"/image/jobs/{job.id}/assets/{index - 1}", "key": key,
                 "width": request["width"], "height": request["height"],
@@ -399,6 +501,223 @@ async def upload_comfy_reference(client: httpx.AsyncClient, job: Job, reference_
     response.raise_for_status()
     payload = response.json()
     return payload.get("name") or name
+
+
+async def execute_video(job: Job) -> None:
+    """Run each requested variant as one ComfyUI prompt, sequentially.
+
+    The GPU stays claimed for the whole job, so variants reuse the warm models.
+    A variant that fails after earlier ones succeeded leaves the job completed
+    with the delivered takes and an error note, rather than discarding them.
+    """
+    request = job.request
+    job.status = "running"
+    job.progress = {"stage": "preparing", "percent": 0, "variant": 1, "variants": request["variants"]}
+    job.updatedAt = datetime.now(UTC).isoformat()
+    created = datetime.now(UTC)
+    prefix = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}"
+    expires_at = datetime.fromisoformat(job.expiresAt)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120)) as client:
+        start_name = await upload_comfy_reference(client, job, request.get("referenceId"))
+        end_name = await upload_comfy_reference(client, job, request.get("endReferenceId"))
+        for variant in range(request["variants"]):
+            if job.cancelRequested:
+                job.status = "cancelled"
+                return
+            plan = video_plan(request, variant=variant, start_image=start_name, end_image=end_name)
+            try:
+                raw = await run_video_prompt(client, job, plan, variant)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if job.status == "cancelled":
+                    return
+                if not job.videos:
+                    raise
+                job.error = f"variant {variant + 1} failed: {str(exc)[:500]}"
+                break
+            if job.status == "cancelled":
+                return
+            job.progress = {**(job.progress or {}), "stage": "encoding"}
+            final, poster, probe = await asyncio.to_thread(finalize_video, raw, plan)
+            number = variant + 1
+            video_key = f"{prefix}/video-{number:02d}.mp4"
+            poster_key = f"{prefix}/poster-{number:02d}.jpg"
+            job.progress = {**(job.progress or {}), "stage": "uploading"}
+            await asyncio.to_thread(upload, video_key, final, "video/mp4", expires_at)
+            await asyncio.to_thread(upload, poster_key, poster, "image/jpeg", expires_at)
+            job.assetKeys.extend([video_key, poster_key])
+            job.videos.append({
+                "url": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 2}",
+                "posterUrl": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 1}",
+                "variant": number, "seed": plan.seed, "model": plan.model.alias,
+                "workflowVersion": plan.model.workflow_version,
+                "width": probe.get("width", plan.out_width), "height": probe.get("height", plan.out_height),
+                "fps": plan.output_fps, "durationSeconds": probe.get("duration", plan.duration_seconds),
+                "frames": probe.get("frames"), "codec": probe.get("codec"), "pixelFormat": probe.get("pix_fmt"),
+                "bytes": len(final), "sha256": hashlib.sha256(final).hexdigest(),
+                "modelLicense": plan.model.license,
+                "modelDigests": {name: vw.CHECKPOINT_SHA256.get(name, "unverified")
+                                 for name in vw.plan_checkpoints(plan)},
+                "expiresAt": job.expiresAt,
+                "mode": "image-to-video" if start_name else "text-to-video",
+                "plan": plan.describe(),
+            })
+    metadata = json.dumps({
+        "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": "video",
+        "request": request, "videos": job.videos, "error": job.error,
+        "comfyuiWorkflow": "server-owned; see workflowVersion", "expiresAt": job.expiresAt,
+    }, indent=2).encode()
+    await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
+    job.progress = {**(job.progress or {}), "stage": "completed", "percent": 100}
+    job.status = "completed"
+
+
+async def run_video_prompt(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan, variant: int) -> bytes:
+    workflow = vw.wan_video_workflow(plan, filename_prefix=f"burtson-video/{job.id}-{variant + 1}")
+    samplers = vw.sampler_nodes(plan)
+    total_steps = sum(steps for _, steps in samplers) or 1
+    base = {"variant": variant + 1, "variants": job.request["variants"]}
+    job.progress = {**base, "stage": "loading_model", "percent": 0}
+    watcher = asyncio.create_task(watch_progress(job, samplers, total_steps, base))
+    try:
+        submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
+        if submitted.status_code >= 400:
+            raise RuntimeError(f"ComfyUI rejected the video workflow: {submitted.text[:600]}")
+        prompt_id = submitted.json()["prompt_id"]
+        job.comfyPromptId = prompt_id
+        deadline = time.monotonic() + VIDEO_VARIANT_TIMEOUT_SECONDS
+        while True:
+            if job.cancelRequested:
+                await client.post(f"{COMFY_URL}/interrupt")
+                job.status = "cancelled"
+                return b""
+            if time.monotonic() > deadline:
+                await client.post(f"{COMFY_URL}/interrupt")
+                raise TimeoutError(f"video variant exceeded {VIDEO_VARIANT_TIMEOUT_SECONDS} s")
+            await asyncio.sleep(3)
+            history = await client.get(f"{COMFY_URL}/history/{prompt_id}")
+            history.raise_for_status()
+            entry = history.json().get(prompt_id)
+            if entry:
+                break
+    finally:
+        watcher.cancel()
+    status = entry.get("status", {})
+    if status.get("status_str") == "error":
+        raise RuntimeError(f"ComfyUI failed: {comfy_error(status)}")
+    outputs = entry.get("outputs", {}).get("save", {}).get("images", [])
+    if not outputs:
+        raise RuntimeError("ComfyUI completed without a video output")
+    response = await client.get(f"{COMFY_URL}/view", params=outputs[0])
+    response.raise_for_status()
+    return response.content
+
+
+def comfy_error(status: dict) -> str:
+    for kind, data in status.get("messages", []):
+        if kind == "execution_error" and isinstance(data, dict):
+            return f"{data.get('node_type')}: {data.get('exception_message', '').strip()[:400]}"
+    return "unknown error"
+
+
+async def watch_progress(job: Job, samplers: list[tuple[str, int]], total_steps: int, base: dict) -> None:
+    """Best-effort step progress from ComfyUI's websocket; polling stays authoritative."""
+    stages = {"upscale": "upscaling", "resize": "resizing", "interpolate": "interpolating",
+              "video": "encoding", "save": "encoding"}
+    offsets: dict[str, tuple[int, int]] = {}
+    running = 0
+    for node, steps in samplers:
+        offsets[node] = (running, steps)
+        running += steps
+    ws_url = COMFY_URL.replace("http://", "ws://").replace("https://", "wss://") + f"/ws?clientId={job.id}"
+    try:
+        import websockets
+
+        async with websockets.connect(ws_url, max_size=None, open_timeout=10) as socket:
+            async for message in socket:
+                if isinstance(message, bytes):
+                    continue  # latent previews
+                event = json.loads(message)
+                data = event.get("data") or {}
+                if data.get("prompt_id") not in (None, job.comfyPromptId):
+                    continue
+                node = data.get("node")
+                if event.get("type") == "progress" and node in offsets:
+                    offset, _ = offsets[node]
+                    done = offset + int(data.get("value", 0))
+                    job.progress = {**base, "stage": "sampling", "node": node,
+                                    "step": done, "steps": total_steps,
+                                    "percent": round(90 * done / total_steps)}
+                elif event.get("type") == "executing" and node:
+                    stage = ("decoding" if node.endswith("_decode") else stages.get(node))
+                    if stage:
+                        job.progress = {**(job.progress or base), "stage": stage}
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.info("progress stream unavailable for job %s: %s", job.id, type(exc).__name__)
+
+
+def finalize_video(raw: bytes, plan: vw.VideoPlan) -> tuple[bytes, bytes, dict]:
+    """Final delivery encode: H.264 High, yuv420p, +faststart, exact output fps.
+
+    ComfyUI hands over a near-lossless (CRF 12) H.264 intermediate at the
+    workflow rate (native fps x RIFE multiplier); this resamples to the exact
+    delivery rate and makes the file web/social-upload friendly.
+    """
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg is not installed in the image API")
+    with tempfile.TemporaryDirectory(prefix="burtson-video-") as work:
+        source = os.path.join(work, "source.mp4")
+        final = os.path.join(work, "final.mp4")
+        poster = os.path.join(work, "poster.jpg")
+        with open(source, "wb") as handle:
+            handle.write(raw)
+        run_ffmpeg([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source, "-an",
+            "-vf", f"fps={plan.output_fps},scale={plan.out_width}:{plan.out_height}:flags=lanczos,setsar=1",
+            "-c:v", "libx264", "-preset", "medium", "-crf", VIDEO_CRF, "-profile:v", "high",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", final,
+        ])
+        # The first frame of image-to-video is the uploaded photo itself; a
+        # frame a little way in represents the generated motion better.
+        poster_at = f"{min(1.0, plan.duration_seconds / 3):.2f}"
+        run_ffmpeg([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", poster_at,
+            "-i", final, "-frames:v", "1", "-q:v", "3", poster,
+        ])
+        probe = probe_video(final)
+        with open(final, "rb") as handle:
+            final_bytes = handle.read()
+        with open(poster, "rb") as handle:
+            poster_bytes = handle.read()
+    return final_bytes, poster_bytes, probe
+
+
+def run_ffmpeg(command: list[str]) -> None:
+    result = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()[-400:]}")
+
+
+def probe_video(path: str) -> dict:
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+        "-show_entries", "stream=codec_name,pix_fmt,width,height,nb_read_frames:format=duration",
+        "-of", "json", path,
+    ], capture_output=True, text=True, timeout=120, check=False)
+    if result.returncode != 0:
+        return {}
+    data = json.loads(result.stdout or "{}")
+    stream = (data.get("streams") or [{}])[0]
+    duration = (data.get("format") or {}).get("duration")
+    return {
+        "codec": stream.get("codec_name"), "pix_fmt": stream.get("pix_fmt"),
+        "width": stream.get("width"), "height": stream.get("height"),
+        "frames": int(stream["nb_read_frames"]) if stream.get("nb_read_frames") else None,
+        "duration": round(float(duration), 2) if duration else None,
+    }
 
 
 def upload(key: str, body: bytes, content_type: str, expires_at: datetime) -> None:
