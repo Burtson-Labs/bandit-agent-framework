@@ -18,9 +18,16 @@ digests are in `models/manifests/MODELS-wan22.md` on the volume:
 - `models/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_{high,low}_noise.safetensors`
 - `models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors`
 - `models/vae/wan2.2_vae.safetensors`, `models/vae/wan_2.1_vae.safetensors`
+- `models/diffusion_models/wan2.2_t2v_{high,low}_noise_14B_fp8_scaled.safetensors`
+- `models/diffusion_models/wan2.2_fun_vace_{high,low}_noise_14B_fp8_scaled.safetensors`
+- `models/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_{high,low}_noise.safetensors`
+- `models/geometry_estimation/depth_anything_3_mono_large.safetensors` (Apache-2.0;
+  not DA3-Large/Giant, which are CC-BY-NC)
+- `models/checkpoints/sdpose_wholebody_fp16.safetensors` (MIT; SD2-initialised)
 - `models/upscale_models/RealESRGAN_x2plus.pth`
 - `models/frame_interpolation/rife_v4.26.safetensors`
 
 The pinned ComfyUI commit (2026-09-20) already has native Wan 2.2, first/last
-frame, RIFE/FILM interpolation and model-upscale nodes, so video needs no
+frame, VACE, Depth Anything 3, SDPose, Canny, RIFE/FILM interpolation and
+model-upscale nodes, so video needs no
 custom nodes and no worker rebuild.

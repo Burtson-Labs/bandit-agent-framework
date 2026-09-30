@@ -1,21 +1,30 @@
 """Server-owned, versioned Wan 2.2 video workflows for ComfyUI.
 
-Callers choose from a small vocabulary (model alias, aspect ratio, resolution
-preset, duration, frame rate, camera motion). Everything else — checkpoints,
-sampler settings, step splits, upscaler, interpolation model — is fixed here and
-recorded against a workflow version in every job's provenance. Callers never
-submit graphs, node types, or file names.
+Callers choose from a small vocabulary (model alias, inputs present, aspect
+ratio, resolution preset, duration, frame rate, camera motion, video mode and
+control). Everything else — checkpoints, sampler settings, step splits,
+preprocessors, upscaler, interpolation model — is fixed here and recorded
+against a workflow version in every job's provenance. Callers never submit
+graphs, node types, or file names.
 
-Graph shape (per variant, one ComfyUI prompt):
+Pipelines (chosen by which inputs are present):
 
-    loaders -> text encode -> segment 1 (start image / text) -> decode
-            -> [segment 2 continues from segment 1's last frame] -> concat
-            -> [Real-ESRGAN x2 for 1080p] -> exact-size lanczos scale
-            -> [RIFE interpolation towards the output frame rate]
-            -> CreateVideo -> SaveVideo (H.264, near-lossless intermediate)
+    text only            video-fast  -> TI2V-5B text-to-video
+                         video-quality -> T2V-A14B (high/low-noise experts)
+    text + image         video-fast  -> TI2V-5B image-to-video
+                         video-quality -> I2V-A14B (optional end frame: first/last)
+    text [+ image] + video  (video-quality only) -> Wan2.2-VACE-Fun-A14B:
+        restyle  keep the source's motion via an edges/depth/pose control video,
+                 take the look from the prompt and optional reference image
+        motion   animate the reference image with the source's pose/motion
+        extend   continue the source from its last frames
 
-The API then does the final H.264/yuv420p/faststart encode (and any exact
-frame-rate resample) with ffmpeg.
+Shared tail: [segment 2 from segment 1's last frame] -> concat
+    -> [Real-ESRGAN x2 for 1080p] -> exact-size lanczos scale
+    -> [RIFE interpolation towards the output frame rate]
+    -> CreateVideo -> SaveVideo (H.264, near-lossless intermediate)
+
+The API then does the final H.264/yuv420p/faststart encode with ffmpeg.
 """
 from __future__ import annotations
 
@@ -29,15 +38,44 @@ CameraMotion = Literal[
     "auto", "static", "push-in", "pull-out", "orbit-left", "orbit-right",
     "pan-left", "pan-right", "tilt-up", "crane-up",
 ]
+VideoMode = Literal["restyle", "motion", "extend"]
+Control = Literal["edges", "depth", "pose"]
 
 MIN_DURATION_SECONDS = 2.0
 MAX_DURATION_SECONDS = 10.0
 OUTPUT_FPS = (24, 30)
 MIN_SEGMENT_FRAMES = 17
+# Source videos are normalised to this rate at upload (VACE's native rate).
+SOURCE_FPS = 16
+MAX_SOURCE_SECONDS = 10.0
+# Known frames handed to VACE when extending (5 latent frames exactly).
+EXTEND_CONTEXT_FRAMES = 17
 
 TEXT_ENCODER = "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+WAN21_VAE = "wan_2.1_vae.safetensors"
 UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 INTERPOLATION_MODEL = "rife_v4.26.safetensors"
+DEPTH_MODEL = "depth_anything_3_mono_large.safetensors"
+POSE_MODEL = "sdpose_wholebody_fp16.safetensors"
+
+EXPERTS = {
+    "i2v": ("wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+            "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"),
+    "t2v": ("wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+            "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"),
+    "vace": ("wan2.2_fun_vace_high_noise_14B_fp8_scaled.safetensors",
+             "wan2.2_fun_vace_low_noise_14B_fp8_scaled.safetensors"),
+}
+# Lightning 4-step LoRAs. VACE-Fun A14B is built on T2V-A14B, so it takes the
+# T2V pair.
+LIGHTNING = {
+    "i2v": ("wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+            "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"),
+    "t2v": ("wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+            "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors"),
+    "vace": ("wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+             "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors"),
+}
 
 # Wan's published default negative prompt (it was trained with Chinese
 # negatives), plus explicit terms for the failure mode that matters most for
@@ -68,57 +106,45 @@ FIDELITY_PROMPT = (
     "painted lettering stays sharp, legible, and unchanged."
 )
 
+DEFAULT_CONTROL: dict[str, str | None] = {"restyle": "edges", "motion": "pose", "extend": None}
+
 
 @dataclass(frozen=True)
 class VideoModel:
     alias: str
-    workflow_version: str
     native_fps: int
     segment_frames: int
     grid: int
-    requires_image: bool
     license: str = "Apache-2.0"
-    checkpoints: tuple[str, ...] = ()
-    # generation dimensions per resolution tier -> aspect -> (w, h)
     dimensions: dict[str, dict[str, tuple[int, int]]] = field(default_factory=dict)
 
 
 VIDEO_MODELS: dict[str, VideoModel] = {
     # Wan2.2-TI2V-5B: text-to-video or image-to-video, 24 fps native, 32-px grid.
     "video-fast": VideoModel(
-        alias="video-fast",
-        workflow_version="wan22-ti2v-5b-v1",
-        native_fps=24,
-        segment_frames=121,
-        grid=32,
-        requires_image=False,
-        checkpoints=("wan2.2_ti2v_5B_fp16.safetensors", "wan2.2_vae.safetensors", TEXT_ENCODER),
+        alias="video-fast", native_fps=24, segment_frames=121, grid=32,
         dimensions={
             "480p": {"16:9": (832, 480), "9:16": (480, 832), "1:1": (640, 640)},
             "720p": {"16:9": (1280, 704), "9:16": (704, 1280), "1:1": (960, 960)},
         },
     ),
-    # Wan2.2-I2V-A14B: high-noise + low-noise experts, 16 fps native, 16-px grid.
+    # Wan2.2 A14B family (T2V / I2V / VACE-Fun): 16 fps native, 16-px grid.
     "video-quality": VideoModel(
-        alias="video-quality",
-        workflow_version="wan22-i2v-a14b-v1",
-        native_fps=16,
-        segment_frames=81,
-        grid=16,
-        requires_image=True,
-        checkpoints=(
-            "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
-            "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-            "wan_2.1_vae.safetensors",
-            TEXT_ENCODER,
-            "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
-            "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
-        ),
+        alias="video-quality", native_fps=16, segment_frames=81, grid=16,
         dimensions={
             "480p": {"16:9": (832, 480), "9:16": (480, 832), "1:1": (640, 640)},
             "720p": {"16:9": (1280, 720), "9:16": (720, 1280), "1:1": (960, 960)},
         },
     ),
+}
+
+WORKFLOW_VERSIONS = {
+    ("video-fast", "t2v"): "wan22-ti2v-5b-v1",
+    ("video-fast", "i2v"): "wan22-ti2v-5b-v1",
+    ("video-quality", "t2v"): "wan22-t2v-a14b-v1",
+    ("video-quality", "i2v"): "wan22-i2v-a14b-v1",
+    ("video-quality", "flf"): "wan22-i2v-a14b-v1",
+    ("video-quality", "vace"): "wan22-vace-fun-a14b-v1",
 }
 
 OUTPUT_DIMENSIONS: dict[str, dict[str, tuple[int, int]]] = {
@@ -130,6 +156,7 @@ OUTPUT_DIMENSIONS: dict[str, dict[str, tuple[int, int]]] = {
 @dataclass(frozen=True)
 class VideoPlan:
     model: VideoModel
+    kind: str  # t2v | i2v | flf | vace
     prompt: str
     seed: int
     aspect: str
@@ -145,9 +172,21 @@ class VideoPlan:
     accelerated: bool
     start_image: str | None = None
     end_image: str | None = None
+    mode: str | None = None
+    control: str | None = None
+    control_strength: float = 1.0
+    source_video: str | None = None
+    source_start: int = 0
+    source_frames: int = 0
+
+    @property
+    def workflow_version(self) -> str:
+        return WORKFLOW_VERSIONS[(self.model.alias, self.kind)]
 
     @property
     def native_frames(self) -> int:
+        if self.mode == "extend":
+            return self.source_frames + self.segments[0] - EXTEND_CONTEXT_FRAMES
         return sum(self.segments) - (len(self.segments) - 1)
 
     @property
@@ -166,8 +205,14 @@ class VideoPlan:
 
     def describe(self) -> dict[str, Any]:
         return {
-            "workflowVersion": self.model.workflow_version,
+            "workflowVersion": self.workflow_version,
             "model": self.model.alias,
+            "pipeline": self.kind,
+            "mode": self.mode,
+            "control": self.control,
+            "controlStrength": self.control_strength if self.kind == "vace" else None,
+            "sourceWindow": ([self.source_start, self.segments[0]]
+                             if self.mode in ("restyle", "motion") else None),
             "aspect": self.aspect,
             "resolution": self.resolution,
             "generationSize": [self.gen_width, self.gen_height],
@@ -186,6 +231,11 @@ class VideoPlan:
         }
 
 
+def _legal(frames: int, model: VideoModel) -> int:
+    frames = 4 * round((frames - 1) / 4) + 1
+    return min(model.segment_frames, max(MIN_SEGMENT_FRAMES, frames))
+
+
 def segment_frames(model: VideoModel, duration_seconds: float) -> tuple[int, ...]:
     """Split a requested duration into model-native segments of 4k+1 frames.
 
@@ -195,15 +245,10 @@ def segment_frames(model: VideoModel, duration_seconds: float) -> tuple[int, ...
     """
     duration = min(max(duration_seconds, MIN_DURATION_SECONDS), MAX_DURATION_SECONDS)
     wanted = round(duration * model.native_fps) + 1
-
-    def legal(frames: int) -> int:
-        frames = 4 * round((frames - 1) / 4) + 1
-        return min(model.segment_frames, max(MIN_SEGMENT_FRAMES, frames))
-
     if wanted <= model.segment_frames:
-        return (legal(wanted),)
+        return (_legal(wanted, model),)
     first = model.segment_frames
-    return (first, legal(wanted - first + 1))
+    return (first, _legal(wanted - first + 1, model))
 
 
 def interpolation_multiplier(native_fps: int, output_fps: int) -> int:
@@ -244,16 +289,21 @@ def plan_video(
     upscaler: Literal["esrgan", "lanczos"] = "esrgan",
     start_image: str | None = None,
     end_image: str | None = None,
+    source_video: str | None = None,
+    source_frames: int = 0,
+    source_start_seconds: float = 0.0,
+    mode: str | None = None,
+    control: str | None = None,
+    control_strength: float = 1.0,
 ) -> VideoPlan:
+    """Validate an input combination and compile it into a plan.
+
+    Raises ValueError with a caller-facing message for combinations that make
+    no sense (the API maps these to 400).
+    """
     spec = VIDEO_MODELS.get(model)
     if spec is None:
         raise ValueError(f"unknown video model {model!r}")
-    if spec.requires_image and not start_image:
-        raise ValueError(f"{model} is image-to-video and needs a start image")
-    if end_image and not start_image:
-        raise ValueError("an end frame needs a start image")
-    if end_image and model != "video-quality":
-        raise ValueError("first/last-frame video needs the video-quality model")
     if aspect not in ("16:9", "9:16", "1:1"):
         raise ValueError("aspect must be 16:9, 9:16, or 1:1")
     if resolution not in ("480p", "720p", "1080p"):
@@ -262,6 +312,33 @@ def plan_video(
         raise ValueError("fps must be 24 or 30")
     if camera not in CAMERA_PROMPTS:
         raise ValueError("unknown camera motion")
+    if end_image and not start_image:
+        raise ValueError("an end frame needs a start image")
+
+    if source_video:
+        if model != "video-quality":
+            raise ValueError("video-conditioned generation runs on video-quality (Wan 2.2 VACE 14B)")
+        if mode not in ("restyle", "motion", "extend"):
+            raise ValueError("a source video needs mode: restyle, motion, or extend")
+        if end_image:
+            raise ValueError("an end frame cannot be combined with a source video")
+        if mode == "motion" and not start_image:
+            raise ValueError("motion mode animates a reference image: attach one (referenceId)")
+        if mode == "extend":
+            control = None
+        else:
+            control = control or DEFAULT_CONTROL[mode]
+            if control not in ("edges", "depth", "pose"):
+                raise ValueError("control must be edges, depth, or pose")
+        if not 0.1 <= control_strength <= 2.0:
+            raise ValueError("controlStrength must be between 0.1 and 2.0")
+        kind = "vace"
+    else:
+        if mode or control:
+            raise ValueError("mode and control need a source video (sourceVideoId)")
+        kind = "flf" if end_image else ("i2v" if start_image else "t2v")
+        if end_image and model != "video-quality":
+            raise ValueError("first/last-frame video needs the video-quality model")
 
     tier = "480p" if resolution == "480p" else "720p"
     gen_width, gen_height = spec.dimensions[tier][aspect]
@@ -269,13 +346,35 @@ def plan_video(
         out_width, out_height = gen_width, gen_height
     else:
         out_width, out_height = OUTPUT_DIMENSIONS[resolution][aspect]
-    segments = segment_frames(spec, duration_seconds)
-    if end_image and len(segments) > 1:
-        # A first/last-frame pass is a single ~5 s generation by construction.
-        segments = (spec.segment_frames,)
+
+    source_start = 0
+    if kind == "vace":
+        available = min(source_frames, round(MAX_SOURCE_SECONDS * SOURCE_FPS) + 1)
+        if available < MIN_SEGMENT_FRAMES:
+            raise ValueError("the source video must be at least about one second long")
+        if mode == "extend":
+            new = round(min(max(duration_seconds, 1.0), MAX_DURATION_SECONDS) * SOURCE_FPS)
+            segments = (_legal(EXTEND_CONTEXT_FRAMES + new, spec),)
+            source_frames = available
+        else:
+            source_start = max(0, min(round(source_start_seconds * SOURCE_FPS), available - MIN_SEGMENT_FRAMES))
+            remaining = available - source_start
+            wanted = min(round(min(max(duration_seconds, MIN_DURATION_SECONDS), MAX_DURATION_SECONDS)
+                               * SOURCE_FPS) + 1, remaining)
+            frames = min(spec.segment_frames, 4 * ((wanted - 1) // 4) + 1)
+            segments = (max(MIN_SEGMENT_FRAMES, frames),)
+            source_frames = available
+    else:
+        segments = segment_frames(spec, duration_seconds)
+        if end_image and len(segments) > 1:
+            # A first/last-frame pass is a single ~5 s generation by construction.
+            segments = (spec.segment_frames,)
+        source_frames = 0
+
     return VideoPlan(
         model=spec,
-        prompt=compose_prompt(prompt, camera, preserve_text),
+        kind=kind,
+        prompt=compose_prompt(prompt, camera if mode not in ("restyle", "motion") else "auto", preserve_text),
         seed=seed,
         aspect=aspect,
         resolution=resolution,
@@ -290,6 +389,12 @@ def plan_video(
         accelerated=accelerated,
         start_image=start_image,
         end_image=end_image,
+        mode=mode if kind == "vace" else None,
+        control=control if kind == "vace" else None,
+        control_strength=control_strength,
+        source_video=source_video if kind == "vace" else None,
+        source_start=source_start,
+        source_frames=source_frames,
     )
 
 
@@ -302,11 +407,100 @@ class _Graph:
         return [node_id, 0]
 
 
+def _experts(g: _Graph, family: str, plan: VideoPlan) -> tuple[list, list]:
+    """High/low-noise expert pair for an A14B family, with optional Lightning."""
+    suffix = "" if family == "i2v" else f"_{family}"
+    high_name, low_name = EXPERTS[family]
+    high = g.add(f"unet_high{suffix}", "UNETLoader", unet_name=high_name, weight_dtype="default")
+    low = g.add(f"unet_low{suffix}", "UNETLoader", unet_name=low_name, weight_dtype="default")
+    if plan.accelerated:
+        lora_high, lora_low = LIGHTNING[family]
+        high = g.add(f"lora_high{suffix}", "LoraLoaderModelOnly", model=high, strength_model=1.0, lora_name=lora_high)
+        low = g.add(f"lora_low{suffix}", "LoraLoaderModelOnly", model=low, strength_model=1.0, lora_name=lora_low)
+    shift = 5.0 if plan.accelerated else 8.0
+    return (g.add(f"model_high{suffix}", "ModelSamplingSD3", model=high, shift=shift),
+            g.add(f"model_low{suffix}", "ModelSamplingSD3", model=low, shift=shift))
+
+
+def _two_expert_pass(g: _Graph, plan: VideoPlan, index: int, experts: tuple[list, list],
+                     positive: list, negative: list, latent: list, seed: int) -> list:
+    steps = plan.steps
+    split = steps // 2
+    cfg = 1.0 if plan.accelerated else 3.5
+    model_high, model_low = experts
+    high_pass = g.add(f"seg{index}_high", "KSamplerAdvanced",
+                      model=model_high, add_noise="enable", noise_seed=seed, steps=steps, cfg=cfg,
+                      sampler_name="euler", scheduler="simple",
+                      positive=positive, negative=negative, latent_image=latent,
+                      start_at_step=0, end_at_step=split, return_with_leftover_noise="enable")
+    return g.add(f"seg{index}_low", "KSamplerAdvanced",
+                 model=model_low, add_noise="disable", noise_seed=seed, steps=steps, cfg=cfg,
+                 sampler_name="euler", scheduler="simple",
+                 positive=positive, negative=negative, latent_image=high_pass,
+                 start_at_step=split, end_at_step=10000, return_with_leftover_noise="disable")
+
+
+def _control_video(g: _Graph, plan: VideoPlan, frames: list) -> list:
+    if plan.control == "edges":
+        return g.add("control", "Canny", image=frames, low_threshold=0.4, high_threshold=0.8)
+    if plan.control == "depth":
+        depth_model = g.add("depth_model", "LoadDA3Model", model_name=DEPTH_MODEL, weight_dtype="default")
+        geometry = g.add("depth", "DA3Inference", da3_model=depth_model, image=frames, resolution=504,
+                         resize_method="upper_bound_resize", mode="mono")
+        return g.add("control", "DA3Render", da3_geometry=geometry, **{
+            "output": "depth", "output.normalization": "v2_style", "output.apply_sky_clip": False,
+        })
+    pose_model = g.add("pose_model", "CheckpointLoaderSimple", ckpt_name=POSE_MODEL)
+    keypoints = g.add("pose", "SDPoseKeypointExtractor", model=pose_model, vae=["pose_model", 2],
+                      image=frames, batch_size=16)
+    return g.add("control", "SDPoseDrawKeypoints", keypoints=keypoints, draw_body=True, draw_hands=True,
+                 draw_face=True, draw_feet=False, stick_width=4, face_point_size=3,
+                 score_threshold=0.3, draw_head=True)
+
+
+def _vace_frames(g: _Graph, plan: VideoPlan, positive: list, negative: list, vae: list,
+                 start: list | None) -> list:
+    experts = _experts(g, "vace", plan)
+    video = g.add("source", "LoadVideo", file=plan.source_video)
+    components = g.add("source_frames", "GetVideoComponents", video=video)
+    scaled = g.add("source_scaled", "ImageScale", image=components, upscale_method="lanczos",
+                   width=plan.gen_width, height=plan.gen_height, crop="center")
+    length = plan.segments[0]
+    cond_inputs: dict[str, Any] = {
+        "positive": positive, "negative": negative, "vae": vae,
+        "width": plan.gen_width, "height": plan.gen_height, "length": length, "batch_size": 1,
+        "strength": plan.control_strength,
+    }
+    if plan.mode == "extend":
+        context = g.add("source_tail", "ImageFromBatch", image=scaled,
+                        batch_index=-EXTEND_CONTEXT_FRAMES, length=EXTEND_CONTEXT_FRAMES)
+        # Black = keep (VACE "inactive"); the node pads the rest with generate.
+        keep = g.add("keep_frames", "EmptyImage", width=plan.gen_width, height=plan.gen_height,
+                     batch_size=EXTEND_CONTEXT_FRAMES, color=0)
+        cond_inputs["control_video"] = context
+        cond_inputs["control_masks"] = g.add("keep_mask", "ImageToMask", image=keep, channel="red")
+    else:
+        window = g.add("source_window", "ImageFromBatch", image=scaled,
+                       batch_index=plan.source_start, length=length)
+        cond_inputs["control_video"] = _control_video(g, plan, window)
+    if start is not None:
+        cond_inputs["reference_image"] = start
+    g.add("seg1_cond", "WanVaceToVideo", **cond_inputs)
+    sampled = _two_expert_pass(g, plan, 1, experts, ["seg1_cond", 0], ["seg1_cond", 1],
+                               ["seg1_cond", 2], plan.seed)
+    trimmed = g.add("seg1_trim", "TrimVideoLatent", samples=sampled, trim_amount=["seg1_cond", 3])
+    decoded = g.add("seg1_decode", "VAEDecode", samples=trimmed, vae=vae)
+    if plan.mode != "extend":
+        return decoded
+    new = g.add("extension", "ImageFromBatch", image=decoded,
+                batch_index=EXTEND_CONTEXT_FRAMES, length=4096)
+    return g.add("extended", "ImageBatch", image1=scaled, image2=new)
+
+
 def wan_video_workflow(plan: VideoPlan, filename_prefix: str = "burtson-video/clip") -> dict[str, Any]:
     """Compile a plan into a ComfyUI API-format prompt."""
     g = _Graph()
-    spec = plan.model
-    fast = spec.alias == "video-fast"
+    fast = plan.model.alias == "video-fast"
 
     clip = g.add("clip", "CLIPLoader", clip_name=TEXT_ENCODER, type="wan", device="default")
     positive = g.add("positive", "CLIPTextEncode", text=plan.prompt, clip=clip)
@@ -319,70 +513,58 @@ def wan_video_workflow(plan: VideoPlan, filename_prefix: str = "burtson-video/cl
         unet = g.add("unet", "UNETLoader", unet_name="wan2.2_ti2v_5B_fp16.safetensors", weight_dtype="default")
         model = g.add("model", "ModelSamplingSD3", model=unet, shift=8.0)
     else:
-        vae = g.add("vae", "VAELoader", vae_name="wan_2.1_vae.safetensors")
-        high = g.add("unet_high", "UNETLoader",
-                     unet_name="wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", weight_dtype="default")
-        low = g.add("unet_low", "UNETLoader",
-                    unet_name="wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", weight_dtype="default")
-        if plan.accelerated:
-            high = g.add("lora_high", "LoraLoaderModelOnly", model=high, strength_model=1.0,
-                         lora_name="wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors")
-            low = g.add("lora_low", "LoraLoaderModelOnly", model=low, strength_model=1.0,
-                        lora_name="wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors")
-        shift = 5.0 if plan.accelerated else 8.0
-        model_high = g.add("model_high", "ModelSamplingSD3", model=high, shift=shift)
-        model_low = g.add("model_low", "ModelSamplingSD3", model=low, shift=shift)
+        vae = g.add("vae", "VAELoader", vae_name=WAN21_VAE)
 
-    frames = None
-    for index, length in enumerate(plan.segments, start=1):
-        seg_start = start if index == 1 else g.add(
-            f"seg{index}_start", "ImageFromBatch", image=frames, batch_index=-1, length=1,
-        )
-        seed = plan.seed + (index - 1)
-        if fast:
-            latent_inputs: dict[str, Any] = {
-                "vae": vae, "width": plan.gen_width, "height": plan.gen_height,
-                "length": length, "batch_size": 1,
-            }
-            if seg_start is not None:
-                latent_inputs["start_image"] = seg_start
-            latent = g.add(f"seg{index}_latent", "Wan22ImageToVideoLatent", **latent_inputs)
-            sampled = g.add(f"seg{index}_sampler", "KSampler",
-                            model=model, positive=positive, negative=negative, latent_image=latent,
-                            seed=seed, steps=plan.steps, cfg=5.0, sampler_name="uni_pc",
-                            scheduler="simple", denoise=1.0)
-        else:
-            cond_inputs: dict[str, Any] = {
-                "positive": positive, "negative": negative, "vae": vae,
-                "width": plan.gen_width, "height": plan.gen_height,
-                "length": length, "batch_size": 1, "start_image": seg_start,
-            }
-            if end is not None:
-                cond_inputs["end_image"] = end
-                cond_node = "WanFirstLastFrameToVideo"
+    if plan.kind == "vace":
+        frames = _vace_frames(g, plan, positive, negative, vae, start)
+    else:
+        i2v_experts = None
+        frames = None
+        for index, length in enumerate(plan.segments, start=1):
+            seg_start = start if index == 1 else g.add(
+                f"seg{index}_start", "ImageFromBatch", image=frames, batch_index=-1, length=1,
+            )
+            seed = plan.seed + (index - 1)
+            if fast:
+                latent_inputs: dict[str, Any] = {
+                    "vae": vae, "width": plan.gen_width, "height": plan.gen_height,
+                    "length": length, "batch_size": 1,
+                }
+                if seg_start is not None:
+                    latent_inputs["start_image"] = seg_start
+                latent = g.add(f"seg{index}_latent", "Wan22ImageToVideoLatent", **latent_inputs)
+                sampled = g.add(f"seg{index}_sampler", "KSampler",
+                                model=model, positive=positive, negative=negative, latent_image=latent,
+                                seed=seed, steps=plan.steps, cfg=5.0, sampler_name="uni_pc",
+                                scheduler="simple", denoise=1.0)
+            elif seg_start is None:
+                # Quality text-to-video: T2V-A14B experts on an empty latent.
+                latent = g.add(f"seg{index}_latent", "EmptyHunyuanLatentVideo",
+                               width=plan.gen_width, height=plan.gen_height, length=length, batch_size=1)
+                sampled = _two_expert_pass(g, plan, index, _experts(g, "t2v", plan),
+                                           positive, negative, latent, seed)
             else:
-                cond_node = "WanImageToVideo"
-            cond_id = f"seg{index}_cond"
-            g.add(cond_id, cond_node, **cond_inputs)
-            steps = plan.steps
-            split = steps // 2
-            cfg = 1.0 if plan.accelerated else 3.5
-            high_pass = g.add(f"seg{index}_high", "KSamplerAdvanced",
-                              model=model_high, add_noise="enable", noise_seed=seed, steps=steps, cfg=cfg,
-                              sampler_name="euler", scheduler="simple",
-                              positive=[cond_id, 0], negative=[cond_id, 1], latent_image=[cond_id, 2],
-                              start_at_step=0, end_at_step=split, return_with_leftover_noise="enable")
-            sampled = g.add(f"seg{index}_low", "KSamplerAdvanced",
-                            model=model_low, add_noise="disable", noise_seed=seed, steps=steps, cfg=cfg,
-                            sampler_name="euler", scheduler="simple",
-                            positive=[cond_id, 0], negative=[cond_id, 1], latent_image=high_pass,
-                            start_at_step=split, end_at_step=10000, return_with_leftover_noise="disable")
-        decoded = g.add(f"seg{index}_decode", "VAEDecode", samples=sampled, vae=vae)
-        if frames is None:
-            frames = decoded
-        else:
-            tail = g.add(f"seg{index}_tail", "ImageFromBatch", image=decoded, batch_index=1, length=4096)
-            frames = g.add(f"seg{index}_concat", "ImageBatch", image1=frames, image2=tail)
+                i2v_experts = i2v_experts or _experts(g, "i2v", plan)
+                cond_inputs: dict[str, Any] = {
+                    "positive": positive, "negative": negative, "vae": vae,
+                    "width": plan.gen_width, "height": plan.gen_height,
+                    "length": length, "batch_size": 1, "start_image": seg_start,
+                }
+                if end is not None:
+                    cond_inputs["end_image"] = end
+                    cond_node = "WanFirstLastFrameToVideo"
+                else:
+                    cond_node = "WanImageToVideo"
+                cond_id = f"seg{index}_cond"
+                g.add(cond_id, cond_node, **cond_inputs)
+                sampled = _two_expert_pass(g, plan, index, i2v_experts, [cond_id, 0], [cond_id, 1],
+                                           [cond_id, 2], seed)
+            decoded = g.add(f"seg{index}_decode", "VAEDecode", samples=sampled, vae=vae)
+            if frames is None:
+                frames = decoded
+            else:
+                tail = g.add(f"seg{index}_tail", "ImageFromBatch", image=decoded, batch_index=1, length=4096)
+                frames = g.add(f"seg{index}_concat", "ImageBatch", image1=frames, image2=tail)
 
     if plan.upscale:
         upscaler = g.add("upscale_model", "UpscaleModelLoader", model_name=UPSCALE_MODEL)
@@ -424,22 +606,32 @@ CHECKPOINT_SHA256: dict[str, str] = {
     "wan2.2_ti2v_5B_fp16.safetensors": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
     "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors": "6122e79d55e0f235698d11d657f3b196c5273c830da00b2b013c5a048d5e6a42",
     "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": "5471a457b6ac404202a5fbe6c11595a3d5641fc766b00f38763f72303fffc21e",
+    "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors": "cad711ae211c8b23455ec68cd6a190a33a3d874234a77eb57266d73f8f0e6c9f",
+    "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors": "e71b96d7c82e638694c5e7fb98fac4bfb0e4ddc5fbbb4b1df40da8f0f1278a97",
+    "wan2.2_fun_vace_high_noise_14B_fp8_scaled.safetensors": "23130f30207f6c8697a5bead113ddc9904cfbb5e8fa51a550df3cee4d21fb54c",
+    "wan2.2_fun_vace_low_noise_14B_fp8_scaled.safetensors": "ca55a5cc543e28576edbd2079f8c1de05f71cd9e85bf96fab635f55663dbcb69",
     "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors": "d176c808d6fc461999b68e321efcb7501b20b8c3797523ed0df14f7d1deff11e",
     "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors": "024f21de095bc8fad9809ded3e9e49a2e170dcf27075da8145ba7d60d8aab7f9",
+    "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors": "698321cb86bd30c4af06c9b84e656a1048c8cb54e06d50694536fb5de37fde41",
+    "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors": "ec95216e614b3c132c11bfb387b11feedf62163150ccc9068bca8a189771e75a",
     TEXT_ENCODER: "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68",
     "wan2.2_vae.safetensors": "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
-    "wan_2.1_vae.safetensors": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+    WAN21_VAE: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
     UPSCALE_MODEL: "49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb",
     INTERPOLATION_MODEL: "151874592c877740e5db11522f4514df569eeafb0a0fcb2696f16e9e8d317c94",
+    DEPTH_MODEL: "9b44eda5bedba5b4e125686fdb79d1db309c1b9785277576eb930f885b008f96",
+    POSE_MODEL: "63d01f9a7494560693b24767f4469d59c9d3266b31ff0a253e74d1e611442721",
 }
+
+_MODEL_INPUTS = ("unet_name", "lora_name", "vae_name", "clip_name", "model_name", "ckpt_name")
 
 
 def plan_checkpoints(plan: VideoPlan) -> list[str]:
-    """Every model file a compiled plan actually loads."""
-    names = [name for name in plan.model.checkpoints
-             if "lightx2v" not in name or plan.accelerated]
-    if plan.upscale:
-        names.append(UPSCALE_MODEL)
-    if plan.interpolation > 1:
-        names.append(INTERPOLATION_MODEL)
+    """Every model file a compiled plan actually loads (read from the graph)."""
+    names: list[str] = []
+    for node in wan_video_workflow(plan).values():
+        for key in _MODEL_INPUTS:
+            value = node["inputs"].get(key)
+            if isinstance(value, str) and value not in names:
+                names.append(value)
     return names

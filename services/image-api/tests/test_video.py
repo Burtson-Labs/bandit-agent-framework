@@ -52,9 +52,21 @@ class SegmentPlanTests(unittest.TestCase):
 
 
 class PlanValidationTests(unittest.TestCase):
-    def test_quality_requires_start_image(self):
-        with self.assertRaises(ValueError):
-            plan(model="video-quality")
+    def test_quality_text_only_uses_t2v_experts(self):
+        quality = plan(model="video-quality")
+        self.assertEqual(quality.kind, "t2v")
+        self.assertEqual(quality.workflow_version, "wan22-t2v-a14b-v1")
+        workflow = vw.wan_video_workflow(quality)
+        self.assertEqual(workflow["seg1_latent"]["class_type"], "EmptyHunyuanLatentVideo")
+        self.assertEqual(workflow["unet_high_t2v"]["inputs"]["unet_name"], vw.EXPERTS["t2v"][0])
+        self.assertEqual(workflow["lora_low_t2v"]["inputs"]["lora_name"], vw.LIGHTNING["t2v"][1])
+        self.assertNotIn("unet_high", workflow)
+
+    def test_quality_text_only_long_clip_continues_with_i2v(self):
+        workflow = vw.wan_video_workflow(plan(model="video-quality", duration_seconds=9))
+        self.assertIn("unet_high_t2v", workflow)
+        self.assertEqual(workflow["seg2_cond"]["class_type"], "WanImageToVideo")
+        self.assertEqual(workflow["seg2_high"]["inputs"]["model"], ["model_high", 0])
 
     def test_end_frame_requires_quality_and_start(self):
         with self.assertRaises(ValueError):
@@ -200,11 +212,10 @@ class VideoEndpointTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             main.VideoRequest(prompt="ok prompt", camera="barrel-roll")
 
-    def test_quality_without_reference_is_rejected(self):
-        with self.assertRaises(HTTPException) as caught:
-            asyncio.run(main.generate_video(main.VideoRequest(prompt="truck", model="video-quality"),
-                                            x_burtson_owner="tester"))
-        self.assertEqual(caught.exception.status_code, 400)
+    def test_quality_text_only_is_accepted(self):
+        job = asyncio.run(main.generate_video(main.VideoRequest(prompt="truck", model="video-quality"),
+                                              x_burtson_owner="tester"))
+        self.assertEqual(job["request"]["plan"]["pipeline"], "t2v")
 
     def test_other_users_reference_is_forbidden(self):
         self._reference(owner="someone-else")
@@ -316,3 +327,212 @@ class ExecuteVideoTests(unittest.TestCase):
         kinds = sorted(ctype for ctype, _ in uploads.values())
         self.assertEqual(kinds, ["application/json", "image/jpeg", "image/jpeg", "video/mp4", "video/mp4"])
         self.assertNotIn("assetKeys", main.public_job(stored))
+
+
+def source_plan(**overrides):
+    values = dict(
+        model="video-quality", prompt="restyled scene", seed=3, aspect="16:9", resolution="720p",
+        duration_seconds=5, output_fps=24, source_video="src.mp4", source_frames=161, mode="restyle",
+    )
+    values.update(overrides)
+    return vw.plan_video(**values)
+
+
+class VideoConditionedPlanTests(unittest.TestCase):
+    def test_restyle_edges_graph(self):
+        p = source_plan(control="edges", control_strength=0.8, start_image="look.png")
+        self.assertEqual((p.kind, p.workflow_version, p.segments), ("vace", "wan22-vace-fun-a14b-v1", (81,)))
+        workflow = vw.wan_video_workflow(p)
+        self.assertEqual(workflow["source"]["inputs"]["file"], "src.mp4")
+        self.assertEqual(workflow["control"]["class_type"], "Canny")
+        cond = workflow["seg1_cond"]
+        self.assertEqual(cond["class_type"], "WanVaceToVideo")
+        self.assertEqual(cond["inputs"]["control_video"], ["control", 0])
+        self.assertEqual(cond["inputs"]["reference_image"], ["start_image", 0])
+        self.assertEqual(cond["inputs"]["strength"], 0.8)
+        self.assertEqual(workflow["seg1_trim"]["inputs"]["trim_amount"], ["seg1_cond", 3])
+        self.assertEqual(workflow["seg1_decode"]["inputs"]["samples"], ["seg1_trim", 0])
+        self.assertEqual(workflow["unet_high_vace"]["inputs"]["unet_name"], vw.EXPERTS["vace"][0])
+        self.assertEqual(workflow["lora_high_vace"]["inputs"]["lora_name"], vw.LIGHTNING["t2v"][0])
+
+    def test_depth_and_pose_controls(self):
+        depth = vw.wan_video_workflow(source_plan(control="depth"))
+        self.assertEqual(depth["depth_model"]["inputs"]["model_name"], vw.DEPTH_MODEL)
+        self.assertEqual(depth["control"]["class_type"], "DA3Render")
+        self.assertEqual(depth["control"]["inputs"]["output"], "depth")
+        pose = vw.wan_video_workflow(source_plan(mode="motion", start_image="person.png"))
+        self.assertEqual(pose["pose_model"]["inputs"]["ckpt_name"], vw.POSE_MODEL)
+        self.assertEqual(pose["control"]["class_type"], "SDPoseDrawKeypoints")
+        self.assertEqual(pose["pose"]["inputs"]["vae"], ["pose_model", 2])
+
+    def test_mode_defaults(self):
+        self.assertEqual(source_plan().control, "edges")
+        self.assertEqual(source_plan(mode="motion", start_image="a.png").control, "pose")
+        self.assertIsNone(source_plan(mode="extend", control="depth").control)
+
+    def test_restyle_window_is_clamped_to_source(self):
+        p = source_plan(source_frames=49, duration_seconds=5, source_start_seconds=9)
+        self.assertEqual(p.source_start, 49 - vw.MIN_SEGMENT_FRAMES)
+        self.assertEqual(p.segments, (17,))
+        p = source_plan(source_frames=161, duration_seconds=3, source_start_seconds=2)
+        self.assertEqual((p.source_start, p.segments), (32, (49,)))
+        workflow = vw.wan_video_workflow(p)
+        self.assertEqual(workflow["source_window"]["inputs"]["batch_index"], 32)
+        self.assertEqual(workflow["source_window"]["inputs"]["length"], 49)
+
+    def test_extend_appends_after_the_source(self):
+        p = source_plan(mode="extend", duration_seconds=3, source_frames=81)
+        self.assertEqual(p.segments, (65,))  # 17 context + 48 new
+        self.assertEqual(p.native_frames, 81 + 65 - 17)
+        workflow = vw.wan_video_workflow(p)
+        cond = workflow["seg1_cond"]["inputs"]
+        self.assertEqual(cond["control_video"], ["source_tail", 0])
+        self.assertEqual(cond["control_masks"], ["keep_mask", 0])
+        self.assertEqual(workflow["source_tail"]["inputs"]["batch_index"], -vw.EXTEND_CONTEXT_FRAMES)
+        self.assertEqual(workflow["keep_frames"]["inputs"]["color"], 0)
+        self.assertEqual(workflow["extension"]["inputs"]["batch_index"], vw.EXTEND_CONTEXT_FRAMES)
+        self.assertEqual(workflow["extended"]["inputs"]["image1"], ["source_scaled", 0])
+        self.assertNotIn("control", workflow)
+
+    def test_invalid_combinations(self):
+        cases = [
+            dict(model="video-fast"),
+            dict(mode=None),
+            dict(mode="motion"),  # no reference image
+            dict(start_image="a.png", end_image="b.png"),
+            dict(control="sketch"),
+            dict(control_strength=3.0),
+            dict(source_frames=10),
+        ]
+        for overrides in cases:
+            with self.assertRaises(ValueError, msg=str(overrides)):
+                source_plan(**overrides)
+        with self.assertRaises(ValueError):
+            plan(mode="restyle")  # mode without a source video
+
+    def test_links_and_provenance_for_every_mode(self):
+        for candidate in (
+            source_plan(control="edges", resolution="1080p"),
+            source_plan(control="depth", aspect="9:16", accelerated=False),
+            source_plan(mode="motion", start_image="a.png", output_fps=30),
+            source_plan(mode="extend", start_image="a.png", resolution="1080p"),
+        ):
+            workflow = vw.wan_video_workflow(candidate)
+            for node in workflow.values():
+                for value in node["inputs"].values():
+                    if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                        self.assertIn(value[0], workflow)
+            names = vw.plan_checkpoints(candidate)
+            self.assertTrue(all(name in vw.CHECKPOINT_SHA256 for name in names), names)
+
+
+class SourceVideoTests(unittest.TestCase):
+    def tearDown(self):
+        main.references.clear()
+        main.jobs.clear()
+        while not main.queue.empty():
+            main.queue.get_nowait()
+
+    def _source(self, owner="tester", frames=161):
+        reference = main.Reference(
+            id="src-video-test", owner=owner, key="unused", kind="video", filename="clip.mp4",
+            contentType="video/mp4", width=1280, height=720, bytes=1024, durationSeconds=10.0,
+            frames=frames, sha256="a" * 64, originalSha256="b" * 64,
+        )
+        main.references[reference.id] = reference
+        return reference
+
+    def _image(self):
+        reference = main.Reference(
+            id="ref-image-test", owner="tester", key="unused", kind="reference", filename="p.png",
+            contentType="image/png", width=800, height=800, bytes=10,
+        )
+        main.references[reference.id] = reference
+
+    def submit(self, **fields):
+        return asyncio.run(main.generate_video(main.VideoRequest(prompt="make it painterly", **fields),
+                                               x_burtson_owner="tester"))
+
+    def test_restyle_job_records_source_digest(self):
+        self._source()
+        job = self.submit(model="video-quality", sourceVideoId="src-video-test", mode="restyle", control="depth")
+        self.assertEqual(job["request"]["plan"]["pipeline"], "vace")
+        self.assertEqual(job["request"]["plan"]["control"], "depth")
+        self.assertEqual(job["request"]["sourceSha256"], "a" * 64)
+
+    def test_motion_without_image_is_400(self):
+        self._source()
+        with self.assertRaises(HTTPException) as caught:
+            self.submit(model="video-quality", sourceVideoId="src-video-test", mode="motion")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("reference image", caught.exception.detail)
+
+    def test_source_on_fast_model_is_400(self):
+        self._source()
+        with self.assertRaises(HTTPException) as caught:
+            self.submit(sourceVideoId="src-video-test", mode="restyle")
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_image_id_is_not_a_source_video(self):
+        self._image()
+        with self.assertRaises(HTTPException) as caught:
+            self.submit(model="video-quality", sourceVideoId="ref-image-test", mode="restyle")
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_other_users_source_is_forbidden(self):
+        self._source(owner="someone-else")
+        with self.assertRaises(HTTPException) as caught:
+            self.submit(model="video-quality", sourceVideoId="src-video-test", mode="extend")
+        self.assertEqual(caught.exception.status_code, 403)
+
+    def test_request_bounds(self):
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", mode="inpaint")
+        with self.assertRaises(ValidationError):
+            main.VideoRequest(prompt="ok prompt", controlStrength=5)
+
+
+@unittest.skipUnless(__import__("shutil").which("ffmpeg"), "ffmpeg not installed")
+class SourceNormalizationTests(unittest.TestCase):
+    def _make(self, work, name, args):
+        import os
+        import subprocess
+
+        path = os.path.join(work, name)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *args, path], check=True)
+        return path
+
+    def test_long_4k_clip_is_trimmed_resampled_and_downscaled(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as work:
+            path = self._make(work, "in.mov", ["-f", "lavfi", "-i", "testsrc2=size=3840x2160:rate=30",
+                                               "-t", "12", "-c:v", "libx264", "-preset", "ultrafast"])
+            body, info = main.normalize_source_video(path, work)
+        self.assertEqual((info["width"], info["height"]), (1280, 720))
+        self.assertEqual(info["frames"], 160)
+        self.assertEqual(info["originalDuration"], 12.0)
+        self.assertEqual(info["codec"], "h264")
+        self.assertGreater(len(body), 1000)
+
+    def test_portrait_keeps_orientation(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as work:
+            path = self._make(work, "in.mp4", ["-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=24", "-t", "2"])
+            _, info = main.normalize_source_video(path, work)
+        self.assertEqual((info["width"], info["height"]), (720, 1280))
+
+    def test_still_image_and_garbage_are_rejected(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as work:
+            still = self._make(work, "still.png", ["-f", "lavfi", "-i", "color=c=red:size=64x64", "-frames:v", "1"])
+            junk = os.path.join(work, "junk.mp4")
+            with open(junk, "wb") as handle:
+                handle.write(b"not a video" * 100)
+            for path in (still, junk):
+                with self.assertRaises(HTTPException) as caught:
+                    main.normalize_source_video(path, work)
+                self.assertEqual(caught.exception.status_code, 400)

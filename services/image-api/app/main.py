@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 import boto3
 import httpx
 from botocore.client import Config
-from fastapi import FastAPI, File, Form, Header, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
@@ -43,6 +43,7 @@ MAX_IMAGE_PIXELS = max(1_000_000, int(os.getenv("MAX_IMAGE_PIXELS", "25000000"))
 # with the full 20-step schedule is the slowest legal request.
 VIDEO_VARIANT_TIMEOUT_SECONDS = max(300, int(os.getenv("VIDEO_VARIANT_TIMEOUT_SECONDS", "3600")))
 VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
+MAX_SOURCE_BYTES = max(1, int(os.getenv("MAX_SOURCE_MIB", "200"))) * 1024 * 1024
 logger = logging.getLogger("burtson.image_api")
 
 
@@ -67,9 +68,14 @@ class GenerationRequest(BaseModel):
 
 
 class VideoRequest(BaseModel):
+    """One request shape for every input combination.
+
+    text only -> text-to-video; + referenceId -> image-to-video;
+    + sourceVideoId -> video-conditioned (VACE) with `mode`.
+    """
     prompt: str = Field(min_length=3, max_length=4000)
     # video-fast = Wan2.2-TI2V-5B (text or image to video);
-    # video-quality = Wan2.2-I2V-A14B (image to video, best source fidelity).
+    # video-quality = Wan2.2 A14B: T2V (text), I2V (image), VACE-Fun (video).
     model: Literal["video-fast", "video-quality"] = "video-fast"
     aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["480p", "720p", "1080p"] = "720p"
@@ -87,6 +93,13 @@ class VideoRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**62)
     referenceId: str | None = Field(default=None, min_length=8, max_length=64)
     endReferenceId: str | None = Field(default=None, min_length=8, max_length=64)
+    # Video-conditioned generation (video-quality only).
+    sourceVideoId: str | None = Field(default=None, min_length=8, max_length=64)
+    mode: vw.VideoMode | None = None
+    control: vw.Control | None = None
+    controlStrength: float = Field(default=1.0, ge=0.1, le=2.0)
+    # restyle/motion use a <=5 s window of the source starting here.
+    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=vw.MAX_SOURCE_SECONDS)
 
 
 @dataclass
@@ -122,6 +135,12 @@ class Reference:
     bytes: int
     createdAt: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     expiresAt: str = field(default_factory=lambda: (datetime.now(UTC) + ASSET_TTL).isoformat())
+    # Source videos only (kind == "video"): normalised to 16 fps, <=10 s.
+    durationSeconds: float | None = None
+    frames: int | None = None
+    sha256: str | None = None
+    originalSha256: str | None = None
+    originalDurationSeconds: float | None = None
 
 
 app = FastAPI(title="Burtson Image API", version="0.1.0")
@@ -259,6 +278,98 @@ async def upload_reference(
     return public_reference(reference)
 
 
+@app.post("/api/videos/sources", status_code=201)
+async def upload_source_video(request: Request, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Accept a source video as the raw request body (streamed to disk).
+
+    Content is identified by probing, never by extension or Content-Type. The
+    stored copy is normalised once: first 10 s, 16 fps (VACE's native rate),
+    long side <= 1280, H.264 yuv420p, no audio. Jobs crop/scale it to their
+    own aspect and resolution inside the workflow.
+    """
+    owner = x_burtson_owner[:200]
+    with tempfile.TemporaryDirectory(prefix="burtson-source-") as work:
+        original = os.path.join(work, "original")
+        digest = hashlib.sha256()
+        size = 0
+        with open(original, "wb") as handle:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_SOURCE_BYTES:
+                    raise HTTPException(413, f"video exceeds the {MAX_SOURCE_BYTES // (1024 * 1024)} MiB upload limit")
+                digest.update(chunk)
+                handle.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "video upload is empty")
+        normalized, info = await asyncio.to_thread(normalize_source_video, original, work)
+    reference_id = uuid.uuid4().hex
+    created = datetime.now(UTC)
+    key = f"v1/tenant/{safe_owner(owner)}/{created:%Y/%m/%d}/references/{reference_id}.mp4"
+    expires_at = created + ASSET_TTL
+    await asyncio.to_thread(upload, key, normalized, "video/mp4", expires_at)
+    reference = Reference(
+        id=reference_id, owner=owner, key=key, kind="video",
+        filename=(request.headers.get("x-filename") or "source.mp4")[:200], contentType="video/mp4",
+        width=info["width"], height=info["height"], bytes=len(normalized),
+        createdAt=created.isoformat(), expiresAt=expires_at.isoformat(),
+        durationSeconds=info["duration"], frames=info["frames"],
+        sha256=hashlib.sha256(normalized).hexdigest(), originalSha256=digest.hexdigest(),
+        originalDurationSeconds=info["originalDuration"],
+    )
+    references[reference_id] = reference
+    return public_reference(reference)
+
+
+def normalize_source_video(path: str, work: str) -> tuple[bytes, dict]:
+    original = probe_source(path)
+    if original is None:
+        raise HTTPException(400, "unsupported or corrupt video: no decodable video stream")
+    if original["duration"] < 0.5:
+        raise HTTPException(400, "video must be at least half a second long")
+    output = os.path.join(work, "normalized.mp4")
+    long_side = "if(gt(iw,ih),min(1280,iw),-2)", "if(gt(iw,ih),-2,min(1280,ih))"
+    try:
+        run_ffmpeg([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", path,
+            "-t", str(vw.MAX_SOURCE_SECONDS), "-an", "-sn", "-dn", "-map_metadata", "-1",
+            "-vf", f"fps={vw.SOURCE_FPS},scale=w='{long_side[0]}':h='{long_side[1]}':flags=lanczos,"
+                   "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart", output,
+        ])
+    except RuntimeError as exc:
+        raise HTTPException(400, "the video could not be decoded") from exc
+    info = probe_video(output)
+    if not info.get("frames") or not info.get("width"):
+        raise HTTPException(400, "the video could not be decoded")
+    info["originalDuration"] = original["duration"]
+    info["duration"] = info.get("duration") or round((info["frames"] - 1) / vw.SOURCE_FPS, 2)
+    with open(output, "rb") as handle:
+        return handle.read(), info
+
+
+def probe_source(path: str) -> dict | None:
+    """Return {duration} when ffprobe finds a real video stream, else None."""
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_type,codec_name,width,height:format=duration,format_name",
+        "-of", "json", path,
+    ], capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode != 0:
+        return None
+    data = json.loads(result.stdout or "{}")
+    streams = [s for s in data.get("streams", []) if s.get("codec_type") == "video" and s.get("width")]
+    fmt = data.get("format") or {}
+    # Still images (png/jpeg "video" streams) are not source videos.
+    if not streams or fmt.get("format_name", "") in {"image2", "png_pipe", "jpeg_pipe", "webp_pipe"}:
+        return None
+    try:
+        duration = float(fmt.get("duration") or 0)
+    except ValueError:
+        duration = 0.0
+    return {"duration": round(duration, 2)}
+
+
 @app.post("/api/images/generations", status_code=202)
 async def generate(request: GenerationRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
     if queue.full():
@@ -289,17 +400,15 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     if queue.full():
         raise HTTPException(429, "generation queue is full")
     owner = x_burtson_owner[:200]
-    if request.model == "video-quality" and not request.referenceId:
-        raise HTTPException(400, "video-quality is image-to-video: attach a start image (referenceId)")
-    if request.endReferenceId and not request.referenceId:
-        raise HTTPException(400, "endReferenceId requires referenceId")
-    if request.endReferenceId and request.model != "video-quality":
-        raise HTTPException(400, "first/last-frame video requires the video-quality model")
     if request.referenceId:
         owned_reference(request.referenceId, owner, expected_kind="reference")
     if request.endReferenceId:
         owned_reference(request.endReferenceId, owner, expected_kind="reference")
+    source = owned_reference(request.sourceVideoId, owner, expected_kind="video") if request.sourceVideoId else None
     payload = request.model_dump()
+    payload["sourceFrames"] = source.frames if source else 0
+    payload["sourceSha256"] = source.sha256 if source else None
+    payload["sourceOriginalSha256"] = source.originalSha256 if source else None
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**62)
     if payload["preserveText"] is None:
         payload["preserveText"] = request.referenceId is not None
@@ -307,7 +416,8 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     # time rather than minutes later on the GPU.
     try:
         plan = video_plan(payload, variant=0, start_image="start.png" if request.referenceId else None,
-                          end_image="end.png" if request.endReferenceId else None)
+                          end_image="end.png" if request.endReferenceId else None,
+                          source_video="source.mp4" if source else None)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     payload["plan"] = plan.describe()
@@ -318,7 +428,8 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     return public_job(job)
 
 
-def video_plan(request: dict, *, variant: int, start_image: str | None, end_image: str | None) -> vw.VideoPlan:
+def video_plan(request: dict, *, variant: int, start_image: str | None, end_image: str | None,
+               source_video: str | None = None) -> vw.VideoPlan:
     return vw.plan_video(
         model=request["model"], prompt=request["prompt"],
         # Variants are independent takes; segments inside one take use seed+n.
@@ -328,6 +439,10 @@ def video_plan(request: dict, *, variant: int, start_image: str | None, end_imag
         camera=request["camera"], preserve_text=request["preserveText"],
         accelerated=request["accelerated"], upscaler=request["upscaler"],
         start_image=start_image, end_image=end_image,
+        source_video=source_video, source_frames=request.get("sourceFrames") or 0,
+        source_start_seconds=request.get("sourceStartSeconds") or 0.0,
+        mode=request.get("mode"), control=request.get("control"),
+        control_strength=request.get("controlStrength", 1.0),
     )
 
 
@@ -492,10 +607,11 @@ async def upload_comfy_reference(client: httpx.AsyncClient, job: Job, reference_
     reference = owned_reference(reference_id, job.owner)
     obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=reference.key)
     body = await asyncio.to_thread(obj["Body"].read)
-    name = f"burtson-{job.id}-{reference.kind}-{reference.id}.png"
+    extension, content_type = (".mp4", "video/mp4") if reference.kind == "video" else (".png", "image/png")
+    name = f"burtson-{job.id}-{reference.kind}-{reference.id}{extension}"
     response = await client.post(
         f"{COMFY_URL}/upload/image",
-        files={"image": (name, body, "image/png")},
+        files={"image": (name, body, content_type)},
         data={"type": "input", "overwrite": "true"},
     )
     response.raise_for_status()
@@ -520,11 +636,13 @@ async def execute_video(job: Job) -> None:
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120)) as client:
         start_name = await upload_comfy_reference(client, job, request.get("referenceId"))
         end_name = await upload_comfy_reference(client, job, request.get("endReferenceId"))
+        source_name = await upload_comfy_reference(client, job, request.get("sourceVideoId"))
         for variant in range(request["variants"]):
             if job.cancelRequested:
                 job.status = "cancelled"
                 return
-            plan = video_plan(request, variant=variant, start_image=start_name, end_image=end_name)
+            plan = video_plan(request, variant=variant, start_image=start_name, end_image=end_name,
+                              source_video=source_name)
             try:
                 raw = await run_video_prompt(client, job, plan, variant)
             except asyncio.CancelledError:
@@ -551,7 +669,7 @@ async def execute_video(job: Job) -> None:
                 "url": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 2}",
                 "posterUrl": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 1}",
                 "variant": number, "seed": plan.seed, "model": plan.model.alias,
-                "workflowVersion": plan.model.workflow_version,
+                "workflowVersion": plan.workflow_version,
                 "width": probe.get("width", plan.out_width), "height": probe.get("height", plan.out_height),
                 "fps": plan.output_fps, "durationSeconds": probe.get("duration", plan.duration_seconds),
                 "frames": probe.get("frames"), "codec": probe.get("codec"), "pixelFormat": probe.get("pix_fmt"),
@@ -560,7 +678,9 @@ async def execute_video(job: Job) -> None:
                 "modelDigests": {name: vw.CHECKPOINT_SHA256.get(name, "unverified")
                                  for name in vw.plan_checkpoints(plan)},
                 "expiresAt": job.expiresAt,
-                "mode": "image-to-video" if start_name else "text-to-video",
+                "mode": ("video-to-video" if source_name else
+                         "image-to-video" if start_name else "text-to-video"),
+                "sourceSha256": request.get("sourceSha256"),
                 "plan": plan.describe(),
             })
     metadata = json.dumps({

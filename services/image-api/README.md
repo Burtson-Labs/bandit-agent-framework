@@ -19,10 +19,29 @@ GPU claim, job/asset endpoints and TTL as images (Anton proxies it as
 `POST /image/videos`; poll `GET /image/jobs/{id}`). Server-owned workflows live
 in `app/video_workflows.py`:
 
-| Alias | Model | Workflow version | Input |
-|---|---|---|---|
-| `video-fast` | Wan2.2-TI2V-5B fp16, 24 fps native | `wan22-ti2v-5b-v1` | prompt, optional start image |
-| `video-quality` | Wan2.2-I2V-A14B fp8 (high + low noise experts), 16 fps native | `wan22-i2v-a14b-v1` | start image (+ optional end image for first/last-frame) |
+One request shape covers every input combination; the inputs present pick the
+pipeline:
+
+| Inputs | `video-fast` | `video-quality` |
+|---|---|---|
+| text | Wan2.2-TI2V-5B (`wan22-ti2v-5b-v1`) | Wan2.2-T2V-A14B (`wan22-t2v-a14b-v1`) |
+| text + image (`referenceId`) | TI2V-5B image-to-video | Wan2.2-I2V-A14B (`wan22-i2v-a14b-v1`); + `endReferenceId` = first/last frame |
+| text [+ image] + video (`sourceVideoId`) | 400 | Wan2.2-VACE-Fun-A14B (`wan22-vace-fun-a14b-v1`) with `mode` |
+
+Video modes: `restyle` (keep the source's motion via a `control` video —
+`edges` = core Canny, `depth` = Depth Anything 3 Mono-Large, `pose` = SDPose
+wholebody — and take the look from the prompt and optional image), `motion`
+(animate the reference image with the source's motion; pose by default;
+requires `referenceId`), `extend` (continue the source from its last 17 frames,
+up to 4 s; output is the whole source plus the new footage). `controlStrength`
+0.1-2.0; `sourceStartSeconds` picks the <= 5 s window for restyle/motion.
+
+Source videos go to `POST /api/videos/sources` as the raw request body
+(Anton: `POST /image/sources`, 200 MiB). They are identified by ffprobe, not by
+extension; still images and undecodable files get 400. The stored copy is the
+first 10 s at 16 fps, long side <= 1280, H.264, no audio; both the original and
+normalised SHA-256 are recorded and the latter is copied into every job's
+provenance.
 
 Request fields: `prompt`, `model`, `aspect` (`16:9`, `9:16`, `1:1`), `resolution`
 (`480p`, `720p`, `1080p`), `durationSeconds` (clamped to 2-10 s; over ~5 s a
@@ -32,7 +51,10 @@ logo/lettering guidance; defaults on with a start image), `accelerated`
 (`video-quality` only: Lightning 4-step LoRAs vs the full 20-step schedule),
 `upscaler` (`esrgan` or `lanczos` for 1080p), `variants` (1-4 takes with
 different seeds, run back to back while the GPU is held), `seed`,
-`referenceId`, `endReferenceId`.
+`referenceId`, `endReferenceId`, `sourceVideoId`, `mode`, `control`,
+`controlStrength`, `sourceStartSeconds`. Impossible combinations (for example
+`mode: motion` without an image, or a source video on `video-fast`) return 400
+at submit time.
 
 1080p renders natively at 720p, then Real-ESRGAN x2 and an exact lanczos resize.
 Frame rates above native use RIFE v4.26 interpolation (16 -> 48 -> 24 fps,
