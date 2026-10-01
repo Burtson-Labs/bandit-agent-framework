@@ -88,6 +88,8 @@ class Subject:
     reference: str
     x: float
     y: float
+    # Optional description of this person (look, outfit); the job prompt otherwise.
+    prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -251,7 +253,8 @@ def plan_swap(
         people = tuple(Subject(f"subject-{n}.png", 0.5, 0.5) for n in range(subjects))
     else:
         people = tuple(s if isinstance(s, Subject) else Subject(str(s.get("reference") or s.get("referenceId")),
-                                                                float(s["x"]), float(s["y"])) for s in subjects)
+                                                                float(s["x"]), float(s["y"]), s.get("prompt"))
+                       for s in subjects)
     if not people:
         raise ValueError("pick at least one person and give them a photo")
     if mode == "animate" and len(people) != 1:
@@ -349,7 +352,7 @@ def segment_workflow(plan: SwapPlan, *, window: Window, pass_index: int, referen
     width, height, length = plan.gen_width, plan.gen_height, window.length
 
     clip = g.add("clip", "CLIPLoader", clip_name=vw.TEXT_ENCODER, type="wan", device="default")
-    positive = g.add("positive", "CLIPTextEncode", text=plan.prompt, clip=clip)
+    positive = g.add("positive", "CLIPTextEncode", text=subject_prompt(plan, pass_index), clip=clip)
     negative = g.add("negative", "CLIPTextEncode", text=vw.NEGATIVE_PROMPT, clip=clip)
     vae = g.add("vae", "VAELoader", vae_name=vw.WAN21_VAE)
     reference_image = g.add("reference", "LoadImage", image=reference)
@@ -410,6 +413,13 @@ def segment_workflow(plan: SwapPlan, *, window: Window, pass_index: int, referen
                        resize_source=False, mask=soft)
     _save(g, "save", frames, prefix)
     return g.nodes
+
+
+def subject_prompt(plan: SwapPlan, pass_index: int) -> str:
+    """The pass's person description, then the job prompt (scene, motion)."""
+    subject = plan.subjects[pass_index] if pass_index < len(plan.subjects) else None
+    own = (subject.prompt or "").strip() if subject else ""
+    return f"{own} {plan.prompt}".strip() if own else plan.prompt
 
 
 def finish_workflow(plan: SwapPlan, source_file: str, prefix: str) -> dict[str, Any]:

@@ -98,6 +98,8 @@ class SwapSubject(BaseModel):
     referenceId: str = Field(min_length=8, max_length=64)
     x: float = Field(ge=0.0, le=1.0)
     y: float = Field(ge=0.0, le=1.0)
+    # Optional: what this person looks like / wears; the job prompt describes the scene.
+    prompt: str | None = Field(default=None, max_length=1000)
 
 
 VideoModeAll = Literal["restyle", "motion", "extend", "animate", "replace"]
@@ -688,7 +690,8 @@ def is_swap(request: dict) -> bool:
 def swap_plan(request: dict, subjects: list | None = None) -> swap.SwapPlan:
     """Compile a stored swap request; ``subjects`` substitutes ComfyUI file names."""
     people = subjects if subjects is not None else [
-        swap.Subject(item["referenceId"], item["x"], item["y"]) for item in request.get("subjects") or []]
+        swap.Subject(item["referenceId"], item["x"], item["y"], item.get("prompt"))
+        for item in request.get("subjects") or []]
     return swap.plan_swap(
         mode=request["mode"], prompt=request["prompt"], seed=int(request["seed"]),
         resolution=request["resolution"], output_fps=int(request["fps"]),

@@ -135,6 +135,16 @@ class SwapGraphTests(unittest.TestCase):
         self.assertEqual(workflow["sampler"]["inputs"]["seed"], p.seed + 100 + 1)
         self.assertEqual(workflow["sampler"]["inputs"]["steps"], 6)
 
+    def test_each_pass_can_describe_its_person(self):
+        p = swap_plan(subjects=[swap.Subject("p1.png", 0.3, 0.5, "A man in a navy suit."),
+                                swap.Subject("p2.png", 0.7, 0.5)])
+        first = swap.segment_workflow(p, window=p.windows[0], pass_index=0, reference="a.png", source_file="s",
+                                      pose_file="p", face_file="f", mask_file="m", tail_file=None, prefix="x")
+        second = swap.segment_workflow(p, window=p.windows[0], pass_index=1, reference="b.png", source_file="s",
+                                       pose_file="p", face_file="f", mask_file="m", tail_file=None, prefix="x")
+        self.assertEqual(first["positive"]["inputs"]["text"], "A man in a navy suit. two people dance")
+        self.assertEqual(second["positive"]["inputs"]["text"], "two people dance")
+
     def test_animate_window_has_no_background_or_composite(self):
         p = swap_plan(mode="animate", subjects=[swap.Subject("p.png", 0.5, 0.5)], accelerated=False)
         workflow = swap.segment_workflow(p, window=p.windows[0], pass_index=0, reference="person-1.png",

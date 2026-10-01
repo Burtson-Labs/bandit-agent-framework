@@ -55,8 +55,9 @@ SHA-256 are recorded and the latter is copied into every job's provenance.
 camera kept, relighting LoRA on); `mode: "animate"` makes the photo perform one
 source person's body and face motion. Request: `sourceVideoId`, `subjects`
 (1-4 `{referenceId, x, y}`: a photo per person and a tap point on that person,
-normalised 0..1, in the frame at `sourceStartSeconds`; animate takes exactly
-one), `fullLength` (to the end of the source, max 60 s) or `durationSeconds`,
+normalised 0..1, in the frame at `sourceStartSeconds`, plus an optional
+`prompt` describing that person's look and outfit, which leads the job prompt
+for their pass; animate takes exactly one), `fullLength` (to the end of the source, max 60 s) or `durationSeconds`,
 `keepAudio` (default true), `resolution`, `fps`, `accelerated` (default true:
 6 steps with the lightx2v distill LoRA; false: 20 steps), `prompt`, `seed`, and
 **`consent: true`** (400 otherwise): the caller confirms "I have permission
