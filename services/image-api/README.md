@@ -137,3 +137,57 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
 | `DELETE /api/library/projects/{id}` | `DELETE /image/library/projects/{id}` | delete; its items stay, unassigned |
 
 Every route is scoped by `X-Burtson-Owner`, which Anton sets from the JWT.
+
+## Productions (overnight shots)
+
+Admin-only planning and overnight rendering for Burtson Video Studio: a
+production (series or film) holds episodes, scenes and shots; each shot is one
+2-5 s Wan 2.2 pass rendered as N takes. Design: `Burtson-Studio-Productions-Design.md`
+(phase 1).
+
+- **State** lives in Mongo (`MONGO_URI`, database `MONGO_DB`, default
+  `burtson_studio`, own least-privilege user): `productions, episodes, scenes,
+  shots, takes, jobs, settings, nights, gpu_events`. Without `MONGO_URI` the
+  routes answer 503 and nothing else changes.
+- **Durable queue** (`app/productions/store.py`): a job per take with the id
+  `tk_` + sha256(shot|revision|take)[:24], so queueing a shot revision twice is a
+  no-op and the take keeps the job's id. Editing a shot's prompt, camera,
+  duration, model, resolution, schedule or frames bumps its revision and
+  cancels its queued takes of older revisions. Leases are atomic
+  (`findOneAndUpdate`); retries follow the design's error classes: transient
+  (back off 1/5/15/30 min, 5 attempts), lost (image-api restarted; requeued at
+  once, the first two do not count), oom and timeout (one retry), invalid
+  (dead at once), released (a forced GPU release; requeued, not counted).
+- **Dispatcher** (`app/productions/dispatcher.py`, every 10 s): feeds this
+  process's in-memory queue **one take at a time**, only while the night window
+  (default 22:00-07:00 America/Chicago, every night) or a manual session is
+  open, nothing interactive is queued or running, the queue is not paused, the
+  GPU is healthy and the worker answers. It never starts a take whose estimate
+  would end after the window end plus grace (10 min), and stops at the night's
+  GPU budget (480 min). After a restart, in-flight takes are found missing and
+  requeued (`lost`); ComfyUI's orphaned prompts are cleared at startup.
+- **Outputs** go to `v1/productions/{owner}/{productionId}/takes/{takeId}/`
+  without expiry tags (outside `v1/tenant/`, so neither the reaper nor the
+  bucket lifecycle touches them) and are never recorded in History. Shot
+  frames are stored under `.../shots/{shotId}/keyframe-{start|end}-{sha}.png`;
+  each attempt gets fresh reference records for them.
+- **Anton** asks `GET /api/productions/gpu-intent` once a minute (reporting GPU
+  health in the query) and gets `{wantGpu, releaseWhenDone, reason, until,
+  healthy}`. `wantGpu` is false with nothing queued, so an empty queue never
+  claims the GPU. A GPU fault (`fault=`) pauses the queue until resumed.
+- `POST /api/videos/generations` accepts `Idempotency-Key`: a resubmit with
+  the same key returns the existing job.
+
+| Route (image-api; Anton: `/image/productions/*`, admin only) | Purpose |
+|---|---|
+| `GET /api/productions/status` | window, intent, health, tonight's queue and fit, take in flight, last night |
+| `GET/PUT /api/productions/settings` | `windowStart`, `windowEnd`, `days` (0 = Monday), `timezone`, `budgetMinutes`, `graceMinutes`, `defaultTakes` |
+| `POST /api/productions/pause` / `resume`, `POST/DELETE /api/productions/session` | pause dispatch; manual "run now" for N minutes |
+| `GET /api/productions/gpu-intent` | Anton's once-a-minute question |
+| `GET/POST /api/productions`, `GET/PATCH/DELETE /api/productions/{id}` | list, create, board (episodes, scenes, shots with takes and jobs, ETA), edit, delete |
+| `POST/PATCH/DELETE .../{id}/episodes[/{eid}]`, `POST .../episodes/{eid}/queue` | episodes; queue every unapproved shot |
+| `POST/PATCH/DELETE .../{id}/scenes[/{sid}]` | scenes |
+| `POST .../{id}/shots`, `POST .../{id}/shots/bulk`, `PATCH/DELETE .../shots/{shotId}` | shots |
+| `POST/DELETE .../shots/{shotId}/keyframe` (`role` start/end), `GET .../shots/{shotId}/files/{name}` | start and end frames |
+| `POST .../shots/{shotId}/queue`, `/cancel`, `/regenerate`, `/unchoose`, `.../takes/{takeId}/choose`, `/reject` | queue takes, review |
+| `POST .../{id}/jobs/{jobId}/retry`, `GET .../{id}/takes/{takeId}/files/{name}` | retry a dead take; take video, poster, metadata |

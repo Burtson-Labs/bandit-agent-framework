@@ -29,6 +29,9 @@ from pydantic import BaseModel, Field, field_validator
 from . import estimates as est
 from . import library as lib
 from . import video_workflows as vw
+from .productions import dispatcher as prod_dispatcher
+from .productions import routes as prod_routes
+from .productions import store as prod_store
 from .workflows import fit_canvas, flux_workflow, validate_dimension
 
 COMFY_URL = os.getenv("COMFYUI_BASE_URL", "http://image-worker:8188").rstrip("/")
@@ -52,6 +55,10 @@ logger = logging.getLogger("burtson.image_api")
 # Random seeds stay below 2^53 (less room for per-take/segment offsets) so a
 # browser can hold them exactly; responses also carry `seedText`.
 JS_SAFE_SEED = 2**53 - 100_000
+# Productions state (Mongo). Unset: the Productions routes answer 503.
+MONGO_URI = os.getenv("MONGO_URI", "")
+MONGO_DB = os.getenv("MONGO_DB", "burtson_studio")
+PRODUCTIONS_PREFIX = "v1/productions"
 
 
 class GenerationRequest(BaseModel):
@@ -160,7 +167,11 @@ class Reference:
 
 
 app = FastAPI(title="Burtson Image API", version="0.1.0")
+app.include_router(prod_routes.router)
 jobs: dict[str, Job] = {}
+# Idempotency-Key -> job id: a resubmit with the same key returns the same job.
+idempotency: dict[str, str] = {}
+dispatcher: prod_dispatcher.Dispatcher | None = None
 references: dict[str, Reference] = {}
 queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("QUEUE_CAPACITY", "20")))
 worker_task: asyncio.Task | None = None
@@ -205,6 +216,7 @@ async def startup() -> None:
     worker_task = asyncio.create_task(run_queue())
     # The reaper backfills the history library before its first sweep.
     reaper_task = asyncio.create_task(run_reaper())
+    start_productions()
 
 
 async def clear_orphaned_prompts() -> None:
@@ -229,6 +241,8 @@ async def shutdown() -> None:
         worker_task.cancel()
     if reaper_task:
         reaper_task.cancel()
+    if dispatcher:
+        dispatcher.stop()
 
 
 @app.get("/health/live")
@@ -492,10 +506,26 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
 
 
 @app.post("/api/videos/generations", status_code=202)
-async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
+async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(default="unknown"),
+                         idempotency_key: str | None = Header(default=None, max_length=200)) -> dict:
+    job = create_video_job(request, x_burtson_owner[:200], idempotency_key=idempotency_key)
+    return public_job(job)
+
+
+def create_video_job(request: VideoRequest, owner: str, *, idempotency_key: str | None = None,
+                     origin: dict | None = None) -> Job:
+    """Validate, estimate and enqueue a video job (HTTP route and Productions dispatcher).
+
+    ``origin`` marks a production take: its outputs go to the non-expiring
+    ``v1/productions/`` prefix and it stays out of the History library.
+    Must run on the event loop thread (it puts on the asyncio queue).
+    """
+    if idempotency_key:
+        existing = jobs.get(idempotency.get(idempotency_key, ""))
+        if existing is not None and existing.owner == owner:
+            return existing
     if queue.full():
         raise HTTPException(429, "generation queue is full")
-    owner = x_burtson_owner[:200]
     if request.referenceId:
         owned_reference(request.referenceId, owner, expected_kind="reference")
     if request.endReferenceId:
@@ -522,10 +552,14 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     payload["durationSeconds"] = plan.duration_seconds
     # Estimate at submit time (GPU-ready basis), kept for estimate-vs-actual.
     payload["estimate"] = est.estimate_plan(calibration, plan, request.variants)
+    if origin:
+        payload["origin"] = origin
     job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="video")
     jobs[job.id] = job
-    await queue.put(job.id)
-    return public_job(job)
+    if idempotency_key:
+        idempotency[idempotency_key] = job.id
+    queue.put_nowait(job.id)
+    return job
 
 
 def video_plan(request: dict, *, variant: int, start_image: str | None, end_image: str | None,
@@ -686,8 +720,14 @@ async def run_queue() -> None:
 
 
 async def record_in_library(job: Job) -> None:
-    """Keep the finished job in the owner's durable history (never raises)."""
+    """Keep the finished job in the owner's durable history (never raises).
+
+    Production takes stay out of History: they live in v1/productions/ and
+    are indexed in Mongo.
+    """
     if job.status not in {"completed", "failed", "cancelled"}:
+        return
+    if is_production(job.request):
         return
     try:
         tenant_dir = os.path.dirname(job.assetKeys[0]) if job.assetKeys else None
@@ -787,8 +827,9 @@ async def execute_video(job: Job) -> None:
     job.progress = {"stage": "preparing", "percent": 0, "variant": 1, "variants": request["variants"]}
     job.updatedAt = datetime.now(UTC).isoformat()
     created = datetime.now(UTC)
-    prefix = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}"
-    expires_at = datetime.fromisoformat(job.expiresAt)
+    prefix = output_prefix(job, created)
+    # Production takes never expire (no lifecycle tag; outside v1/tenant/).
+    expires_at = None if is_production(request) else datetime.fromisoformat(job.expiresAt)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120)) as client:
         if not await wait_for_worker(client, job):
             return
@@ -1148,14 +1189,33 @@ def probe_video(path: str) -> dict:
     }
 
 
-def upload(key: str, body: bytes, content_type: str, expires_at: datetime) -> None:
+def upload(key: str, body: bytes, content_type: str, expires_at: datetime | None) -> None:
+    """Store an object; ``expires_at=None`` writes it without expiry metadata."""
     client = s3_client()
+    if expires_at is None:
+        client.put_object(Bucket=BUCKET, Key=key, Body=io.BytesIO(body), ContentType=content_type)
+        return
     expires_epoch = int(expires_at.timestamp())
     client.put_object(
         Bucket=BUCKET, Key=key, Body=io.BytesIO(body), ContentType=content_type,
         Metadata={"expires-at": expires_at.isoformat()},
         Tagging=urlencode({"expires-at": str(expires_epoch)}),
     )
+
+
+def is_production(request: dict) -> bool:
+    return (request.get("origin") or {}).get("kind") == "production"
+
+
+def output_prefix(job: Job, created: datetime) -> str:
+    origin = job.request.get("origin") or {}
+    if origin.get("kind") == "production":
+        return production_take_prefix(job.owner, origin["productionId"], origin["takeId"])
+    return f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}"
+
+
+def production_take_prefix(owner: str, production_id: str, take_id: str) -> str:
+    return f"{PRODUCTIONS_PREFIX}/{safe_owner(owner)}/{production_id}/takes/{take_id}"
 
 
 def normalize_upload(body: bytes, kind: str) -> tuple[bytes, int, int]:
@@ -1361,3 +1421,152 @@ async def rename_project(project_id: str, body: ProjectBody,
 @app.delete("/api/library/projects/{project_id}")
 async def delete_project(project_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
     return await asyncio.to_thread(library_call, library.delete_project, x_burtson_owner[:200], project_id)
+
+
+# --- Productions (overnight shots) ------------------------------------------------
+# State and the durable queue live in Mongo (app/productions); this process's
+# in-memory queue stays the executor and is fed one take at a time.
+
+
+def estimate_take(request: dict) -> dict:
+    """Estimate one take of a production shot (raises ValueError for impossible combinations)."""
+    accelerated = request.get("accelerated")
+    plan = vw.plan_video(
+        model=request["model"], prompt="estimate", seed=0, aspect=request.get("aspect", "16:9"),
+        resolution=request["resolution"], duration_seconds=float(request["durationSeconds"]), output_fps=24,
+        camera=request.get("camera", "auto"), preserve_text=bool(request.get("preserveText")),
+        accelerated=True if accelerated is None else bool(accelerated),
+        start_image="start.png" if request.get("keyframe") else None,
+        end_image="end.png" if request.get("endFrame") else None,
+    )
+    return est.estimate_plan(calibration, plan, 1)
+
+
+class ProductionExecutor:
+    """image-api's own queue as the Productions dispatcher sees it (called from a worker thread)."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self.loop = loop
+
+    def interactive_busy(self) -> bool:
+        # Called only when no production take is in flight, so anything queued
+        # or running here is someone's interactive job: it goes first.
+        return pending_job_count() > 0
+
+    def worker_ready(self) -> bool:
+        try:
+            return httpx.get(f"{COMFY_URL}/system_stats", timeout=3).status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    def submit(self, job: dict) -> str:
+        future = asyncio.run_coroutine_threadsafe(self._submit(job), self.loop)
+        return future.result(timeout=60)
+
+    async def _submit(self, job: dict) -> str:
+        request = job["request"]
+        owner = job["owner"]
+        # Fresh reference records every attempt: production frames live in
+        # v1/productions/ and never expire, so nothing can 404 after a restart.
+        start = self._frame_reference(job, request.get("keyframe"))
+        end = self._frame_reference(job, request.get("endFrame"))
+        try:
+            video = VideoRequest(
+                prompt=request["prompt"], model=request["model"], aspect=request.get("aspect", "16:9"),
+                resolution=request["resolution"], durationSeconds=request["durationSeconds"], fps=24,
+                camera=request.get("camera", "auto"), preserveText=request.get("preserveText"),
+                accelerated=request.get("accelerated"), variants=1, seed=int(job["seed"]),
+                referenceId=start, endReferenceId=end,
+            )
+        except Exception as exc:  # pydantic validation
+            raise prod_dispatcher.SubmitError("invalid", str(exc)[:500]) from exc
+        origin = {"kind": "production", "productionId": job["productionId"], "shotId": job["shotId"],
+                  "takeId": job["_id"]}
+        try:
+            created = create_video_job(video, owner, idempotency_key=f"{job['_id']}:{job.get('attempts', 1)}",
+                                       origin=origin)
+        except HTTPException as exc:
+            error_class = "invalid" if exc.status_code == 400 else "transient"
+            raise prod_dispatcher.SubmitError(error_class, str(exc.detail)) from exc
+        return created.id
+
+    def _frame_reference(self, job: dict, name: str | None) -> str | None:
+        if not name:
+            return None
+        key = (f"{PRODUCTIONS_PREFIX}/{safe_owner(job['owner'])}/{job['productionId']}/shots/"
+               f"{job['shotId']}/{name}")
+        try:
+            obj = s3_client().head_object(Bucket=BUCKET, Key=key)
+        except Exception as exc:
+            raise prod_dispatcher.SubmitError("invalid", f"the shot's frame {name} is missing") from exc
+        reference = Reference(
+            id=uuid.uuid4().hex, owner=job["owner"], key=key, kind="reference", filename=name,
+            contentType="image/png", width=0, height=0, bytes=int(obj.get("ContentLength") or 0),
+            expiresAt=(datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        )
+        references[reference.id] = reference
+        return reference.id
+
+    def status(self, image_job_id: str) -> dict | None:
+        job = jobs.get(image_job_id)
+        if job is None:
+            return None
+        return {"status": job.status, "error": job.error, "startedAt": job.startedAt, "updatedAt": job.updatedAt,
+                "videos": list(job.videos), "progress": dict(job.progress or {})}
+
+    def cancel(self, image_job_id: str) -> None:
+        job = jobs.get(image_job_id)
+        if job is None or job.status in {"completed", "failed", "cancelled"}:
+            return
+        job.cancelRequested = True
+        if active_job_id == image_job_id:
+            try:
+                httpx.post(f"{COMFY_URL}/interrupt", timeout=5)
+            except httpx.HTTPError:
+                pass
+
+    def take_fields(self, job: dict, image_job: dict) -> dict:
+        video = image_job["videos"][0]
+        number = int(video.get("variant") or 1)
+        return {
+            "prefix": production_take_prefix(job["owner"], job["productionId"], job["_id"]),
+            "files": {"video": f"video-{number:02d}.mp4", "poster": f"poster-{number:02d}.jpg"},
+            "width": video.get("width"), "height": video.get("height"), "fps": video.get("fps"),
+            "durationSeconds": video.get("durationSeconds"), "frames": video.get("frames"),
+            "bytes": video.get("bytes"), "sha256": video.get("sha256"),
+            "workflowVersion": video.get("workflowVersion"), "modelDigests": video.get("modelDigests"),
+            "modelLicense": video.get("modelLicense"), "mode": video.get("mode"),
+        }
+
+
+def production_object(key: str) -> tuple[bytes, str] | None:
+    try:
+        obj = s3_client().get_object(Bucket=BUCKET, Key=key)
+    except Exception as exc:
+        if "NoSuchKey" in type(exc).__name__ or "NoSuchKey" in str(exc):
+            return None
+        raise
+    return obj["Body"].read(), obj.get("ContentType") or "application/octet-stream"
+
+
+def start_productions() -> None:
+    """Connect to Mongo and start the dispatcher; without MONGO_URI Productions stay off (503)."""
+    global dispatcher
+    if not MONGO_URI:
+        logger.info("productions: MONGO_URI not set; Productions are disabled")
+        return
+    from pymongo import MongoClient
+
+    client = MongoClient(MONGO_URI, w="majority", serverSelectionTimeoutMS=5000, appname="image-api")
+    store = prod_store.Store(client[MONGO_DB], estimator=estimate_take)
+    holder = f"{os.getenv('HOSTNAME', 'image-api')}:{uuid.uuid4().hex[:8]}"
+    dispatcher = prod_dispatcher.Dispatcher(store, ProductionExecutor(asyncio.get_running_loop()), holder=holder,
+                                            load_seconds=calibration.load_seconds)
+    prod_routes.runtime = prod_routes.Runtime(
+        store=store, dispatcher=dispatcher, get_object=production_object,
+        put_object=lambda key, body, content_type: upload(key, body, content_type, None),
+        normalize_image=lambda body: normalize_upload(body, "reference"), safe_owner=safe_owner,
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+    )
+    dispatcher.start()
+    logger.info("productions: dispatcher started as %s", holder)
