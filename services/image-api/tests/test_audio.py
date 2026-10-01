@@ -111,6 +111,47 @@ class MusicRouteTests(unittest.TestCase):
         self.assertGreater(job["request"]["estimate"]["seconds"], 0)
         self.assertEqual(main.queue.qsize(), 1)
 
+    def run_music(self, loudness):
+        """execute_music with ComfyUI and storage faked; ``loudness`` is the mastered LUFS per sampled take."""
+        job = main.create_music_job(main.MusicRequest(prompt="light corporate bed", durationSeconds=30), OWNER)
+        main.queue.get_nowait()
+        main.queue.task_done()
+        seeds, levels = [], iter(loudness)
+
+        async def sample(client, job, plan, variant):
+            seeds.append(plan.seed)
+            return b"raw"
+
+        def master(raw, plan):
+            return {"lufs": next(levels), "truePeak": -1.5, "durationSeconds": 30.0, "sampleRate": 48000,
+                    "channels": 2, "wavBytes": b"wav", "mp3Bytes": b"mp3", "waveBytes": b"jpg"}
+
+        with mock.patch.object(main, "wait_for_worker", mock.AsyncMock(return_value=True)), \
+                mock.patch.object(main, "run_music_prompt", sample), \
+                mock.patch.object(main, "master_music_bytes", master), \
+                mock.patch.object(main, "upload"), mock.patch.object(main, "record_music_timing"):
+            try:
+                asyncio.run(main.execute_music(job))
+            except RuntimeError as exc:
+                return job, seeds, exc
+        return job, seeds, None
+
+    def test_a_silent_take_is_resampled_with_a_new_seed(self):
+        job, seeds, error = self.run_music([-70.0, -16.0])
+        self.assertIsNone(error)
+        self.assertEqual(job.status, "completed")
+        self.assertEqual(len(seeds), 2)
+        self.assertNotEqual(seeds[0], seeds[1])
+        self.assertEqual(job.audios[0]["seed"], seeds[1])
+        self.assertEqual(job.audios[0]["lufs"], -16.0)
+
+    def test_a_take_that_stays_silent_fails_instead_of_completing(self):
+        job, seeds, error = self.run_music([-70.0] * (1 + main.MUSIC_SILENT_RETRIES))
+        self.assertIsNotNone(error)
+        self.assertIn("silent", str(error))
+        self.assertEqual(len(seeds), 1 + main.MUSIC_SILENT_RETRIES)
+        self.assertEqual(job.audios, [])
+
     def test_sfx_and_bad_requests_are_400(self):
         with self.assertRaises(HTTPException) as caught:
             asyncio.run(main.generate_music(main.MusicRequest(prompt="door slam", kind="sfx"), x_burtson_owner=OWNER, idempotency_key=None))

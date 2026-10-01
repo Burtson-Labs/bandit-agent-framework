@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Iterable, Literal
 from urllib.parse import urlencode
@@ -2452,6 +2452,10 @@ async def estimate_audio(request: MusicEstimateRequest) -> dict:
                                                 loopable=request.loopable)}
 
 
+MUSIC_SILENT_RETRIES = 2
+MUSIC_SILENT_SEED_STEP = 7919
+
+
 async def execute_music(job: Job) -> None:
     """One ComfyUI prompt per take, then mastering on the CPU (WAV, MP3, waveform)."""
     request = job.request
@@ -2469,22 +2473,39 @@ async def execute_music(job: Job) -> None:
                 return
             plan = music_plan_from(request, variant)
             take_started = time.monotonic()
-            job.samplingStartedAt = None
-            try:
-                raw = await run_music_prompt(client, job, plan, variant)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
+            failed = False
+            # ACE-Step occasionally samples a silent take (about 1 in 10 in the first stock run);
+            # a silent take is never a result, so it is re-sampled with a new seed.
+            for attempt in range(1 + MUSIC_SILENT_RETRIES):
+                job.samplingStartedAt = None
+                try:
+                    raw = await run_music_prompt(client, job, plan, variant)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    if job.status == "cancelled":
+                        return
+                    if not job.audios:
+                        raise
+                    job.error = f"take {variant + 1} failed: {str(exc)[:500]}"
+                    failed = True
+                    break
                 if job.status == "cancelled":
                     return
+                job.progress = {**(job.progress or {}), "stage": "encoding"}
+                mastered = await asyncio.to_thread(master_music_bytes, raw, plan)
+                if mastered["lufs"] > mix.SILENT_LUFS:
+                    break
+                logger.warning("music job %s take %d seed %d came out silent (attempt %d)", job.id, variant + 1,
+                            plan.seed, attempt + 1)
+                plan = replace(plan, seed=plan.seed + MUSIC_SILENT_SEED_STEP)
+            else:
                 if not job.audios:
-                    raise
-                job.error = f"take {variant + 1} failed: {str(exc)[:500]}"
+                    raise RuntimeError(f"take {variant + 1} came out silent {1 + MUSIC_SILENT_RETRIES} times")
+                job.error = f"take {variant + 1} came out silent"
                 break
-            if job.status == "cancelled":
-                return
-            job.progress = {**(job.progress or {}), "stage": "encoding"}
-            mastered = await asyncio.to_thread(master_music_bytes, raw, plan)
+            if failed:
+                break
             number = variant + 1
             keys = [f"{prefix}/audio-{number:02d}.wav", f"{prefix}/audio-{number:02d}.mp3", f"{prefix}/wave-{number:02d}.jpg"]
             job.progress = {**(job.progress or {}), "stage": "uploading"}
