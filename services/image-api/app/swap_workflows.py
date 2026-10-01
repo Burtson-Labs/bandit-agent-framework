@@ -517,17 +517,20 @@ def finish_key(plan: SwapPlan) -> str:
 
 
 # Seconds per second. Sampling: per generated second per pass; prepare: per
-# processed second per person; finish: per delivered second. Seeds are
-# estimates from the VACE/I2V measurements on the 5090; real runs replace them.
+# processed second per person; finish: per delivered second. Measured on the
+# 5090 on 2026-10-01 (replace, 2 people, 10 s of vid.mp4, 57-frame windows:
+# 480p ~15 s/s sampling, ~7 s/s prepare, ~2 s/s finish; 720p ~48 s/s sampling,
+# ~15 s/s prepare); animate and the full schedule are scaled from those.
+# Finished jobs keep refining them (app/estimates.py).
 SEED_RATES: dict[str, float] = {
-    "animate-replace|video-quality|480p|lightning": 12, "animate-replace|video-quality|720p|lightning": 30,
-    "animate-animate|video-quality|480p|lightning": 11, "animate-animate|video-quality|720p|lightning": 28,
-    "animate-replace|video-quality|480p|full": 38, "animate-replace|video-quality|720p|full": 95,
-    "animate-animate|video-quality|480p|full": 36, "animate-animate|video-quality|720p|full": 90,
-    "swap-prepare|video-quality|480p|-": 4, "swap-prepare|video-quality|720p|-": 6,
-    "swap-finish|video-quality|480p|x3": 1.5, "swap-finish|video-quality|480p|x2": 1.2,
-    "swap-finish|video-quality|720p|x3": 3, "swap-finish|video-quality|720p|x2": 2.5,
-    "swap-finish|video-quality|1080p|x3": 9, "swap-finish|video-quality|1080p|x2": 8,
+    "animate-replace|video-quality|480p|lightning": 15, "animate-replace|video-quality|720p|lightning": 48,
+    "animate-animate|video-quality|480p|lightning": 14, "animate-animate|video-quality|720p|lightning": 45,
+    "animate-replace|video-quality|480p|full": 45, "animate-replace|video-quality|720p|full": 140,
+    "animate-animate|video-quality|480p|full": 42, "animate-animate|video-quality|720p|full": 130,
+    "swap-prepare|video-quality|480p|-": 7, "swap-prepare|video-quality|720p|-": 15,
+    "swap-finish|video-quality|480p|x3": 2, "swap-finish|video-quality|480p|x2": 1.7,
+    "swap-finish|video-quality|720p|x3": 4, "swap-finish|video-quality|720p|x2": 3.5,
+    "swap-finish|video-quality|1080p|x3": 12, "swap-finish|video-quality|1080p|x2": 10,
 }
 STITCH_SECONDS_PER_SECOND = 0.6  # CPU: window cuts, crossfade stitch, audio mux, encode
 
