@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 from urllib.parse import urlencode
 
 import boto3
@@ -27,6 +27,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
 from . import estimates as est
+from . import library as lib
 from . import video_workflows as vw
 from .workflows import fit_canvas, flux_workflow, validate_dimension
 
@@ -163,6 +164,7 @@ worker_task: asyncio.Task | None = None
 active_job_id: str | None = None
 reaper_task: asyncio.Task | None = None
 calibration = est.Calibration()
+library = lib.Library(lib.S3Store(lambda: s3_client(), BUCKET))
 
 
 def s3_client():
@@ -176,10 +178,10 @@ def s3_client():
         config=Config(signature_version="s3v4", request_checksum_calculation="when_required"),
         region_name=os.getenv("MINIO_REGION", "us-east-1"),
     )
-    client.meta.events.register_first(
-        "request-created.s3.PutBucketLifecycleConfiguration",
-        add_lifecycle_content_md5,
-    )
+    # The deployed MinIO also refuses DeleteObjects without Content-MD5, which
+    # is what the reaper uses.
+    for operation in ("PutBucketLifecycleConfiguration", "DeleteObjects"):
+        client.meta.events.register_first(f"request-created.s3.{operation}", add_lifecycle_content_md5)
     return client
 
 
@@ -197,6 +199,7 @@ async def startup() -> None:
     await asyncio.to_thread(ensure_bucket_lifecycle)
     await asyncio.to_thread(est.load_from, read_stats, calibration)
     worker_task = asyncio.create_task(run_queue())
+    # The reaper backfills the history library before its first sweep.
     reaper_task = asyncio.create_task(run_reaper())
 
 
@@ -535,6 +538,14 @@ async def cancel_job(job_id: str, x_burtson_owner: str = Header(default="unknown
 
 @app.get("/api/images/jobs/{job_id}/assets/{index}")
 async def get_asset(job_id: str, index: int, x_burtson_owner: str = Header(default="unknown")) -> Response:
+    if job_id not in jobs:
+        # The in-memory job is gone (restart or TTL); finished outputs live on
+        # in the history library under the same job id and asset index.
+        found = await asyncio.to_thread(library.legacy_asset, x_burtson_owner[:200], job_id, index)
+        if found is None:
+            raise HTTPException(404, "image job not found")
+        body, content_type = found
+        return Response(content=body, media_type=content_type, headers={"Cache-Control": "private, max-age=86400"})
     job = owned_job(job_id, x_burtson_owner)
     if is_expired(job.expiresAt):
         raise HTTPException(410, "image asset has expired")
@@ -612,6 +623,22 @@ async def run_queue() -> None:
             active_job_id = None
             job.updatedAt = datetime.now(UTC).isoformat()
             queue.task_done()
+        await record_in_library(job)
+
+
+async def record_in_library(job: Job) -> None:
+    """Keep the finished job in the owner's durable history (never raises)."""
+    if job.status not in {"completed", "failed", "cancelled"}:
+        return
+    try:
+        tenant_dir = os.path.dirname(job.assetKeys[0]) if job.assetKeys else None
+        input_keys = {ref.id: ref.key for ref in references.values() if ref.owner == job.owner}
+        await asyncio.to_thread(
+            library.record, lib.job_metadata(job), status=job.status, tenant_dir=tenant_dir,
+            input_keys=input_keys, started_at=job.startedAt, completed_at=job.updatedAt,
+        )
+    except Exception:
+        logger.exception("could not record job %s in the history library", job.id)
 
 
 async def execute(job: Job) -> None:
@@ -1110,7 +1137,16 @@ def is_expired(value: str) -> bool:
 async def run_reaper() -> None:
     while True:
         try:
-            await asyncio.to_thread(reap_expired_objects)
+            # Copy anything not yet in the history library before it can expire.
+            keep = await asyncio.to_thread(library.backfill)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("history backfill failed; skipping this reaper sweep")
+            await asyncio.sleep(REAPER_INTERVAL_SECONDS)
+            continue
+        try:
+            await asyncio.to_thread(reap_expired_objects, keep)
             now = datetime.now(UTC)
             for job_id, job in list(jobs.items()):
                 if datetime.fromisoformat(job.expiresAt) <= now:
@@ -1125,15 +1161,20 @@ async def run_reaper() -> None:
         await asyncio.sleep(REAPER_INTERVAL_SECONDS)
 
 
-def reap_expired_objects() -> int:
+def reap_expired_objects(keep: Iterable[str] = ()) -> int:
+    """Delete working files past the TTL, except under ``keep`` prefixes
+    (jobs whose copy into the history library failed this pass)."""
     client = s3_client()
     cutoff = datetime.now(UTC) - ASSET_TTL
     paginator = client.get_paginator("list_objects_v2")
     expired: list[dict] = []
     deleted = 0
+    keep = tuple(f"{prefix.rstrip('/')}/" for prefix in keep)
     for page in paginator.paginate(Bucket=BUCKET, Prefix="v1/tenant/"):
         for item in page.get("Contents", []):
             modified = item.get("LastModified")
+            if keep and item["Key"].startswith(keep):
+                continue
             if modified and modified <= cutoff:
                 expired.append({"Key": item["Key"]})
             if len(expired) == 1000:
@@ -1148,6 +1189,93 @@ def reap_expired_objects() -> int:
     return deleted
 
 
-def safe_owner(owner: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in owner).strip("-")
-    return cleaned[:100] or "unknown"
+safe_owner = lib.safe_owner
+
+
+# --- History library (Burtson Studio) -------------------------------------------
+# Owner-scoped like every other route: Anton sets X-Burtson-Owner from the JWT.
+# Anton proxies these as /image/library/* (see README).
+
+
+class TakeChange(BaseModel):
+    index: int = Field(ge=0, le=64)
+    favorite: bool | None = None
+    hidden: bool | None = None
+
+
+class LibraryItemChange(BaseModel):
+    favorite: bool | None = None
+    hidden: bool | None = None
+    # Explicit null moves the item out of its project.
+    projectId: str | None = Field(default=None, min_length=1, max_length=64)
+    outputs: list[TakeChange] | None = Field(default=None, max_length=16)
+
+
+class ProjectBody(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+def library_call(fn, *args):
+    try:
+        return fn(*args)
+    except lib.LibraryError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.get("/api/library")
+async def list_library(x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Every history item (newest first) and project for the caller.
+
+    Filtering, search and paging happen client-side: one user's history is
+    small, and the index is a single JSON document.
+    """
+    return await asyncio.to_thread(library_call, library.list, x_burtson_owner[:200])
+
+
+@app.post("/api/library/sync")
+async def sync_library(x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Copy the caller's not-yet-recorded finished jobs into history now."""
+    owner = x_burtson_owner[:200]
+    failed = await asyncio.to_thread(library.backfill, owner)
+    return {"failed": len(failed)}
+
+
+@app.get("/api/library/items/{job_id}")
+async def get_library_item(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    return await asyncio.to_thread(library_call, library.get_item, x_burtson_owner[:200], job_id)
+
+
+@app.patch("/api/library/items/{job_id}")
+async def update_library_item(job_id: str, change: LibraryItemChange,
+                              x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Favourite/hide the item or individual takes, or move it to a project."""
+    changes = change.model_dump(include=change.model_fields_set)
+    if "outputs" in changes and changes["outputs"] is None:
+        changes.pop("outputs")
+    return await asyncio.to_thread(library_call, library.update_item, x_burtson_owner[:200], job_id, changes)
+
+
+@app.get("/api/library/items/{job_id}/files/{name}")
+async def get_library_file(job_id: str, name: str, x_burtson_owner: str = Header(default="unknown")) -> Response:
+    body, content_type = await asyncio.to_thread(
+        library_call, library.read_file, x_burtson_owner[:200], job_id, name)
+    # Library files never change once written.
+    return Response(content=body, media_type=content_type,
+                    headers={"Cache-Control": "private, max-age=604800, immutable"})
+
+
+@app.post("/api/library/projects", status_code=201)
+async def create_project(body: ProjectBody, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    return await asyncio.to_thread(library_call, library.create_project, x_burtson_owner[:200], body.name)
+
+
+@app.patch("/api/library/projects/{project_id}")
+async def rename_project(project_id: str, body: ProjectBody,
+                         x_burtson_owner: str = Header(default="unknown")) -> dict:
+    return await asyncio.to_thread(
+        library_call, library.rename_project, x_burtson_owner[:200], project_id, body.name)
+
+
+@app.delete("/api/library/projects/{project_id}")
+async def delete_project(project_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    return await asyncio.to_thread(library_call, library.delete_project, x_burtson_owner[:200], project_id)

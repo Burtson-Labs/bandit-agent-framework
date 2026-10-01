@@ -93,3 +93,36 @@ because its caller stopped polling.
   for the worker, so Anton can claim the GPU on submit instead of the client.
 - `/health/ready` reports `activeJobs`; `POST /api/jobs/cancel-all` backs
   Anton's forced release.
+
+## History library (Burtson Studio)
+
+Working files under `v1/tenant/` still expire after `ASSET_TTL_HOURS` (bucket
+lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
+`v1/library/{owner}/` — outside both expiry rules:
+
+- When a job reaches `completed`, `failed` or `cancelled` it is recorded:
+  outputs, posters and inputs (start/end image, source video, mask) are copied
+  server-side to `v1/library/{owner}/items/{jobId}/`, a 640 px JPEG `thumb-NN.jpg`
+  is made per take, `metadata.json` is copied, and an entry is added to
+  `v1/library/{owner}/index.json`. Failed/cancelled jobs are indexed without files.
+- A backfill scans `v1/tenant/**/metadata.json` at startup and before every
+  reaper sweep and records any job not in the library yet. Jobs whose copy fails
+  are left out of that sweep, so nothing is reaped before it is persisted.
+- `index.json` also holds the user's state: `favorite`/`hidden` per item and
+  per take, `projectId`, and the projects themselves. Hiding is a soft delete;
+  nothing in the library is deleted by the service.
+- `GET /api/images/jobs/{id}/assets/{index}` falls back to the library once the
+  in-memory job is gone, so result links keep working after a restart.
+
+| Route (image-api) | Anton | Purpose |
+|---|---|---|
+| `GET /api/library` | `GET /image/library` | all items (newest first) and projects; filtering is client-side |
+| `POST /api/library/sync` | `POST /image/library/sync` | record the caller's unrecorded jobs now |
+| `GET /api/library/items/{id}` | `GET /image/library/items/{id}` | one item |
+| `PATCH /api/library/items/{id}` | `PATCH /image/library/items/{id}` | `favorite`, `hidden`, `projectId` (null clears), `outputs: [{index, favorite?, hidden?}]` |
+| `GET /api/library/items/{id}/files/{name}` | `GET /image/library/items/{id}/files/{name}` | `video-NN.mp4`, `poster-NN.jpg`, `image-NN.png`, `thumb-NN.jpg`, `input-*.png/mp4`, `metadata.json` |
+| `POST /api/library/projects` | `POST /image/library/projects` | create `{name}` |
+| `PATCH /api/library/projects/{id}` | `PATCH /image/library/projects/{id}` | rename `{name}` |
+| `DELETE /api/library/projects/{id}` | `DELETE /image/library/projects/{id}` | delete; its items stay, unassigned |
+
+Every route is scoped by `X-Burtson-Owner`, which Anton sets from the JWT.

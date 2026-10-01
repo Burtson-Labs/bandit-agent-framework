@@ -254,6 +254,22 @@ class VideoEndpointTests(unittest.TestCase):
         self.assertEqual(job["request"]["plan"]["outputSize"], [720, 1280])
 
 
+
+class DefaultResolutionTests(unittest.TestCase):
+    """720p is the default for every mode (Mark, 2026-10-01): best speed/quality mix."""
+
+    def test_requests_default_to_720p(self):
+        for extra in ({}, {"referenceId": "ref-start-0001"},
+                      {"sourceVideoId": "src-video-0001", "mode": "restyle"}):
+            self.assertEqual(main.VideoRequest(prompt="a lighthouse", **extra).resolution, "720p")
+        self.assertEqual(main.VideoRequest(prompt="a lighthouse").model, "video-quality")
+
+    def test_estimates_default_to_720p_for_every_mode(self):
+        for flags in ({}, {"hasImage": True}, {"hasVideo": True, "mode": "restyle", "control": "edges"}):
+            result = asyncio.run(main.estimate_video(main.EstimateRequest(**flags)))
+            self.assertTrue(result["valid"], result)
+            self.assertEqual(main.EstimateRequest(**flags).resolution, "720p")
+
 if __name__ == "__main__":
     unittest.main()
 
