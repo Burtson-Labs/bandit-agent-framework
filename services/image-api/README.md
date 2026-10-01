@@ -37,7 +37,9 @@ wholebody — and take the look from the prompt and optional image), `motion`
 (animate the reference image with the source's motion; pose by default;
 requires `referenceId`), `extend` (continue the source from its last 17 frames,
 up to 4 s; output is the whole source plus the new footage). `controlStrength`
-0.1-2.0; `sourceStartSeconds` picks the <= 5 s window for restyle/motion.
+0.1-2.0 (video jobs default to the full 20-step schedule: with the 4-step
+Lightning LoRAs VACE ignored the restyle prompt and the reference identity in
+testing); `sourceStartSeconds` picks the <= 5 s window for restyle/motion.
 
 Source videos go to `POST /api/videos/sources` as the raw request body
 (Anton: `POST /image/sources`, 200 MiB). They are identified by ffprobe, not by

@@ -221,6 +221,7 @@ class VideoEndpointTests(unittest.TestCase):
         job = asyncio.run(main.generate_video(main.VideoRequest(prompt="truck", model="video-quality"),
                                               x_burtson_owner="tester"))
         self.assertEqual(job["request"]["plan"]["pipeline"], "t2v")
+        self.assertTrue(job["request"]["accelerated"])
 
     def test_other_users_reference_is_forbidden(self):
         self._reference(owner="someone-else")
@@ -464,6 +465,8 @@ class SourceVideoTests(unittest.TestCase):
         self.assertEqual(job["request"]["plan"]["pipeline"], "vace")
         self.assertEqual(job["request"]["plan"]["control"], "depth")
         self.assertEqual(job["request"]["sourceSha256"], "a" * 64)
+        self.assertFalse(job["request"]["accelerated"])
+        self.assertEqual(job["request"]["plan"]["steps"], 20)
 
     def test_motion_without_image_is_400(self):
         self._source()

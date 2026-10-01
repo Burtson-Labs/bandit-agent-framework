@@ -89,7 +89,11 @@ class VideoRequest(BaseModel):
     # a start image is supplied.
     preserveText: bool | None = None
     # video-quality only: Lightning 4-step LoRAs (fast) vs the full 20-step schedule.
-    accelerated: bool = True
+    # Lightning 4-step LoRAs vs the full 20-step schedule. Default: on for
+    # text/image-to-video; off for video-conditioned (VACE) jobs, where the
+    # 4-step pass ignored the restyle prompt and the reference identity in
+    # testing while the full schedule followed both.
+    accelerated: bool | None = None
     upscaler: Literal["esrgan", "lanczos"] = "esrgan"
     variants: int = Field(default=1, ge=1, le=4)
     seed: int | None = Field(default=None, ge=0, le=2**62)
@@ -412,6 +416,8 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     payload["sourceSha256"] = source.sha256 if source else None
     payload["sourceOriginalSha256"] = source.originalSha256 if source else None
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**62)
+    if payload["accelerated"] is None:
+        payload["accelerated"] = not request.sourceVideoId
     if payload["preserveText"] is None:
         payload["preserveText"] = request.referenceId is not None
     # Compile once up front so impossible combinations fail with 400 at submit
