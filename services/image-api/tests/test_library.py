@@ -101,8 +101,8 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(item["elapsedSeconds"], 240.0)
         self.assertEqual(item["mode"], "image-to-video")
         self.assertFalse(item["favorite"])
-        index = json.loads(self.store.get("v1/library/user-123/index.json"))
-        self.assertEqual(index["items"]["job0001video"]["owner"], OWNER)
+        stored = json.loads(self.store.get(f"{base}/item.json"))
+        self.assertEqual(stored["owner"], OWNER)
 
     def test_failed_job_is_indexed_without_files(self):
         meta = video_metadata(job_id="job0002failed", takes=0)
@@ -110,7 +110,8 @@ class RecordTests(unittest.TestCase):
         item = self.library.record(meta, status="failed")
         self.assertEqual(item["status"], "failed")
         self.assertEqual(item["outputs"], [])
-        self.assertFalse(any("job0002failed" in key for key in self.store.objects if "/items/" in key))
+        files = [key for key in self.store.objects if "job0002failed" in key]
+        self.assertEqual(files, ["v1/library/user-123/items/job0002failed/item.json"])
 
     def test_rerecording_keeps_user_state(self):
         seed_video(self.store)
@@ -231,6 +232,79 @@ class UserStateTests(unittest.TestCase):
         self.assertIsNone(self.library.legacy_asset(OWNER, "job0001video", 4))
 
 
+LIST_DEFAULTS = dict(q="", kind=None, model=None, status=None, since=None, view="all", includeHidden=False,
+                     limit=60, cursor=None)
+
+
+class PagingTests(unittest.TestCase):
+    """Thousands of items: one object per item, server-side filters and pages."""
+
+    def setUp(self):
+        self.store = FakeStore()
+        self.library = lib.Library(self.store)
+        base = datetime(2026, 10, 1, tzinfo=UTC)
+        for n in range(250):
+            meta = video_metadata(job_id=f"job{n:05d}", takes=0)
+            meta["createdAt"] = (base - timedelta(minutes=n)).isoformat()
+            meta["request"]["prompt"] = "red truck" if n % 10 == 0 else "lighthouse"
+            meta["request"]["model"] = "video-fast" if n % 2 else "video-quality"
+            self.library.record(meta, status="failed" if n % 50 == 0 else "completed")
+
+    def test_pages_follow_the_cursor_newest_first(self):
+        seen, cursor = [], None
+        while True:
+            page = self.library.list(OWNER, limit=100, cursor=cursor)
+            seen += [item["id"] for item in page["items"]]
+            cursor = page["nextCursor"]
+            if not cursor:
+                break
+        self.assertEqual(len(seen), 250)
+        self.assertEqual(len(set(seen)), 250)
+        self.assertEqual(seen[0], "job00000")
+        self.assertEqual(page["total"], 250)
+
+    def test_filters_and_counts(self):
+        self.library.update_item(OWNER, "job00010", {"favorite": True})
+        self.library.update_item(OWNER, "job00020", {"hidden": True})
+        page = self.library.list(OWNER, q="RED", model="video-quality")
+        self.assertEqual(page["total"], 24)  # 25 red trucks (all even) minus the hidden one
+        self.assertEqual(self.library.list(OWNER, view="favorites")["total"], 1)
+        self.assertEqual(self.library.list(OWNER, status="failed")["total"], 5)
+        self.assertEqual(self.library.list(OWNER, since="2026-10-01T00:00:00+00:00")["total"], 1)
+        self.assertEqual(page["counts"]["all"], 249)
+        self.assertEqual(self.library.list(OWNER, include_hidden=True)["counts"]["all"], 250)
+        self.assertEqual(page["models"], ["video-fast", "video-quality"])
+
+    def test_one_write_per_change(self):
+        writes = []
+        original = self.store.put
+        self.store.put = lambda key, body, ct: (writes.append(key), original(key, body, ct))
+        self.library.update_item(OWNER, "job00007", {"favorite": True})
+        self.assertEqual(writes, ["v1/library/user-123/items/job00007/item.json"])
+
+    def test_cold_start_reads_every_item(self):
+        restarted = lib.Library(self.store)
+        self.assertEqual(restarted.list(OWNER)["total"], 250)
+
+
+class LegacyIndexTests(unittest.TestCase):
+    def test_phase_one_index_is_split_into_items(self):
+        store = FakeStore()
+        legacy = {"items": {"job0001video": {"id": "job0001video", "owner": OWNER, "kind": "video",
+                                             "status": "completed", "createdAt": "2026-09-30T22:30:00+00:00",
+                                             "prompt": "p", "request": {}, "outputs": [], "inputs": {},
+                                             "favorite": True, "projectId": "p1"}},
+                  "projects": {"p1": {"id": "p1", "name": "Ads", "createdAt": "x", "updatedAt": "x"}}}
+        store.put("v1/library/user-123/index.json", json.dumps(legacy).encode(), "application/json")
+        listing = lib.Library(store).list(OWNER)
+        self.assertTrue(listing["items"][0]["favorite"])
+        self.assertEqual(listing["projects"][0]["name"], "Ads")
+        self.assertIn("v1/library/user-123/items/job0001video/item.json", store.objects)
+        self.assertIn("v1/library/user-123/projects.json", store.objects)
+        # A second process reads the split form.
+        self.assertEqual(lib.Library(store).list(OWNER)["projects"][0]["id"], "p1")
+
+
 class EndpointTests(unittest.TestCase):
     def setUp(self):
         self.store = FakeStore()
@@ -245,7 +319,7 @@ class EndpointTests(unittest.TestCase):
         main.references.clear()
 
     def test_list_and_patch(self):
-        listing = asyncio.run(main.list_library(x_burtson_owner=OWNER))
+        listing = asyncio.run(main.list_library(**LIST_DEFAULTS, x_burtson_owner=OWNER))
         self.assertEqual(len(listing["items"]), 1)
         project = asyncio.run(main.create_project(main.ProjectBody(name="Ads"), x_burtson_owner=OWNER))
         item = asyncio.run(main.update_library_item(
@@ -318,7 +392,68 @@ class SeedTests(unittest.TestCase):
         self.assertEqual(request.seed, 3458764513820540928)
 
 
+class ReferenceRestartTests(unittest.TestCase):
+    def tearDown(self):
+        main.references.clear()
+
+    def test_reference_record_reloads_after_a_restart(self):
+        saved = {}
+        with mock.patch.object(main, "upload", side_effect=lambda key, body, ct, exp: saved.update({key: body})):
+            reference = main.Reference(id="ref0000restart", owner=OWNER, key="k", kind="reference",
+                                       filename="a.png", contentType="image/png", width=64, height=64, bytes=1)
+            main.save_reference(reference)
+        main.references.clear()
+        client = mock.MagicMock()
+        client.get_object.side_effect = lambda Bucket, Key: {"Body": io.BytesIO(saved[Key])}
+        with mock.patch.object(main, "s3_client", return_value=client):
+            found = main.owned_reference("ref0000restart", OWNER, expected_kind="reference")
+            self.assertEqual(found.width, 64)
+            with self.assertRaises(HTTPException):
+                main.owned_reference("ref0000restart", "intruder")
+
+
+class OrphanPromptTests(unittest.TestCase):
+    def test_startup_clears_prompts_it_does_not_own(self):
+        calls = []
+
+        class FakeClient:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url):
+                return mock.MagicMock(json=lambda: {"queue_running": [[1, "abc"]], "queue_pending": []})
+            async def post(self, url, json=None):
+                calls.append((url.rsplit("/", 1)[-1], json))
+
+        with mock.patch.object(main.httpx, "AsyncClient", FakeClient):
+            asyncio.run(main.clear_orphaned_prompts())
+        self.assertEqual(calls, [("queue", {"clear": True}), ("interrupt", None)])
+
+    def test_worker_down_is_fine(self):
+        with mock.patch.object(main, "COMFY_URL", "http://127.0.0.1:9"):
+            asyncio.run(main.clear_orphaned_prompts())
+
+
 class ReaperTests(unittest.TestCase):
+    def test_pending_jobs_keep_their_uploads(self):
+        reference = main.Reference(id="ref0000pending", owner=OWNER, key=f"{DAY}/references/ref0000pending.png",
+                                   kind="reference", filename="a.png", contentType="image/png",
+                                   width=64, height=64, bytes=1)
+        main.references[reference.id] = reference
+        main.jobs["queued01"] = main.Job(id="queued01", owner=OWNER, request={"referenceId": reference.id})
+        try:
+            keep = main.pending_input_keys()
+        finally:
+            main.jobs.clear()
+            main.references.clear()
+        self.assertIn(reference.key, keep)
+        old = datetime.now(UTC) - timedelta(days=3)
+        client = mock.MagicMock()
+        client.get_paginator.return_value.paginate.return_value = [{"Contents": [
+            {"Key": reference.key, "LastModified": old}, {"Key": f"{DAY}/references/other.png", "LastModified": old}]}]
+        with mock.patch.object(main, "s3_client", return_value=client):
+            self.assertEqual(main.reap_expired_objects(keep), 1)
+
     def test_reaper_skips_kept_prefixes(self):
         old = datetime.now(UTC) - timedelta(days=3)
         contents = [{"Key": f"{DAY}/keepme/video-01.mp4", "LastModified": old},

@@ -4,9 +4,16 @@ Job outputs are first written under ``v1/tenant/`` where the bucket lifecycle
 and the app reaper delete them after ``ASSET_TTL_HOURS``. When a job reaches a
 terminal state it is recorded here: its outputs, posters and inputs are copied
 server-side to ``v1/library/{owner}/items/{jobId}/`` (outside both expiry
-rules), a JPEG thumbnail is made for each take, and an entry is added to the
-owner's ``v1/library/{owner}/index.json``. The index also holds the user's own
-state: favourites, hidden (soft-deleted) items and takes, and projects.
+rules), a JPEG thumbnail is made for each take, and the entry is written to
+``items/{jobId}/item.json`` next to them. Each item.json also holds the user's
+own state for it: favourite, hidden (soft-deleted), per-take keep/discard and
+projectId. Projects live in ``v1/library/{owner}/projects.json``.
+
+Storage is one small object per item, so a write never rewrites the whole
+history. Reads are served from an in-memory index built on first use per owner
+(parallel GETs of every item.json), filtered and paged server-side. A legacy
+single ``index.json`` (phase 1, 2026-10-01) is split into item.json files on
+first load.
 
 A backfill pass scans ``v1/tenant/`` for ``metadata.json`` files whose job is
 not in the library yet, so outputs made before this module existed, or while
@@ -14,7 +21,8 @@ the service was restarting, are kept too. It runs at startup and before every
 reaper sweep, so nothing is reaped before it has been copied.
 
 The service runs as a single replica with an in-process queue, so one lock per
-owner around read-modify-write of the index is enough.
+owner around read-modify-write is enough. If it ever scales out, item.json is
+the source of truth and the in-memory index becomes a cache to invalidate.
 """
 from __future__ import annotations
 
@@ -25,6 +33,7 @@ import posixpath
 import re
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Iterable, Protocol
@@ -35,7 +44,9 @@ logger = logging.getLogger("burtson.image_api.library")
 
 TENANT_PREFIX = "v1/tenant/"
 LIBRARY_PREFIX = "v1/library/"
-INDEX_VERSION = 1
+ITEM_VERSION = 2
+DEFAULT_PAGE = 60
+MAX_PAGE = 200
 THUMB_SIZE = (640, 640)
 MAX_PROJECT_NAME = 80
 MAX_PROJECTS = 200
@@ -146,23 +157,45 @@ class Library:
     def item_key(self, owner: str, job_id: str, name: str) -> str:
         return f"{self._prefix(safe_owner(owner))}/items/{job_id}/{name}"
 
+    def _item_object(self, owner_key: str, job_id: str) -> str:
+        return f"{self._prefix(owner_key)}/items/{job_id}/item.json"
+
     def _load(self, owner_key: str) -> dict:
         cached = self._cache.get(owner_key)
         if cached is not None:
             return cached
-        raw = self.store.get(f"{self._prefix(owner_key)}/index.json")
-        index = json.loads(raw) if raw else {}
-        index.setdefault("version", INDEX_VERSION)
-        index.setdefault("items", {})
-        index.setdefault("projects", {})
+        prefix = self._prefix(owner_key)
+        keys = [key for key, _ in self.store.list(f"{prefix}/items/") if key.endswith("/item.json")]
+        projects_raw = self.store.get(f"{prefix}/projects.json")
+        index: dict = {"items": {}, "projects": json.loads(projects_raw) if projects_raw else {}}
+        if keys:
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                for raw in pool.map(self.store.get, keys):
+                    if raw:
+                        item = json.loads(raw)
+                        index["items"][item["id"]] = item
+        elif projects_raw is None:
+            legacy = self.store.get(f"{prefix}/index.json")
+            if legacy:
+                # Phase-1 single-document index: split it into item.json files.
+                old = json.loads(legacy)
+                index["projects"] = old.get("projects") or {}
+                index["items"] = old.get("items") or {}
+                for item in index["items"].values():
+                    self._put_item(owner_key, item)
+                self._put_projects(owner_key, index)
+                logger.info("library: migrated %d item(s) from index.json", len(index["items"]))
         self._cache[owner_key] = index
         return index
 
-    def _save(self, owner_key: str, index: dict) -> None:
-        index["updatedAt"] = now_iso()
-        body = json.dumps(index, separators=(",", ":")).encode()
-        self.store.put(f"{self._prefix(owner_key)}/index.json", body, "application/json")
-        self._cache[owner_key] = index
+    def _put_item(self, owner_key: str, item: dict) -> None:
+        item["version"] = ITEM_VERSION
+        self.store.put(self._item_object(owner_key, item["id"]),
+                       json.dumps(item, separators=(",", ":")).encode(), "application/json")
+
+    def _put_projects(self, owner_key: str, index: dict) -> None:
+        self.store.put(f"{self._prefix(owner_key)}/projects.json",
+                       json.dumps(index["projects"], separators=(",", ":")).encode(), "application/json")
 
     def _owned_item(self, index: dict, owner: str, job_id: str) -> dict:
         item = index["items"].get(job_id)
@@ -173,14 +206,63 @@ class Library:
         return item
 
     # --- reads ------------------------------------------------------------
-    def list(self, owner: str) -> dict:
+    def list(self, owner: str, *, q: str = "", kind: str | None = None, model: str | None = None,
+             status: str | None = None, since: str | None = None, view: str = "all",
+             include_hidden: bool = False, limit: int = DEFAULT_PAGE, cursor: str | None = None) -> dict:
+        """One page of the caller's items, newest first, plus sidebar counts.
+
+        ``view``: all | favorites | unassigned | project:<id>. ``status``:
+        completed | failed (failed or cancelled). ``cursor`` is the opaque
+        ``nextCursor`` of the previous page.
+        """
         owner_key = safe_owner(owner)
         with self._lock(owner_key):
             index = self._load(owner_key)
-            items = [public_item(item) for item in index["items"].values() if item.get("owner") in (None, owner)]
+            mine = [item for item in index["items"].values() if item.get("owner") in (None, owner)]
             projects = sorted(index["projects"].values(), key=lambda project: project["name"].lower())
-        items.sort(key=lambda item: item.get("createdAt") or "", reverse=True)
-        return {"items": items, "projects": projects}
+        visible = [item for item in mine if include_hidden or not item.get("hidden")]
+        by_project: dict[str, int] = {}
+        for item in visible:
+            if item.get("projectId"):
+                by_project[item["projectId"]] = by_project.get(item["projectId"], 0) + 1
+        counts = {"all": len(visible), "favorites": sum(1 for item in visible if starred(item)),
+                  "unassigned": sum(1 for item in visible if not item.get("projectId")), "byProject": by_project}
+        needle = q.strip().lower()
+        since_dt = parse_time(since)
+
+        def keep(item: dict) -> bool:
+            if view == "favorites" and not starred(item):
+                return False
+            if view == "unassigned" and item.get("projectId"):
+                return False
+            if view.startswith("project:") and item.get("projectId") != view[8:]:
+                return False
+            if kind and item.get("kind") != kind:
+                return False
+            if model and item.get("model") != model:
+                return False
+            if status == "completed" and item.get("status") != "completed":
+                return False
+            if status == "failed" and item.get("status") == "completed":
+                return False
+            if since_dt and (parse_time(item.get("createdAt")) or since_dt) < since_dt:
+                return False
+            return not needle or needle in (item.get("prompt") or "").lower() or item["id"].startswith(needle)
+
+        matches = sorted((item for item in visible if keep(item)), key=sort_key, reverse=True)
+        total = len(matches)
+        if cursor:
+            matches = [item for item in matches if sort_key(item) < tuple(cursor.split("|", 1))]
+        limit = max(1, min(limit, MAX_PAGE))
+        page = matches[:limit]
+        return {
+            "items": [public_item(item) for item in page],
+            "projects": projects,
+            "total": total,
+            "nextCursor": "|".join(sort_key(page[-1])) if len(matches) > limit else None,
+            "counts": counts,
+            "models": sorted({item["model"] for item in mine if item.get("model")}),
+        }
 
     def get_item(self, owner: str, job_id: str) -> dict:
         owner_key = safe_owner(owner)
@@ -243,7 +325,7 @@ class Library:
                     if change.get(flag) is not None:
                         output[flag] = bool(change[flag])
             item["updatedAt"] = now_iso()
-            self._save(owner_key, index)
+            self._put_item(owner_key, item)
             return public_item(item)
 
     def create_project(self, owner: str, name: str) -> dict:
@@ -255,7 +337,7 @@ class Library:
                 raise LibraryError(400, f"at most {MAX_PROJECTS} projects")
             project = {"id": uuid.uuid4().hex[:12], "name": name, "createdAt": now_iso(), "updatedAt": now_iso()}
             index["projects"][project["id"]] = project
-            self._save(owner_key, index)
+            self._put_projects(owner_key, index)
             return project
 
     def rename_project(self, owner: str, project_id: str, name: str) -> dict:
@@ -267,7 +349,7 @@ class Library:
             if project is None:
                 raise LibraryError(404, "project not found")
             project.update(name=name, updatedAt=now_iso())
-            self._save(owner_key, index)
+            self._put_projects(owner_key, index)
             return project
 
     def delete_project(self, owner: str, project_id: str) -> dict:
@@ -281,8 +363,9 @@ class Library:
             for item in index["items"].values():
                 if item.get("projectId") == project_id:
                     item["projectId"] = None
+                    self._put_item(owner_key, item)
                     moved += 1
-            self._save(owner_key, index)
+            self._put_projects(owner_key, index)
             return {"deleted": project_id, "itemsUnassigned": moved}
 
     # --- ingestion ----------------------------------------------------------
@@ -332,7 +415,7 @@ class Library:
             else:
                 entry.update(favorite=False, hidden=False, projectId=None)
             index["items"][job_id] = entry
-            self._save(owner_key, index)
+            self._put_item(owner_key, entry)
         return public_item(entry)
 
     def _copy_outputs(self, owner: str, job_id: str, kind: str, metadata: dict,
@@ -450,6 +533,24 @@ class Library:
         if recorded:
             logger.info("library: backfilled %d job(s)", recorded)
         return failed
+
+
+def starred(item: dict) -> bool:
+    return bool(item.get("favorite")) or any(output.get("favorite") for output in item.get("outputs") or [])
+
+
+def sort_key(item: dict) -> tuple[str, str]:
+    return (item.get("createdAt") or "", item["id"])
+
+
+def parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def clean_name(name: str) -> str:

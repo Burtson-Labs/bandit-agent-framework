@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 import boto3
 import httpx
 from botocore.client import Config
-from fastapi import FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
@@ -201,9 +201,26 @@ async def startup() -> None:
     await asyncio.to_thread(ensure_bucket)
     await asyncio.to_thread(ensure_bucket_lifecycle)
     await asyncio.to_thread(est.load_from, read_stats, calibration)
+    await clear_orphaned_prompts()
     worker_task = asyncio.create_task(run_queue())
     # The reaper backfills the history library before its first sweep.
     reaper_task = asyncio.create_task(run_reaper())
+
+
+async def clear_orphaned_prompts() -> None:
+    """A fresh process owns no ComfyUI prompts: drop queued ones and stop the
+    running one, which would otherwise hold the GPU for a job nobody tracks.
+    Best effort; the worker is often scaled to zero."""
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            queued = (await client.get(f"{COMFY_URL}/queue")).json()
+            if queued.get("queue_running") or queued.get("queue_pending"):
+                await client.post(f"{COMFY_URL}/queue", json={"clear": True})
+                await client.post(f"{COMFY_URL}/interrupt")
+                logger.warning("cleared %d running and %d queued ComfyUI prompt(s) left by a previous process",
+                               len(queued.get("queue_running") or []), len(queued.get("queue_pending") or []))
+    except Exception:
+        pass
 
 
 @app.on_event("shutdown")
@@ -279,7 +296,10 @@ def ensure_bucket_lifecycle() -> None:
     """
     if os.getenv("CONFIGURE_BUCKET_LIFECYCLE", "true").lower() not in {"1", "true", "yes"}:
         return
-    days = max(1, math.ceil(ASSET_TTL_HOURS / 24))
+    # One extra day over the app TTL: the reaper (which first copies finished
+    # jobs into the history library) is the exact expiry; the lifecycle rule is
+    # only a backstop and must not beat a backfill delayed by an outage.
+    days = max(1, math.ceil(ASSET_TTL_HOURS / 24)) + 1
     try:
         s3_client().put_bucket_lifecycle_configuration(
             Bucket=BUCKET,
@@ -321,7 +341,36 @@ async def upload_reference(
         createdAt=created.isoformat(), expiresAt=expires_at.isoformat(),
     )
     references[reference_id] = reference
+    await asyncio.to_thread(save_reference, reference)
     return public_reference(reference)
+
+
+def reference_record_key(owner: str, reference_id: str) -> str:
+    return f"v1/tenant/{safe_owner(owner)}/reference-records/{reference_id}.json"
+
+
+def save_reference(reference: Reference) -> None:
+    """Persist the reference record next to its file so it survives a restart.
+
+    Same prefix and TTL as the upload itself.
+    """
+    try:
+        upload(reference_record_key(reference.owner, reference.id), json.dumps(asdict(reference)).encode(),
+               "application/json", datetime.fromisoformat(reference.expiresAt))
+    except Exception as exc:
+        logger.warning("could not persist reference %s: %s", reference.id, type(exc).__name__)
+
+
+def load_reference(reference_id: str, owner: str) -> Reference | None:
+    if not all(ch.isalnum() for ch in reference_id):
+        return None
+    try:
+        obj = s3_client().get_object(Bucket=BUCKET, Key=reference_record_key(owner, reference_id))
+        reference = Reference(**json.loads(obj["Body"].read()))
+    except Exception:
+        return None
+    references[reference.id] = reference
+    return reference
 
 
 @app.post("/api/videos/sources", status_code=201)
@@ -363,6 +412,7 @@ async def upload_source_video(request: Request, x_burtson_owner: str = Header(de
         originalDurationSeconds=info["originalDuration"],
     )
     references[reference_id] = reference
+    await asyncio.to_thread(save_reference, reference)
     return public_reference(reference)
 
 
@@ -570,7 +620,8 @@ def owned_job(job_id: str, owner: str) -> Job:
 
 
 def owned_reference(reference_id: str, owner: str, *, expected_kind: str | None = None) -> Reference:
-    reference = references.get(reference_id)
+    # After a restart the record is reloaded from MinIO (see save_reference).
+    reference = references.get(reference_id) or load_reference(reference_id, owner)
     if not reference:
         raise HTTPException(404, "image reference not found or expired")
     if reference.owner != owner:
@@ -1154,7 +1205,7 @@ async def run_reaper() -> None:
             await asyncio.sleep(REAPER_INTERVAL_SECONDS)
             continue
         try:
-            await asyncio.to_thread(reap_expired_objects, keep)
+            await asyncio.to_thread(reap_expired_objects, keep + pending_input_keys())
             now = datetime.now(UTC)
             for job_id, job in list(jobs.items()):
                 if datetime.fromisoformat(job.expiresAt) <= now:
@@ -1169,19 +1220,34 @@ async def run_reaper() -> None:
         await asyncio.sleep(REAPER_INTERVAL_SECONDS)
 
 
+def pending_input_keys() -> list[str]:
+    """Uploads that queued or running jobs still need (and will copy into History)."""
+    keys: list[str] = []
+    for job in list(jobs.values()):
+        if job.status in {"queued", "running"}:
+            for field in ("referenceId", "endReferenceId", "sourceVideoId", "maskId"):
+                reference = references.get(job.request.get(field) or "")
+                if reference:
+                    keys += [reference.key, reference_record_key(reference.owner, reference.id)]
+    return keys
+
+
 def reap_expired_objects(keep: Iterable[str] = ()) -> int:
-    """Delete working files past the TTL, except under ``keep`` prefixes
-    (jobs whose copy into the history library failed this pass)."""
+    """Delete working files past the TTL, except ``keep`` entries: job
+    directories whose copy into the history library failed this pass, and the
+    exact keys of uploads that pending jobs still need."""
     client = s3_client()
     cutoff = datetime.now(UTC) - ASSET_TTL
     paginator = client.get_paginator("list_objects_v2")
     expired: list[dict] = []
     deleted = 0
-    keep = tuple(f"{prefix.rstrip('/')}/" for prefix in keep)
+    keep = list(keep)
+    exact = set(keep)
+    prefixes = tuple(f"{prefix.rstrip('/')}/" for prefix in keep)
     for page in paginator.paginate(Bucket=BUCKET, Prefix="v1/tenant/"):
         for item in page.get("Contents", []):
             modified = item.get("LastModified")
-            if keep and item["Key"].startswith(keep):
+            if item["Key"] in exact or (prefixes and item["Key"].startswith(prefixes)):
                 continue
             if modified and modified <= cutoff:
                 expired.append({"Key": item["Key"]})
@@ -1231,13 +1297,21 @@ def library_call(fn, *args):
 
 
 @app.get("/api/library")
-async def list_library(x_burtson_owner: str = Header(default="unknown")) -> dict:
-    """Every history item (newest first) and project for the caller.
+async def list_library(
+    q: str = "", kind: Literal["image", "video"] | None = None, model: str | None = None,
+    status: Literal["completed", "failed"] | None = None, since: str | None = None,
+    view: str = Query(default="all", pattern=r"^(all|favorites|unassigned|project:[A-Za-z0-9]{1,64})$"),
+    includeHidden: bool = False, limit: int = Query(default=lib.DEFAULT_PAGE, ge=1, le=lib.MAX_PAGE),
+    cursor: str | None = Query(default=None, max_length=200),
+    x_burtson_owner: str = Header(default="unknown"),
+) -> dict:
+    """One page of the caller's history (newest first), projects and sidebar counts.
 
-    Filtering, search and paging happen client-side: one user's history is
-    small, and the index is a single JSON document.
+    Follow ``nextCursor`` for the next page.
     """
-    return await asyncio.to_thread(library_call, library.list, x_burtson_owner[:200])
+    return await asyncio.to_thread(lambda: library_call(lambda: library.list(
+        x_burtson_owner[:200], q=q[:200], kind=kind, model=model, status=status, since=since, view=view,
+        include_hidden=includeHidden, limit=limit, cursor=cursor)))
 
 
 @app.post("/api/library/sync")

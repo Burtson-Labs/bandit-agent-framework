@@ -103,20 +103,31 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
 - When a job reaches `completed`, `failed` or `cancelled` it is recorded:
   outputs, posters and inputs (start/end image, source video, mask) are copied
   server-side to `v1/library/{owner}/items/{jobId}/`, a 640 px JPEG `thumb-NN.jpg`
-  is made per take, `metadata.json` is copied, and an entry is added to
-  `v1/library/{owner}/index.json`. Failed/cancelled jobs are indexed without files.
+  is made per take, `metadata.json` is copied, and the entry is written to
+  `items/{jobId}/item.json`. Failed/cancelled jobs get only an item.json.
+- One object per item: `item.json` holds the entry plus the user's state
+  (`favorite`/`hidden` per item and per take, `projectId`); projects are in
+  `v1/library/{owner}/projects.json`. A change writes one small object. Reads
+  come from an in-memory index built on first use (parallel GETs of every
+  item.json) and are filtered and paged server-side. A phase-1 single
+  `index.json` is split into item.json files on first load.
 - A backfill scans `v1/tenant/**/metadata.json` at startup and before every
-  reaper sweep and records any job not in the library yet. Jobs whose copy fails
-  are left out of that sweep, so nothing is reaped before it is persisted.
-- `index.json` also holds the user's state: `favorite`/`hidden` per item and
-  per take, `projectId`, and the projects themselves. Hiding is a soft delete;
-  nothing in the library is deleted by the service.
+  reaper sweep and records any job not in the library yet. The sweep skips
+  jobs whose copy failed and uploads that queued/running jobs still use, so
+  nothing is reaped before it is persisted. The bucket lifecycle rule runs one
+  day behind the app TTL as a backstop only.
+- Hiding is a soft delete; the service never deletes library files.
 - `GET /api/images/jobs/{id}/assets/{index}` falls back to the library once the
   in-memory job is gone, so result links keep working after a restart.
+- Reference records are persisted beside the upload
+  (`v1/tenant/{owner}/reference-records/{id}.json`, same TTL), so an upload
+  still works for a job submitted after a restart.
+- On startup image-api clears ComfyUI's queue and interrupts the running
+  prompt if any: a fresh process owns none of them.
 
 | Route (image-api) | Anton | Purpose |
 |---|---|---|
-| `GET /api/library` | `GET /image/library` | all items (newest first) and projects; filtering is client-side |
+| `GET /api/library` | `GET /image/library` | one page, newest first: `q`, `kind`, `model`, `status` (`completed`/`failed`), `since`, `view` (`all`/`favorites`/`unassigned`/`project:<id>`), `includeHidden`, `limit` (≤ 200), `cursor`; returns `items`, `nextCursor`, `total`, `counts`, `models`, `projects` |
 | `POST /api/library/sync` | `POST /image/library/sync` | record the caller's unrecorded jobs now |
 | `GET /api/library/items/{id}` | `GET /image/library/items/{id}` | one item |
 | `PATCH /api/library/items/{id}` | `PATCH /image/library/items/{id}` | `favorite`, `hidden`, `projectId` (null clears), `outputs: [{index, favorite?, hidden?}]` |
