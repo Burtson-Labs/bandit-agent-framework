@@ -104,7 +104,7 @@ class MusicRouteTests(unittest.TestCase):
 
     def test_submit_queues_an_audio_job_with_estimate(self):
         job = asyncio.run(main.generate_music(main.MusicRequest(prompt="light corporate bed", durationSeconds=30,
-                                                                variants=2), x_burtson_owner=OWNER))
+                                                                variants=2), x_burtson_owner=OWNER, idempotency_key=None))
         self.assertEqual(job["kind"], "audio")
         self.assertEqual(job["request"]["model"], aw.MODEL_ALIAS)
         self.assertEqual(job["request"]["plan"]["bpm"], 100)
@@ -113,12 +113,12 @@ class MusicRouteTests(unittest.TestCase):
 
     def test_sfx_and_bad_requests_are_400(self):
         with self.assertRaises(HTTPException) as caught:
-            asyncio.run(main.generate_music(main.MusicRequest(prompt="door slam", kind="sfx"), x_burtson_owner=OWNER))
+            asyncio.run(main.generate_music(main.MusicRequest(prompt="door slam", kind="sfx"), x_burtson_owner=OWNER, idempotency_key=None))
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("licence", caught.exception.detail)
         with self.assertRaises(HTTPException):
             asyncio.run(main.generate_music(main.MusicRequest(prompt="a song", instrumental=False),
-                                            x_burtson_owner=OWNER))
+                                            x_burtson_owner=OWNER, idempotency_key=None))
         with self.assertRaises(ValidationError):
             main.MusicRequest(prompt="x y z", durationSeconds=300)
         with self.assertRaises(ValidationError):
@@ -343,7 +343,7 @@ class FinishValidationTests(unittest.TestCase):
 
     def submit(self, **body):
         body.setdefault("video", {"itemId": "vid000000001", "take": 0})
-        return asyncio.run(main.finish_video(main.FinishRequest(**body), x_burtson_owner=OWNER))
+        return asyncio.run(main.finish_video(main.FinishRequest(**body), x_burtson_owner=OWNER, idempotency_key=None))
 
     def test_valid_finish_is_queued_on_the_cpu_queue(self):
         audio_reference()
@@ -387,6 +387,79 @@ class FinishValidationTests(unittest.TestCase):
 
     def test_audio_item_as_music_must_be_audio(self):
         self.assert_400("audio item", music={"itemId": "vid000000001", "take": 0})
+
+
+class ContractTests(unittest.TestCase):
+    """Fields and headers the Anton proxy and the MCP tools rely on."""
+
+    def setUp(self):
+        self.store = FakeStore()
+        self.library = lib.Library(self.store)
+        self.patch = mock.patch.object(main, "library", self.library)
+        self.patch.start()
+        video_item(self.store, self.library)
+
+    def tearDown(self):
+        self.patch.stop()
+        clear_state()
+
+    def test_logo_uploads_keep_their_alpha(self):
+        import io
+        from PIL import Image
+        logo = Image.new("RGBA", (128, 64), (0, 0, 0, 0))
+        logo.paste((200, 30, 30, 255), (40, 20, 90, 44))
+        raw = io.BytesIO()
+        logo.save(raw, format="PNG")
+        body, width, height = main.normalize_upload(raw.getvalue(), "logo")
+        with Image.open(io.BytesIO(body)) as result:
+            self.assertEqual(result.mode, "RGBA")
+            self.assertEqual(result.getpixel((0, 0))[3], 0)
+            self.assertEqual(result.getpixel((50, 30)), (200, 30, 30, 255))
+        self.assertEqual((width, height), (128, 64))
+        # and the upload route accepts kind=logo (Anton forwards the multipart kind as-is)
+        self.assertIn("logo", str(main.upload_reference.__annotations__.get("kind")))
+
+    def test_logo_reference_is_accepted_for_bookends(self):
+        audio_reference("logo00000001", kind="logo")
+        job = asyncio.run(main.finish_video(main.FinishRequest(
+            video={"itemId": "vid000000001", "take": 0}, logo={"referenceId": "logo00000001"}),
+            x_burtson_owner=OWNER, idempotency_key=None))
+        self.assertEqual(job["request"]["logo"]["referenceId"], "logo00000001")
+
+    def test_narration_lines_accept_the_mcp_voice_field(self):
+        audio_reference()
+        body = {"video": {"itemId": "vid000000001", "take": 0},
+                "narration": [{"audioId": "aud000000001", "text": "Hi.", "voice": "en_US-heart-local",
+                               "startSeconds": 0.5}]}
+        job = asyncio.run(main.finish_video(main.FinishRequest(**body), x_burtson_owner=OWNER, idempotency_key=None))
+        self.assertEqual(job["request"]["narration"][0]["voice"], "en_US-heart-local")
+
+    def test_take_is_the_zero_based_output_index(self):
+        job = asyncio.run(main.finish_video(main.FinishRequest(video={"itemId": "vid000000001", "take": 0}),
+                                            x_burtson_owner=OWNER, idempotency_key=None))
+        self.assertEqual(job["request"]["sourceItem"]["file"], "video-01.mp4")   # MCP take 1 -> take 0
+        with self.assertRaises(HTTPException):
+            asyncio.run(main.finish_video(main.FinishRequest(video={"itemId": "vid000000001", "take": 1}),
+                                          x_burtson_owner=OWNER, idempotency_key=None))
+
+    def test_idempotency_key_dedupes_every_submit(self):
+        first = asyncio.run(main.finish_video(main.FinishRequest(video={"itemId": "vid000000001"}),
+                                              x_burtson_owner=OWNER, idempotency_key="fin-1"))
+        again = asyncio.run(main.finish_video(main.FinishRequest(video={"itemId": "vid000000001"}),
+                                              x_burtson_owner=OWNER, idempotency_key="fin-1"))
+        self.assertEqual(first["id"], again["id"])
+        self.assertEqual(main.finish_queue.qsize(), 1)
+        music = main.MusicRequest(prompt="calm bed")
+        a = asyncio.run(main.generate_music(music, x_burtson_owner=OWNER, idempotency_key="mus-1"))
+        b = asyncio.run(main.generate_music(music, x_burtson_owner=OWNER, idempotency_key="mus-1"))
+        self.assertEqual(a["id"], b["id"])
+        image = main.GenerationRequest(prompt="a brass robot")
+        c = asyncio.run(main.generate(image, x_burtson_owner=OWNER, idempotency_key="img-1"))
+        d = asyncio.run(main.generate(image, x_burtson_owner=OWNER, idempotency_key="img-1"))
+        self.assertEqual(c["id"], d["id"])
+        self.assertEqual(main.queue.qsize(), 2)                         # one music + one image job
+        other = asyncio.run(main.generate(image, x_burtson_owner="someone-else", idempotency_key="img-1"))
+        self.assertNotEqual(other["id"], c["id"])
 
 
 # --- History and watch ----------------------------------------------------------------------
@@ -516,7 +589,7 @@ class RenderTests(unittest.TestCase):
                         music={"audioId": "mus000000001"},
                         narration=[{"audioId": "aud000000001", "text": "A test line that runs past the clip.",
                                     "voice": "en_US-heart-local"}],
-                        captions=True, levels="balanced", title="E2E"), x_burtson_owner=OWNER)
+                        captions=True, levels="balanced", title="E2E"), x_burtson_owner=OWNER, idempotency_key=None)
                     finished = main.jobs[job["id"]]
                     worker = asyncio.create_task(main.run_finish_queue())
                     await asyncio.wait_for(main.finish_queue.join(), timeout=60)

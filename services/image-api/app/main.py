@@ -592,10 +592,15 @@ def probe_source(path: str) -> dict | None:
 
 
 @app.post("/api/images/generations", status_code=202)
-async def generate(request: GenerationRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
+async def generate(request: GenerationRequest, x_burtson_owner: str = Header(default="unknown"),
+                   idempotency_key: str | None = Header(default=None, max_length=200)) -> dict:
+    owner = x_burtson_owner[:200]
+    if idempotency_key:
+        existing = jobs.get(idempotency.get(idempotency_key, ""))
+        if existing is not None and existing.owner == owner:
+            return public_job(existing)
     if queue.full():
         raise HTTPException(429, "image queue is full")
-    owner = x_burtson_owner[:200]
     if request.maskId and not request.referenceId:
         raise HTTPException(400, "maskId requires referenceId")
     if request.extraReferenceIds and not request.referenceId:
@@ -626,6 +631,8 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
     job_id = uuid.uuid4().hex
     job = Job(id=job_id, owner=owner, request=payload)
     jobs[job_id] = job
+    if idempotency_key:
+        idempotency[idempotency_key] = job_id
     await queue.put(job_id)
     return public_job(job)
 
