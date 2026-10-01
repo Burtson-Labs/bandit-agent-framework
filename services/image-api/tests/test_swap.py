@@ -45,9 +45,14 @@ class WindowPlanTests(unittest.TestCase):
             self.assertGreaterEqual(windows[-1].start + windows[-1].length, frames)
             self.assertLess(windows[-1].start, frames)
 
-    def test_ten_seconds_is_three_windows(self):
-        windows = swap.plan_windows(160)
-        self.assertEqual([(w.start, w.length, w.overlap) for w in windows], [(0, 77, 0), (72, 77, 5), (144, 17, 5)])
+    def test_windows_are_balanced(self):
+        self.assertEqual([(w.start, w.length, w.overlap) for w in swap.plan_windows(80)], [(0, 45, 0), (40, 41, 5)])
+        self.assertEqual([(w.start, w.length, w.overlap) for w in swap.plan_windows(160)],
+                         [(0, 57, 0), (52, 57, 5), (104, 57, 5)])
+        self.assertEqual(len(swap.plan_windows(77)), 1)
+        for frames in range(9, 961, 7):
+            windows = swap.plan_windows(frames)
+            self.assertGreaterEqual(min(w.length for w in windows), min(frames, 33) if frames > 77 else 9, frames)
 
     def test_generation_size_keeps_the_source_shape(self):
         self.assertEqual(swap.generation_size(960, 720, "480p"), (736, 544))
@@ -210,6 +215,7 @@ class SwapApiTests(unittest.TestCase):
         self.assertTrue(job.request["consent"]["confirmed"])
         self.assertEqual(job.request["plan"]["passes"], 2)
         self.assertEqual(job.request["plan"]["segments"], 3)
+        self.assertEqual(job.request["plan"]["windows"], [[0, 57, 0], [52, 57, 5], [104, 57, 5]])
         self.assertEqual(job.request["plan"]["generationSize"], [736, 544])
         self.assertEqual(job.request["durationSeconds"], 10.0)
         self.assertTrue(job.request["accelerated"])
@@ -292,9 +298,11 @@ class StitchTests(unittest.TestCase):
             frames = list(stitch.frames_of(out, 64, 48))
         self.assertEqual(len(frames), 160)
         means = [int(frame.mean()) for frame in frames]
-        self.assertLess(means[71], 20)            # last frame before the seam: window 1
-        self.assertTrue(20 < means[74] < 235)     # mid-crossfade
-        self.assertGreater(means[78], 235)        # window 2 after the overlap
+        self.assertEqual([(w.start, w.overlap) for w in windows], [(0, 0), (52, 5), (104, 5)])
+        self.assertLess(means[51], 20)            # last frame before the seam: window 1
+        self.assertTrue(20 < means[54] < 235)     # mid-crossfade
+        self.assertGreater(means[58], 235)        # window 2 after the overlap
+        self.assertTrue(20 < means[106] < 235)    # second seam
         self.assertLess(means[159], 20)
 
     def test_cut_pads_past_the_end(self):

@@ -205,18 +205,25 @@ def _snap_up(frames: int) -> int:
 
 
 def plan_windows(frames: int) -> tuple[Window, ...]:
-    """Cover ``frames`` with <= 77-frame windows overlapping by 5.
+    """Cover ``frames`` with balanced windows of at most 77 frames overlapping by 5.
 
-    A window's length is always 4k+1; a last window shorter than that is
-    generated a little long (the inputs hold their last frame) and trimmed.
+    Windows are as even as the 4k+1 grid allows: a 5 s clip is 45 + 41 frames
+    rather than 77 + 9 (a very short window drifts in colour and lighting).
+    The last window may run a few frames long (its inputs hold their last
+    frame) and is trimmed.
     """
     if frames < 1:
         raise ValueError("nothing to process")
+    step = SEGMENT_FRAMES - OVERLAP_FRAMES
+    count = 1 if frames <= SEGMENT_FRAMES else 1 + math.ceil((frames - SEGMENT_FRAMES) / step)
     windows: list[Window] = []
     start, overlap = 0, 0
     while True:
         remaining = frames - start
-        length = min(SEGMENT_FRAMES, max(MIN_WINDOW_FRAMES, _snap_up(remaining)))
+        left = count - len(windows)
+        # Share what is left evenly over the windows still to come (4k+1 each).
+        share = math.ceil((remaining + max(0, left - 1) * OVERLAP_FRAMES) / max(1, left))
+        length = min(SEGMENT_FRAMES, max(MIN_WINDOW_FRAMES, _snap_up(share)))
         windows.append(Window(index=len(windows), start=start, length=length, overlap=overlap))
         end = start + length
         if end >= frames:
