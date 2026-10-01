@@ -31,3 +31,25 @@ The pinned ComfyUI commit (2026-09-20) already has native Wan 2.2, first/last
 frame, VACE, Depth Anything 3, SDPose, Canny, RIFE/FILM interpolation and
 model-upscale nodes, so video needs no
 custom nodes and no worker rebuild.
+
+## People swap (Wan2.2-Animate-14B)
+
+Also staged (manifest `models/manifests/MODELS-wan22-animate.md`, all Apache-2.0
+except the MIT OpenCLIP vision tower):
+
+- `models/diffusion_models/wan2.2_animate_14B_int8_convrot.safetensors`
+- `models/loras/wan2.2_animate_14B_relight_lora_bf16.safetensors`
+- `models/loras/Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors`
+- `models/clip_vision/clip_vision_h.safetensors`
+- `models/sam2/sam2.1-hiera-large/` (transformers format: `model.safetensors` + configs)
+
+The pinned commit has `WanAnimateToVideo` natively. The only addition is
+`custom_nodes/burtson_people`, Burtson's own code (no third-party custom nodes):
+SAM 2.1 person tracking through the transformers `Sam2Video` classes already in
+the image (SAM 3, which core ComfyUI ships nodes for, is under Meta's custom SAM
+License, so it is not used), Wan-Animate-style character masks plus per-frame
+person boxes for SDPose, and steady face crops for the face video.
+
+`constraints.txt` pins every Python package to the last validated image
+(`5c726ea`), so rebuilding never moves torch or transformers.
+
