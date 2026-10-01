@@ -1350,7 +1350,8 @@ def estimate_job_seconds(job: Job) -> float:
     if job.kind == "audio":
         return float(est.estimate_music(audio_calibration, float(job.request.get("durationSeconds") or 30),
                                         int(job.request.get("variants") or 1),
-                                        loopable=bool(job.request.get("loopable")))["seconds"])
+                                        loopable=bool(job.request.get("loopable")),
+                                        model=job.request.get("model") or aw.DEFAULT_MUSIC_MODEL)["seconds"])
     if job.kind == "finish":
         return float((job.request.get("estimate") or {}).get("seconds") or 60.0)
     if job.kind != "video":
@@ -2295,6 +2296,8 @@ class MusicRequest(BaseModel):
     collection: str | None = Field(default=None, max_length=80)
     # Sound effects have no licence-clean model yet; "sfx" is refused with the reason.
     kind: Literal["music", "sfx"] = "music"
+    # "music-ace15-xl" (Quality, default) or "music-ace15" (Fast).
+    model: aw.MusicModelAlias | None = None
 
 
 class MusicEstimateRequest(BaseModel):
@@ -2302,6 +2305,7 @@ class MusicEstimateRequest(BaseModel):
     variants: int = Field(default=1, ge=1, le=4)
     instrumental: bool = True
     loopable: bool = False
+    model: aw.MusicModelAlias | None = None
 
 
 class TakeRef(BaseModel):
@@ -2383,8 +2387,11 @@ class AudioLibraryRequest(BaseModel):
 @app.get("/api/audio/capabilities")
 async def audio_capabilities() -> dict:
     return {
-        "music": {"available": True, "model": aw.MODEL_ALIAS, "label": aw.MODEL_LABEL, "licence": aw.MODEL_LICENSE,
-                  "workflowVersion": aw.WORKFLOW_VERSION, "minSeconds": aw.MIN_SECONDS, "maxSeconds": aw.MAX_SECONDS,
+        "music": {"available": True, "model": aw.DEFAULT_MUSIC_MODEL, "licence": aw.MODEL_LICENSE,
+                  "models": [{"alias": model.alias, "label": model.label, "description": model.description,
+                              "workflowVersion": model.workflow_version, "steps": model.steps,
+                              "default": model.alias == aw.DEFAULT_MUSIC_MODEL} for model in aw.MUSIC_MODELS.values()],
+                  "minSeconds": aw.MIN_SECONDS, "maxSeconds": aw.MAX_SECONDS,
                   "maxVariants": 4, "languages": list(aw.LANGUAGES), "timeSignatures": list(aw.TIME_SIGNATURES),
                   "keyscales": list(aw.KEYSCALES), "loopCrossfadeSeconds": aw.LOOP_CROSSFADE_SECONDS},
         "sfx": {"available": False, "reason": aw.SFX_UNAVAILABLE_REASON},
@@ -2403,6 +2410,7 @@ def music_plan_from(request: dict, variant: int) -> aw.MusicPlan:
         lyrics=request.get("lyrics"), genre=request.get("genre"), mood=request.get("mood"), bpm=request.get("bpm"),
         keyscale=request.get("keyscale"), time_signature=request.get("timeSignature") or "4",
         language=request.get("language") or "en", loopable=bool(request.get("loopable")),
+        model=request.get("model"),
     )
 
 
@@ -2424,13 +2432,13 @@ def create_music_job(request: MusicRequest, owner: str, *, idempotency_key: str 
         raise HTTPException(429, "generation queue is full")
     payload = request.model_dump()
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
-    payload["model"] = aw.MODEL_ALIAS
+    payload["model"] = request.model or aw.DEFAULT_MUSIC_MODEL
     try:
         plan = music_plan_from(payload, 0)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     payload["plan"] = plan.describe()
-    payload["estimate"] = est.estimate_music(audio_calibration, plan.duration_seconds, request.variants,
+    payload["estimate"] = est.estimate_music(audio_calibration, plan.duration_seconds, request.variants, model=plan.model,
                                              loopable=plan.loopable)
     if origin:
         payload["origin"] = origin
@@ -2449,6 +2457,7 @@ async def estimate_audio(request: MusicEstimateRequest) -> dict:
     if request.loopable and request.durationSeconds < aw.LOOP_CROSSFADE_SECONDS * 3:
         return {"valid": False, "error": f"a loopable track must be at least {aw.LOOP_CROSSFADE_SECONDS * 3:g} s"}
     return {"valid": True, **est.estimate_music(audio_calibration, request.durationSeconds, request.variants,
+                                                model=request.model or aw.DEFAULT_MUSIC_MODEL,
                                                 loopable=request.loopable)}
 
 
@@ -2518,13 +2527,13 @@ async def execute_music(job: Job) -> None:
             job.audios.append({
                 "url": f"/image/jobs/{job.id}/assets/{base}", "mp3Url": f"/image/jobs/{job.id}/assets/{base + 1}",
                 "waveformUrl": f"/image/jobs/{job.id}/assets/{base + 2}",
-                "variant": number, "seed": plan.seed, "model": aw.MODEL_ALIAS, "mode": "music",
-                "workflowVersion": aw.WORKFLOW_VERSION, "durationSeconds": mastered["durationSeconds"],
+                "variant": number, "seed": plan.seed, "model": plan.model, "mode": "music",
+                "workflowVersion": plan.spec.workflow_version, "durationSeconds": mastered["durationSeconds"],
                 "sampleRate": mastered["sampleRate"], "channels": mastered["channels"],
                 "lufs": mastered["lufs"], "truePeak": mastered["truePeak"],
                 "bytes": len(mastered["wavBytes"]), "sha256": hashlib.sha256(mastered["wavBytes"]).hexdigest(),
                 "mp3Bytes": len(mastered["mp3Bytes"]), "modelLicense": aw.MODEL_LICENSE,
-                "modelDigests": dict(aw.CHECKPOINT_SHA256), "bpm": plan.bpm, "keyscale": plan.keyscale,
+                "modelDigests": {name: aw.CHECKPOINT_SHA256[name] for name in aw.plan_checkpoints(plan)}, "bpm": plan.bpm, "keyscale": plan.keyscale,
                 "timeSignature": plan.time_signature, "instrumental": plan.instrumental, "loopable": plan.loopable,
                 "title": request.get("title"), "expiresAt": job.expiresAt, "plan": plan.describe(),
             })
@@ -2542,7 +2551,7 @@ async def run_music_prompt(client: httpx.AsyncClient, job: Job, plan: aw.MusicPl
     workflow = aw.ace_workflow(plan, filename_prefix=f"burtson-audio/{job.id}-{variant + 1}")
     base = {"variant": variant + 1, "variants": job.request["variants"]}
     job.progress = {**base, "stage": "loading_model", "percent": 0}
-    watcher = asyncio.create_task(watch_progress(job, [("sampler", aw.STEPS)], aw.STEPS, base))
+    watcher = asyncio.create_task(watch_progress(job, [("sampler", plan.spec.steps)], plan.spec.steps, base))
     try:
         submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
         if submitted.status_code >= 400:
@@ -2602,7 +2611,7 @@ def record_music_timing(plan: aw.MusicPlan, started: float, sampling_started: fl
     if first and sampling_started is not None:
         load = max(0.0, sampling_started - started)
         elapsed -= load
-    audio_calibration.record(est.MUSIC_KEY, elapsed / max(1.0, plan.render_seconds), load)
+    audio_calibration.record(est.music_key(plan.model), elapsed / max(1.0, plan.render_seconds), load)
     asyncio.get_running_loop().run_in_executor(None, write_stats, est.AUDIO_STATS_KEY, audio_calibration)
 
 

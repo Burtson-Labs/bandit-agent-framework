@@ -80,22 +80,39 @@ class MusicPlanTests(unittest.TestCase):
         plan = aw.plan_music(prompt="bed", seed=5, duration_seconds=30, bpm=96, keyscale="D minor")
         wf = aw.ace_workflow(plan, filename_prefix="burtson-audio/x-1")
         self.assertEqual(wf["clip"]["inputs"]["type"], "ace")
-        self.assertEqual(wf["clip"]["inputs"]["clip_name2"], aw.LM_MODEL)
+        self.assertEqual(plan.model, "music-ace15-xl")
+        self.assertEqual(wf["unet"]["inputs"]["unet_name"], "acestep_v1.5_xl_sft_bf16.safetensors")
+        self.assertEqual(wf["clip"]["inputs"]["clip_name2"], "qwen_4b_ace15.safetensors")
         self.assertEqual(wf["encode"]["class_type"], "TextEncodeAceStepAudio1.5")
         self.assertEqual(wf["encode"]["inputs"]["bpm"], 96)
         self.assertEqual(wf["encode"]["inputs"]["keyscale"], "D minor")
         self.assertEqual(wf["encode"]["inputs"]["duration"], 30)
         self.assertEqual(wf["latent"]["class_type"], "EmptyAceStep1.5LatentAudio")
-        self.assertEqual(wf["sampler"]["inputs"]["steps"], 8)
-        self.assertEqual(wf["sampler"]["inputs"]["cfg"], 1.0)
-        self.assertEqual(wf["shift"]["inputs"]["shift"], 3.0)
+        self.assertEqual(wf["sampler"]["inputs"]["steps"], 50)
+        self.assertEqual(wf["sampler"]["inputs"]["cfg"], 5.0)
+        self.assertEqual(wf["shift"]["inputs"]["shift"], 1.0)
         self.assertEqual(wf["save"]["class_type"], "SaveAudio")
         # every link points at a node that exists
         for node in wf.values():
             for value in node["inputs"].values():
                 if isinstance(value, list):
                     self.assertIn(value[0], wf)
-        self.assertEqual(set(aw.CHECKPOINT_SHA256), set(aw.plan_checkpoints()))
+        self.assertEqual(set(aw.plan_checkpoints(plan)) - set(aw.CHECKPOINT_SHA256), set())
+
+    def test_fast_model_keeps_the_turbo_graph(self):
+        plan = aw.plan_music(prompt="bed", seed=5, duration_seconds=30, model="music-ace15")
+        wf = aw.ace_workflow(plan, filename_prefix="burtson-audio/x-1")
+        self.assertEqual(wf["unet"]["inputs"]["unet_name"], "acestep_v1.5_turbo.safetensors")
+        self.assertEqual(wf["clip"]["inputs"]["clip_name2"], "qwen_1.7b_ace15.safetensors")
+        self.assertEqual((wf["sampler"]["inputs"]["steps"], wf["sampler"]["inputs"]["cfg"]), (8, 1.0))
+        self.assertEqual(wf["shift"]["inputs"]["shift"], 3.0)
+        self.assertEqual(plan.describe()["workflowVersion"], "ace15-turbo-v1")
+        with self.assertRaises(ValueError):
+            aw.plan_music(prompt="bed", seed=5, duration_seconds=30, model="nope")
+        self.assertEqual(set(aw.CHECKPOINT_SHA256),
+                         {name for alias in aw.MUSIC_MODELS
+                          for name in aw.plan_checkpoints(aw.plan_music(prompt="b c d", seed=1, duration_seconds=10,
+                                                                         model=alias))})
 
 
 class MusicRouteTests(unittest.TestCase):
@@ -105,8 +122,14 @@ class MusicRouteTests(unittest.TestCase):
     def test_submit_queues_an_audio_job_with_estimate(self):
         job = asyncio.run(main.generate_music(main.MusicRequest(prompt="light corporate bed", durationSeconds=30,
                                                                 variants=2), x_burtson_owner=OWNER, idempotency_key=None))
+        fast = asyncio.run(main.generate_music(main.MusicRequest(prompt="light corporate bed", model="music-ace15"),
+                                               x_burtson_owner=OWNER, idempotency_key=None))
+        self.assertEqual(fast["request"]["plan"]["steps"], 8)
+        self.assertEqual(fast["request"]["estimate"]["key"], est.MUSIC_KEY)
+        main.queue.get_nowait()
+        main.queue.task_done()
         self.assertEqual(job["kind"], "audio")
-        self.assertEqual(job["request"]["model"], aw.MODEL_ALIAS)
+        self.assertEqual(job["request"]["model"], aw.DEFAULT_MUSIC_MODEL)
         self.assertEqual(job["request"]["plan"]["bpm"], 100)
         self.assertGreater(job["request"]["estimate"]["seconds"], 0)
         self.assertEqual(main.queue.qsize(), 1)
@@ -182,10 +205,11 @@ class MusicRouteTests(unittest.TestCase):
 class EstimateTests(unittest.TestCase):
     def test_music_estimate_scales_with_length_and_takes(self):
         cal = est.audio_calibration()
-        one = est.estimate_music(cal, 30)
+        self.assertEqual(est.estimate_music(cal, 30)["key"], est.MUSIC_XL_KEY)
+        one = est.estimate_music(cal, 30, model="music-ace15")
         self.assertEqual(one["loadSeconds"], 30)
         self.assertEqual(one["perTakeSeconds"], round(0.5 * 30 + 4))
-        two = est.estimate_music(cal, 60, 2, loopable=True)
+        two = est.estimate_music(cal, 60, 2, loopable=True, model="music-ace15")
         self.assertEqual(two["perTakeSeconds"], round(0.5 * 64 + 4))
         self.assertEqual(two["seconds"], round(30 + 2 * (0.5 * 64 + 4)))
 
@@ -193,7 +217,7 @@ class EstimateTests(unittest.TestCase):
         cal = est.audio_calibration()
         for _ in range(3):
             cal.record(est.MUSIC_KEY, 0.2, 12)
-        measured = est.estimate_music(cal, 30)
+        measured = est.estimate_music(cal, 30, model="music-ace15")
         self.assertEqual(measured["basis"], "measured")
         self.assertEqual(measured["ratePerSecond"], 0.2)
         self.assertEqual(measured["loadSeconds"], 12)
@@ -517,10 +541,10 @@ class AudioHistoryTests(unittest.TestCase):
             store.put(f"{DAY}/{job_id}/wave-{n:02d}.jpg", jpeg(), "image/jpeg")
         item = library.record({
             "jobId": job_id, "owner": OWNER, "createdAt": "2026-10-01T10:00:00+00:00", "kind": "audio",
-            "request": {"prompt": "corporate bed", "model": aw.MODEL_ALIAS, "seed": 3, "title": "Bed",
+            "request": {"prompt": "corporate bed", "model": aw.DEFAULT_MUSIC_MODEL, "seed": 3, "title": "Bed",
                         "collection": "Burtson Stock Audio", "instrumental": True},
             "audios": [{"variant": n, "seed": 3 + n, "durationSeconds": 30.0, "lufs": -16.0, "bpm": 100,
-                        "mode": "music", "model": aw.MODEL_ALIAS, "instrumental": True} for n in (1, 2)],
+                        "mode": "music", "model": aw.DEFAULT_MUSIC_MODEL, "instrumental": True} for n in (1, 2)],
         }, tenant_dir=f"{DAY}/{job_id}")
         self.assertEqual(item["kind"], "audio")
         self.assertEqual(item["title"], "Bed")

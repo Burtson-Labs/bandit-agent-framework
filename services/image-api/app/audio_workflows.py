@@ -1,12 +1,13 @@
-"""Server-owned ComfyUI workflow for music: ACE-Step 1.5 turbo.
+"""Server-owned ComfyUI workflow for music: ACE-Step 1.5 XL SFT (Quality, default) or 2B turbo (Fast).
 
 ComfyUI supports ACE-Step 1.5 natively at the pinned commit (96be9a1):
 UNETLoader + DualCLIPLoader(type "ace") + VAELoader, TextEncodeAceStepAudio1.5,
-EmptyAceStep1.5LatentAudio, ModelSamplingAuraFlow (shift 3) and an 8-step
-KSampler at CFG 1, which is the Comfy-Org "ACE-Step 1.5 split" template.
+EmptyAceStep1.5LatentAudio, ModelSamplingAuraFlow and KSampler (the Comfy-Org
+"ACE-Step 1.5 split" template). ComfyUI sizes the DiT from the weights, so the XL
+checkpoints load through the same graph; steps, CFG and shift come from MUSIC_MODELS.
 
-Licences (verified 2026-10-01, see /mnt/ai-models/comfyui/manifests/MODELS-audio.md):
-the DiT, the 5 Hz LM and the VAE are MIT (ACE-Step/Ace-Step1.5); the text
+Licences (verified 2026-10-01, see /mnt/ai-models/comfyui/manifests/MODELS-audio.md
+and MODELS-audio-xl.md): the DiTs, the 5 Hz LMs and the VAE are MIT (ACE-Step); the text
 embedding model is Qwen3-Embedding-0.6B, Apache-2.0. The model card states the
 training data is licensed, royalty-free/public-domain and synthetic music and
 that output may be used commercially.
@@ -19,29 +20,61 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-WORKFLOW_VERSION = "ace15-turbo-v1"
-MODEL_ALIAS = "music-ace15"
-MODEL_LABEL = "ACE-Step 1.5 turbo"
+TEXT_ENCODER = "qwen_0.6b_ace15.safetensors"
+VAE = "ace_1.5_vae.safetensors"
 MODEL_LICENSE = "MIT"
 
-DIFFUSION_MODEL = "acestep_v1.5_turbo.safetensors"
-TEXT_ENCODER = "qwen_0.6b_ace15.safetensors"
-LM_MODEL = "qwen_1.7b_ace15.safetensors"
-VAE = "ace_1.5_vae.safetensors"
+
+@dataclass(frozen=True)
+class MusicModel:
+    alias: str
+    label: str
+    description: str
+    diffusion_model: str
+    lm_model: str
+    workflow_version: str
+    steps: int
+    cfg: float
+    shift: float
+
+
+# Fast: the 2B turbo DiT (8 steps, no CFG) with the 1.7B 5 Hz LM. Quality: the 4B XL SFT DiT
+# (50 steps with CFG) with the 4B LM, which the model card ranks highest; the 2B turbo leans on
+# the synthetic (MIDI-rendered) part of the training data and can sound like a MIDI mock-up.
+MUSIC_MODELS: dict[str, MusicModel] = {
+    "music-ace15-xl": MusicModel(
+        alias="music-ace15-xl", label="Quality", description="ACE-Step 1.5 XL SFT (4B) with the 4B planner",
+        diffusion_model="acestep_v1.5_xl_sft_bf16.safetensors", lm_model="qwen_4b_ace15.safetensors",
+        workflow_version="ace15-xl-sft-v1", steps=50, cfg=5.0, shift=1.0),
+    "music-ace15": MusicModel(
+        alias="music-ace15", label="Fast", description="ACE-Step 1.5 turbo (2B) with the 1.7B planner",
+        diffusion_model="acestep_v1.5_turbo.safetensors", lm_model="qwen_1.7b_ace15.safetensors",
+        workflow_version="ace15-turbo-v1", steps=8, cfg=1.0, shift=3.0),
+}
+DEFAULT_MUSIC_MODEL = "music-ace15-xl"
+MusicModelAlias = Literal["music-ace15-xl", "music-ace15"]
 
 CHECKPOINT_SHA256: dict[str, str] = {
-    DIFFUSION_MODEL: "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7",
+    "acestep_v1.5_turbo.safetensors": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7",
+    "acestep_v1.5_xl_sft_bf16.safetensors": "3c05ae268353b3540fb1fd7db4fd77ffbda9802ec641b624e15648e030ecf3ce",
     TEXT_ENCODER: "fd4590c82153b8ddb67e15a2e7aaa8afa8b83a858c8a9b82a4831063156aa7a7",
-    LM_MODEL: "ed63e9247d1f55f3ace04fa11e95b085fc82d459c82c5626f0b2e37b91ebd710",
+    "qwen_1.7b_ace15.safetensors": "ed63e9247d1f55f3ace04fa11e95b085fc82d459c82c5626f0b2e37b91ebd710",
+    "qwen_4b_ace15.safetensors": "ffe5ffb855086c2ab55e467e9859fb01894781020a0376484dd19de166b79873",
     VAE: "6de92e3a862acd287e08b024ac90f0783a8635451b728721a33ff03565bcb2bb",
 }
+
+
+def music_model(alias: str | None) -> MusicModel:
+    model = MUSIC_MODELS.get(alias or DEFAULT_MUSIC_MODEL)
+    if model is None:
+        raise ValueError(f"unknown music model {alias!r}")
+    return model
+
 
 MIN_SECONDS = 3.0
 MAX_SECONDS = 240.0
 # Loopable tracks render this much extra and crossfade the tail into the head.
 LOOP_CROSSFADE_SECONDS = 4.0
-STEPS = 8
-SHIFT = 3.0
 INSTRUMENTAL_LYRICS = "[Instrumental]"
 DEFAULT_BPM_INSTRUMENTAL = 100
 DEFAULT_BPM_SONG = 110
@@ -78,14 +111,19 @@ class MusicPlan:
     duration_seconds: float   # what the user gets
     render_seconds: float     # what the model generates (adds the loop overlap)
     loopable: bool
+    model: str = DEFAULT_MUSIC_MODEL
+
+    @property
+    def spec(self) -> MusicModel:
+        return music_model(self.model)
 
     def describe(self) -> dict[str, Any]:
         return {
-            "model": MODEL_ALIAS, "workflowVersion": WORKFLOW_VERSION, "tags": self.tags,
+            "model": self.model, "workflowVersion": self.spec.workflow_version, "tags": self.tags,
             "instrumental": self.instrumental, "seed": self.seed, "bpm": self.bpm, "keyscale": self.keyscale,
             "timeSignature": self.time_signature, "language": self.language,
             "durationSeconds": self.duration_seconds, "renderSeconds": self.render_seconds,
-            "loopable": self.loopable, "steps": STEPS,
+            "loopable": self.loopable, "steps": self.spec.steps, "cfg": self.spec.cfg,
         }
 
 
@@ -109,7 +147,7 @@ def default_keyscale(mood: str | None, prompt: str) -> str:
 def plan_music(*, prompt: str, seed: int, duration_seconds: float, instrumental: bool = True,
                lyrics: str | None = None, genre: str | None = None, mood: str | None = None,
                bpm: int | None = None, keyscale: str | None = None, time_signature: str = "4",
-               language: str = "en", loopable: bool = False) -> MusicPlan:
+               language: str = "en", loopable: bool = False, model: str | None = None) -> MusicPlan:
     """Validate and resolve one music take. Raises ValueError for impossible requests."""
     if not (MIN_SECONDS <= duration_seconds <= MAX_SECONDS):
         raise ValueError(f"durationSeconds must be {MIN_SECONDS:g}-{MAX_SECONDS:g}")
@@ -119,6 +157,7 @@ def plan_music(*, prompt: str, seed: int, duration_seconds: float, instrumental:
         raise ValueError("unsupported language")
     if keyscale is not None and keyscale not in KEYSCALES:
         raise ValueError("keyscale must look like 'C major' or 'F# minor'")
+    spec = music_model(model)
     words = (lyrics or "").strip()
     if not instrumental and not words:
         raise ValueError("lyrics are required for a song (or set instrumental)")
@@ -133,18 +172,18 @@ def plan_music(*, prompt: str, seed: int, duration_seconds: float, instrumental:
         prompt=prompt, tags=tags, lyrics=INSTRUMENTAL_LYRICS if instrumental else words, instrumental=instrumental,
         seed=int(seed), bpm=int(resolved_bpm), keyscale=keyscale or default_keyscale(mood, prompt),
         time_signature=time_signature, language=language, duration_seconds=round(float(duration_seconds), 2),
-        render_seconds=round(float(render), 2), loopable=loopable,
+        render_seconds=round(float(render), 2), loopable=loopable, model=spec.alias,
     )
 
 
 def ace_workflow(plan: MusicPlan, *, filename_prefix: str) -> dict[str, Any]:
     """ComfyUI API-format prompt for one take (node ids are stable for progress/outputs)."""
     return {
-        "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": DIFFUSION_MODEL, "weight_dtype": "default"}},
+        "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": plan.spec.diffusion_model, "weight_dtype": "default"}},
         "clip": {"class_type": "DualCLIPLoader", "inputs": {
-            "clip_name1": TEXT_ENCODER, "clip_name2": LM_MODEL, "type": "ace", "device": "default"}},
+            "clip_name1": TEXT_ENCODER, "clip_name2": plan.spec.lm_model, "type": "ace", "device": "default"}},
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": VAE}},
-        "shift": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["unet", 0], "shift": SHIFT}},
+        "shift": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["unet", 0], "shift": plan.spec.shift}},
         "encode": {"class_type": "TextEncodeAceStepAudio1.5", "inputs": {
             "clip": ["clip", 0], "tags": plan.tags, "lyrics": plan.lyrics, "seed": plan.seed % (2**63),
             "bpm": plan.bpm, "duration": plan.render_seconds, "timesignature": plan.time_signature,
@@ -155,7 +194,7 @@ def ace_workflow(plan: MusicPlan, *, filename_prefix: str) -> dict[str, Any]:
         "latent": {"class_type": "EmptyAceStep1.5LatentAudio", "inputs": {
             "seconds": plan.render_seconds, "batch_size": 1}},
         "sampler": {"class_type": "KSampler", "inputs": {
-            "model": ["shift", 0], "seed": plan.seed % (2**63), "steps": STEPS, "cfg": 1.0,
+            "model": ["shift", 0], "seed": plan.seed % (2**63), "steps": plan.spec.steps, "cfg": plan.spec.cfg,
             "sampler_name": "euler", "scheduler": "simple", "positive": ["encode", 0],
             "negative": ["negative", 0], "latent_image": ["latent", 0], "denoise": 1.0,
         }},
@@ -164,5 +203,5 @@ def ace_workflow(plan: MusicPlan, *, filename_prefix: str) -> dict[str, Any]:
     }
 
 
-def plan_checkpoints() -> list[str]:
-    return [DIFFUSION_MODEL, TEXT_ENCODER, LM_MODEL, VAE]
+def plan_checkpoints(plan: MusicPlan) -> list[str]:
+    return [plan.spec.diffusion_model, TEXT_ENCODER, plan.spec.lm_model, VAE]

@@ -241,13 +241,16 @@ def load_from(fetch: Callable[[], bytes | None], calibration: Calibration) -> No
 
 AUDIO_STATS_KEY = "v1/stats/audio-timings.json"
 MUSIC_KEY = "music|music-ace15|turbo"
+MUSIC_XL_KEY = "music|music-ace15-xl|sft"
 # ACE-Step 1.5 turbo: the 1.7B LM writes 5 Hz audio codes, then 8 DiT steps and the
 # VAE decode. Seeded from the model card (a full song in under 10 s on a 3090) with
 # room for the LM pass, mastering (two-pass loudnorm, MP3, waveform) and upload;
-# self-calibrates from the first takes.
+# self-calibrates from the first takes. XL SFT (4B LM, 50 steps with CFG) measured
+# about 7 s of ComfyUI time per 30 s on the 5090 with the models warm; seeded high.
 MUSIC_LOAD_SECONDS = float(os.getenv("MUSIC_MODEL_LOAD_SECONDS", "30"))
 AUDIO_SEED_RATES: dict[str, float] = {
     MUSIC_KEY: 0.5,
+    MUSIC_XL_KEY: 0.8,
     # Finishing, seconds of wall clock per second of output on image-api's 2 CPUs:
     # stream copy (music/narration only) vs a libx264 re-encode (captions, logo, hold, fades).
     "finish|copy": 0.25,
@@ -264,13 +267,19 @@ def music_render_seconds(duration: float, loopable: bool) -> float:
     return duration + (4.0 if loopable else 0.0)
 
 
-def estimate_music(calibration: Calibration, duration: float, variants: int = 1, *, loopable: bool = False) -> dict[str, Any]:
-    rate, basis, samples = calibration.rate(MUSIC_KEY)
+def music_key(model: str | None) -> str:
+    return MUSIC_KEY if model == "music-ace15" else MUSIC_XL_KEY
+
+
+def estimate_music(calibration: Calibration, duration: float, variants: int = 1, *, loopable: bool = False,
+                   model: str | None = None) -> dict[str, Any]:
+    key = music_key(model)
+    rate, basis, samples = calibration.rate(key)
     per_take = rate * music_render_seconds(duration, loopable) + 4.0  # + mastering and upload
     load = calibration.load_seconds()
     total = load + per_take * max(1, variants)
     return {
-        "key": MUSIC_KEY, "basis": basis, "samples": samples, "ratePerSecond": round(rate, 2),
+        "key": key, "basis": basis, "samples": samples, "ratePerSecond": round(rate, 2),
         "perTakeSeconds": round(per_take), "loadSeconds": round(load), "claimSeconds": round(CLAIM_SECONDS),
         "variants": max(1, variants), "seconds": round(total),
     }
