@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlencode
 
 import boto3
@@ -26,6 +26,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, Respons
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
+from . import estimates as est
 from . import video_workflows as vw
 from .workflows import fit_canvas, flux_workflow, validate_dimension
 
@@ -43,6 +44,8 @@ MAX_IMAGE_PIXELS = max(1_000_000, int(os.getenv("MAX_IMAGE_PIXELS", "25000000"))
 # with the full 20-step schedule is the slowest legal request.
 VIDEO_VARIANT_TIMEOUT_SECONDS = max(300, int(os.getenv("VIDEO_VARIANT_TIMEOUT_SECONDS", "3600")))
 VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
+# How long a queued job waits for the GPU worker (Anton claims on submit).
+WORKER_WAIT_SECONDS = max(60, int(os.getenv("WORKER_WAIT_SECONDS", "600")))
 MAX_SOURCE_BYTES = max(1, int(os.getenv("MAX_SOURCE_MIB", "200"))) * 1024 * 1024
 logger = logging.getLogger("burtson.image_api")
 
@@ -126,6 +129,9 @@ class Job:
     progress: dict | None = None
     # Private MinIO keys addressed by /assets/{index}; never serialized.
     assetKeys: list[str] = field(default_factory=list)
+    startedAt: str | None = None
+    # time.monotonic() of the current take's first sampler step (not serialized).
+    samplingStartedAt: float | None = None
 
 
 @dataclass
@@ -156,6 +162,7 @@ queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("QUEUE_CAPACITY"
 worker_task: asyncio.Task | None = None
 active_job_id: str | None = None
 reaper_task: asyncio.Task | None = None
+calibration = est.Calibration()
 
 
 def s3_client():
@@ -188,6 +195,7 @@ async def startup() -> None:
     global worker_task, reaper_task
     await asyncio.to_thread(ensure_bucket)
     await asyncio.to_thread(ensure_bucket_lifecycle)
+    await asyncio.to_thread(est.load_from, read_stats, calibration)
     worker_task = asyncio.create_task(run_queue())
     reaper_task = asyncio.create_task(run_reaper())
 
@@ -209,8 +217,34 @@ async def live() -> dict:
 async def ready() -> dict:
     # Anton's idle reaper reads `active` so it never releases the GPU under a
     # long-running job whose caller stopped polling.
+    pending = pending_job_count()
     return {"status": "ok", "queueDepth": queue.qsize(), "activeJob": active_job_id is not None,
-            "active": active_job_id is not None or queue.qsize() > 0}
+            "active": pending > 0, "activeJobs": pending}
+
+
+def pending_job_count() -> int:
+    """Running plus queued jobs that are not already cancelled."""
+    waiting = [jobs.get(job_id) for job_id in list(queue._queue)]
+    count = sum(1 for job in waiting if job and not job.cancelRequested)
+    return count + (1 if active_job_id is not None else 0)
+
+
+def read_stats() -> bytes | None:
+    try:
+        obj = s3_client().get_object(Bucket=BUCKET, Key=est.STATS_KEY)
+    except Exception as exc:
+        if "NoSuchKey" in type(exc).__name__ or "NoSuchKey" in str(exc):
+            return None
+        raise
+    return obj["Body"].read()
+
+
+def write_stats() -> None:
+    try:
+        s3_client().put_object(Bucket=BUCKET, Key=est.STATS_KEY, Body=io.BytesIO(calibration.to_json()),
+                               ContentType="application/json")
+    except Exception as exc:
+        logger.warning("could not persist video timing stats: %s", type(exc).__name__)
 
 
 @app.get("/health/worker")
@@ -430,6 +464,8 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
         raise HTTPException(400, str(exc)) from exc
     payload["plan"] = plan.describe()
     payload["durationSeconds"] = plan.duration_seconds
+    # Estimate at submit time (GPU-ready basis), kept for estimate-vs-actual.
+    payload["estimate"] = est.estimate_plan(calibration, plan, request.variants)
     job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="video")
     jobs[job.id] = job
     await queue.put(job.id)
@@ -457,6 +493,28 @@ def video_plan(request: dict, *, variant: int, start_image: str | None, end_imag
 @app.get("/api/videos/jobs/{job_id}")
 async def get_video_job(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
     return public_job(owned_job(job_id, x_burtson_owner))
+
+
+@app.post("/api/jobs/cancel-all")
+async def cancel_all_jobs() -> dict:
+    """Cancel every running and queued job (Anton's forced release).
+
+    Not owner-scoped: only Anton calls it (ClusterIP-only, no ingress), after
+    its own admin/partner check, when an operator chooses "release now".
+    """
+    cancelled = 0
+    for job in list(jobs.values()):
+        if job.status in {"queued", "running"} and not job.cancelRequested:
+            job.cancelRequested = True
+            job.updatedAt = datetime.now(UTC).isoformat()
+            cancelled += 1
+    if active_job_id is not None:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(f"{COMFY_URL}/interrupt")
+        except httpx.HTTPError:
+            pass
+    return {"cancelled": cancelled}
 
 
 @app.get("/api/images/jobs/{job_id}")
@@ -515,6 +573,7 @@ def public_job(job: Job) -> dict:
     value.pop("owner", None)
     value.pop("cancelRequested", None)
     value.pop("assetKeys", None)
+    value.pop("samplingStartedAt", None)
     value["images"] = [
         {field: content for field, content in image.items() if field != "key"}
         for image in value["images"]
@@ -535,6 +594,7 @@ async def run_queue() -> None:
         job_id = await queue.get()
         job = jobs[job_id]
         active_job_id = job_id
+        job.startedAt = datetime.now(UTC).isoformat()
         try:
             if job.cancelRequested:
                 job.status = "cancelled"
@@ -559,6 +619,8 @@ async def execute(job: Job) -> None:
     job.status = "running"
     job.updatedAt = datetime.now(UTC).isoformat()
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=30)) as client:
+        if not await wait_for_worker(client, job):
+            return
         reference_name = await upload_comfy_reference(client, job, request.get("referenceId"))
         mask_name = await upload_comfy_reference(client, job, request.get("maskId"))
         workflow = flux_workflow(
@@ -642,6 +704,8 @@ async def execute_video(job: Job) -> None:
     prefix = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}"
     expires_at = datetime.fromisoformat(job.expiresAt)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120)) as client:
+        if not await wait_for_worker(client, job):
+            return
         start_name = await upload_comfy_reference(client, job, request.get("referenceId"))
         end_name = await upload_comfy_reference(client, job, request.get("endReferenceId"))
         source_name = await upload_comfy_reference(client, job, request.get("sourceVideoId"))
@@ -651,6 +715,8 @@ async def execute_video(job: Job) -> None:
                 return
             plan = video_plan(request, variant=variant, start_image=start_name, end_image=end_name,
                               source_video=source_name)
+            take_started = time.monotonic()
+            job.samplingStartedAt = None
             try:
                 raw = await run_video_prompt(client, job, plan, variant)
             except asyncio.CancelledError:
@@ -673,6 +739,7 @@ async def execute_video(job: Job) -> None:
             await asyncio.to_thread(upload, video_key, final, "video/mp4", expires_at)
             await asyncio.to_thread(upload, poster_key, poster, "image/jpeg", expires_at)
             job.assetKeys.extend([video_key, poster_key])
+            record_take_timing(plan, take_started, job.samplingStartedAt, first=variant == 0)
             job.videos.append({
                 "url": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 2}",
                 "posterUrl": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 1}",
@@ -699,6 +766,151 @@ async def execute_video(job: Job) -> None:
     await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
     job.progress = {**(job.progress or {}), "stage": "completed", "percent": 100}
     job.status = "completed"
+
+
+async def wait_for_worker(client: httpx.AsyncClient, job: Job) -> bool:
+    """Hold a job until the GPU worker answers (Anton claims on submit).
+
+    Returns False when the job was cancelled while waiting; raises when the
+    worker never comes up.
+    """
+    deadline = time.monotonic() + WORKER_WAIT_SECONDS
+    announced = False
+    while True:
+        try:
+            response = await client.get(f"{COMFY_URL}/system_stats", timeout=5)
+            if response.status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        if job.cancelRequested:
+            job.status = "cancelled"
+            return False
+        if not announced:
+            job.progress = {**(job.progress or {}), "stage": "waiting_for_gpu", "percent": 0}
+            announced = True
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"the GPU worker did not become ready within {WORKER_WAIT_SECONDS} s")
+        await asyncio.sleep(3)
+
+
+def record_take_timing(plan: vw.VideoPlan, started: float, sampling_started: float | None, *, first: bool) -> None:
+    """Feed a finished take back into the estimator and persist the stats."""
+    elapsed = time.monotonic() - started
+    load = None
+    if first and sampling_started is not None:
+        # Model load + conditioning before the first sampler step.
+        load = max(0.0, sampling_started - started)
+        elapsed -= load
+    calibration.record(est.key_of(plan), elapsed / est.generated_seconds(plan), load)
+    asyncio.get_running_loop().run_in_executor(None, write_stats)
+
+
+class EstimateRequest(BaseModel):
+    """What the form currently says; uploads are described, not required."""
+    model: Literal["video-fast", "video-quality"] = "video-quality"
+    aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
+    resolution: Literal["480p", "720p", "1080p"] = "720p"
+    durationSeconds: float = Field(default=5.0, gt=0, le=60)
+    fps: Literal[24, 30] = 24
+    variants: int = Field(default=1, ge=1, le=4)
+    accelerated: bool | None = None
+    upscaler: Literal["esrgan", "lanczos"] = "esrgan"
+    hasImage: bool = False
+    hasEndImage: bool = False
+    hasVideo: bool = False
+    sourceSeconds: float = Field(default=vw.MAX_SOURCE_SECONDS, gt=0, le=600)
+    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=vw.MAX_SOURCE_SECONDS)
+    mode: vw.VideoMode | None = None
+    control: vw.Control | None = None
+
+
+@app.post("/api/videos/estimate")
+async def estimate_video(request: EstimateRequest) -> dict:
+    """Seconds a job with these settings should take, excluding the GPU claim.
+
+    Invalid combinations come back as {"valid": false, "error": ...} so the
+    form can explain them inline.
+    """
+    accelerated = request.accelerated if request.accelerated is not None else not request.hasVideo
+    try:
+        plan = vw.plan_video(
+            model=request.model, prompt="estimate", seed=0, aspect=request.aspect,
+            resolution=request.resolution, duration_seconds=request.durationSeconds,
+            output_fps=request.fps, accelerated=accelerated, upscaler=request.upscaler,
+            start_image="start.png" if request.hasImage else None,
+            end_image="end.png" if request.hasEndImage else None,
+            source_video="source.mp4" if request.hasVideo else None,
+            source_frames=round(min(request.sourceSeconds, vw.MAX_SOURCE_SECONDS) * vw.SOURCE_FPS) + 1,
+            source_start_seconds=request.sourceStartSeconds,
+            mode=request.mode if request.hasVideo else None,
+            control=request.control if request.hasVideo else None,
+        )
+    except ValueError as exc:
+        return {"valid": False, "error": str(exc)}
+    return {"valid": True, "pipeline": plan.kind, "durationSeconds": plan.duration_seconds,
+            "accelerated": accelerated, **est.estimate_plan(calibration, plan, request.variants)}
+
+
+def estimate_job_seconds(job: Job) -> float:
+    """Seconds a whole job should take once the GPU is ready."""
+    if job.kind != "video":
+        return 20.0
+    try:
+        plan = video_plan(job.request, variant=0,
+                          start_image="start.png" if job.request.get("referenceId") else None,
+                          end_image="end.png" if job.request.get("endReferenceId") else None,
+                          source_video="source.mp4" if job.request.get("sourceVideoId") else None)
+    except ValueError:
+        return 300.0 * max(1, int(job.request.get("variants") or 1))
+    return float(est.estimate_plan(calibration, plan, int(job.request.get("variants") or 1))["seconds"])
+
+
+def remaining_seconds(job: Job, now: datetime | None = None) -> float:
+    """What's left of a job: the estimate while queued, estimate minus elapsed once running."""
+    if job.cancelRequested or job.status in {"completed", "failed", "cancelled"}:
+        return 0.0
+    estimate = estimate_job_seconds(job)
+    if job.status != "running" or not job.startedAt:
+        return estimate
+    if (job.progress or {}).get("stage") == "waiting_for_gpu":
+        return estimate + est.CLAIM_SECONDS
+    elapsed = ((now or datetime.now(UTC)) - datetime.fromisoformat(job.startedAt)).total_seconds()
+    # Never promise "done" while it is still running.
+    return max(estimate - elapsed, 15.0)
+
+
+@app.get("/api/videos/queue")
+async def video_queue(jobId: str | None = None, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Queue depth and wait, plus position/ETA for one of the caller's jobs.
+
+    Other callers' jobs are counted, never described. Excludes a pending GPU
+    claim unless the running job is already waiting for it.
+    """
+    now = datetime.now(UTC)
+    running = jobs.get(active_job_id) if active_job_id else None
+    running_left = remaining_seconds(running, now) if running else 0.0
+    waiting = [jobs[job_id] for job_id in list(queue._queue) if job_id in jobs]
+    waiting = [job for job in waiting if not job.cancelRequested]
+    result: dict[str, Any] = {
+        "depth": len(waiting),
+        "running": running is not None,
+        "waitSeconds": round(running_left + sum(estimate_job_seconds(job) for job in waiting)),
+    }
+    if not jobId:
+        return result
+    job = owned_job(jobId, x_burtson_owner)
+    if running is not None and running.id == job.id:
+        result.update(position=0, aheadSeconds=0, etaSeconds=round(running_left))
+    elif job in waiting:
+        index = waiting.index(job)
+        ahead = running_left + sum(estimate_job_seconds(other) for other in waiting[:index])
+        result.update(position=index + 1, aheadSeconds=round(ahead),
+                      etaSeconds=round(ahead + estimate_job_seconds(job)))
+    else:
+        result.update(position=None, aheadSeconds=None, etaSeconds=None)
+    result["status"] = job.status
+    return result
 
 
 async def run_video_prompt(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan, variant: int) -> bytes:
@@ -772,6 +984,8 @@ async def watch_progress(job: Job, samplers: list[tuple[str, int]], total_steps:
                     continue
                 node = data.get("node")
                 if event.get("type") == "progress" and node in offsets:
+                    if job.samplingStartedAt is None:
+                        job.samplingStartedAt = time.monotonic()
                     offset, _ = offsets[node]
                     done = offset + int(data.get("value", 0))
                     job.progress = {**base, "stage": "sampling", "node": node,

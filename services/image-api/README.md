@@ -72,3 +72,24 @@ per-file model SHA-256, output SHA-256).
 `GET /health/ready` reports `active` while a job runs or is queued; Anton's
 idle reaper keeps the GPU claimed in that state so a long video is never cut off
 because its caller stopped polling.
+
+## Estimates, queue and GPU handling
+
+- `POST /api/videos/estimate` (Anton: `POST /image/videos/estimate`) takes the
+  form's current settings (`hasImage`/`hasVideo` instead of upload ids) and
+  returns `seconds` (GPU-ready basis), `claimSeconds` to add when the GPU is not
+  claimed, the per-take/load breakdown, and `{valid: false, error}` for
+  combinations that cannot run (e.g. Draft with a source video, Draft at 1080p).
+- Rates come from `app/estimates.py`: seconds per generated second per take,
+  keyed `pipeline|model|resolution|schedule`, seeded with the 5090 smoke-test
+  measurements. Every finished take records its real rate (model load measured
+  separately, up to the first sampler step); the median of the last 15 samples
+  per key is used, padded toward the seed until 3 samples exist. Samples persist
+  in MinIO at `v1/stats/video-timings.json` (outside the TTL'd tenant prefix).
+- `GET /api/videos/queue?jobId=` (Anton: `GET /image/queue`): depth, total wait,
+  and the caller's position and ETA. Each submitted job also stores the
+  estimate it was given (`request.estimate`).
+- Jobs wait (stage `waiting_for_gpu`, up to `WORKER_WAIT_SECONDS`, default 600)
+  for the worker, so Anton can claim the GPU on submit instead of the client.
+- `/health/ready` reports `activeJobs`; `POST /api/jobs/cancel-all` backs
+  Anton's forced release.

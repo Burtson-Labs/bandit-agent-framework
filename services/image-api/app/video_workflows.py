@@ -326,10 +326,12 @@ def plan_video(
         raise ValueError("unknown camera motion")
     if end_image and not start_image:
         raise ValueError("an end frame needs a start image")
+    if model == "video-fast" and resolution == "1080p":
+        raise ValueError("Draft (Wan 2.2 5B) renders up to 720p; use Quality for 1080p")
 
     if source_video:
         if model != "video-quality":
-            raise ValueError("video-conditioned generation runs on video-quality (Wan 2.2 VACE 14B)")
+            raise ValueError("Draft (Wan 2.2 5B) cannot use a source video; video input runs on Quality (Wan 2.2 VACE 14B)")
         if mode not in ("restyle", "motion", "extend"):
             raise ValueError("a source video needs mode: restyle, motion, or extend")
         if end_image:

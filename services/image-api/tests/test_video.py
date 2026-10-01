@@ -80,7 +80,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_aspect_presets(self):
         self.assertEqual((plan(aspect="9:16").gen_width, plan(aspect="9:16").gen_height), (704, 1280))
-        vertical = plan(aspect="9:16", resolution="1080p")
+        vertical = plan(model="video-quality", aspect="9:16", resolution="1080p")
         self.assertEqual((vertical.out_width, vertical.out_height), (1080, 1920))
         square = plan(model="video-quality", start_image="a.png", aspect="1:1", resolution="480p")
         self.assertEqual((square.out_width, square.out_height), (640, 640))
@@ -150,7 +150,7 @@ class WorkflowCompilationTests(unittest.TestCase):
         self.assertEqual(workflow["seg1_high"]["inputs"]["cfg"], 3.5)
 
     def test_lanczos_1080p_skips_model_upscaler(self):
-        workflow = vw.wan_video_workflow(plan(resolution="1080p", upscaler="lanczos"))
+        workflow = vw.wan_video_workflow(plan(model="video-quality", resolution="1080p", upscaler="lanczos"))
         self.assertNotIn("upscale", workflow)
         self.assertEqual(workflow["resize"]["inputs"]["upscale_method"], "lanczos")
 
@@ -169,7 +169,7 @@ class WorkflowCompilationTests(unittest.TestCase):
 
     def test_every_link_points_at_an_existing_node(self):
         for candidate in (
-            plan(), plan(start_image="a.png", duration_seconds=9, resolution="1080p", output_fps=30),
+            plan(), plan(start_image="a.png", duration_seconds=9, resolution="720p", output_fps=30),
             plan(model="video-quality", start_image="a.png", duration_seconds=10, resolution="1080p"),
             plan(model="video-quality", start_image="a.png", end_image="b.png", accelerated=False),
         ):
@@ -287,6 +287,8 @@ class ExecuteVideoTests(unittest.TestCase):
         prompts = []
 
         def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/system_stats":
+                return httpx.Response(200, json={})
             if request.url.path == "/prompt":
                 prompts.append(__import__("json").loads(request.content))
                 return httpx.Response(200, json={"prompt_id": f"p{len(prompts)}"})
