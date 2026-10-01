@@ -40,8 +40,9 @@ jobs:
         if: matrix.name == 'image-api'
         working-directory: services/image-api
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null
           python -m pip install -r requirements.txt mongomock==4.3.0
-          python -m unittest tests.test_workflows tests.test_image_models tests.test_main tests.test_video tests.test_estimates tests.test_library tests.test_productions tests.test_watch_sync tests.test_swap
+          python -m unittest tests.test_workflows tests.test_image_models tests.test_main tests.test_video tests.test_estimates tests.test_library tests.test_productions tests.test_watch_sync tests.test_swap tests.test_audio
       - name: Free disk for CUDA worker
         if: matrix.name == 'image-worker'
         run: |

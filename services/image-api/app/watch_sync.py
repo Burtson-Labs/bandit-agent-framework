@@ -7,6 +7,7 @@ a stable tag, so imports are idempotent and safe to retry:
 
 - History video take: ``studio:{jobId}:take{variant}``
 - History image:      ``studio:{jobId}:image{variant}``
+- History audio take: ``studio:{jobId}:audio{variant}`` (music, narration; the WAV is sent)
 - Production take:    ``studio:{takeId}:take{takeIndex + 1}``
 
 History takes go to watch's "Burtson Video Studio" collection; production takes
@@ -49,7 +50,8 @@ DEFAULT_COLLECTION = None  # watch's default: "Burtson Video Studio" (key studio
 BACKOFF_MINUTES = (1, 5, 15, 30, 60)
 LOOKUP_BATCH = 500
 TAG_PART = re.compile(r"[^A-Za-z0-9._-]")
-CONTENT_TYPES = {".mp4": "video/mp4", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
+CONTENT_TYPES = {".mp4": "video/mp4", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp",
+                 ".wav": "audio/wav", ".mp3": "audio/mpeg"}
 PRESIGN_REUSE_SECONDS = 3 * 3600
 
 
@@ -101,7 +103,7 @@ def now_utc() -> datetime:
 
 def history_tag(job_id: str, output: dict) -> str:
     number = int(output.get("variant") or output.get("index", 0) + 1)
-    kind = "image" if output.get("kind") == "image" else "take"
+    kind = {"image": "image", "audio": "audio"}.get(output.get("kind") or "", "take")
     return f"studio:{TAG_PART.sub('-', job_id)[:120]}:{kind}{number}"
 
 
@@ -118,21 +120,31 @@ def history_metadata(item: dict, output: dict, tag: str) -> dict:
     request = item.get("request") or {}
     number = int(output.get("variant") or output["index"] + 1)
     is_image = output.get("kind") == "image"
+    is_audio = output.get("kind") == "audio"
     many = len(item.get("outputs") or []) > 1
-    title = short(item.get("prompt") or "Studio take", 90)
+    title = short(output.get("title") or item.get("title") or item.get("prompt") or "Studio take", 90)
     if output.get("mode") == "people-swap":
         people = len(request.get("subjects") or []) or 1
         kind = "Replace" if request.get("mode") == "replace" else "Animate"
         title = f"Swap people · {kind} · {people} {'person' if people == 1 else 'people'}"
     if many:
-        title += f" · {'image' if is_image else 'take'} {number}"
+        title += f" · {'image' if is_image else 'track' if is_audio else 'take'} {number}"
     extra = {k: str(v) for k, v in {
         "camera": request.get("camera"), "workflow": output.get("workflowVersion"),
-        "durationSeconds": output.get("durationSeconds"), "upscaler": request.get("upscaler") if not is_image else None,
+        "durationSeconds": output.get("durationSeconds"),
+        "upscaler": request.get("upscaler") if not (is_image or is_audio) else None,
         "control": request.get("control"), "historyItem": item["id"],
+        "bpm": output.get("bpm") if is_audio else None, "key": output.get("keyscale") if is_audio else None,
+        "lufs": output.get("lufs") if is_audio else None,
+        "instrumental": output.get("instrumental") if is_audio else None,
+        "loopable": output.get("loopable") if is_audio else None,
+        "voice": output.get("voice") if is_audio else None,
+        "lyrics": short(request.get("lyrics") or "", 400) if is_audio and not request.get("instrumental", True) else None,
+        "finishedFrom": output.get("sourceItemId"),
     }.items() if v not in (None, "", "auto")}
     width, height = output.get("width"), output.get("height")
-    return {
+    collection = request.get("collection") if is_audio else None
+    metadata = {
         "ownerId": item.get("owner"),
         "importedFrom": tag,
         "title": title,
@@ -148,6 +160,13 @@ def history_metadata(item: dict, output: dict, tag: str) -> dict:
             "generatedAt": item.get("createdAt"), "extra": extra or None,
         },
     }
+    if is_audio:
+        metadata["studio"]["kind"] = "audio"
+    if collection:
+        # e.g. the starter set: {"key": "studio:stock-audio", "name": "Burtson Stock Audio"}
+        metadata["collection"] = {"key": f"studio:collection:{TAG_PART.sub('-', collection)[:80].lower()}",
+                                  "name": short(collection, 120)}
+    return metadata
 
 
 def production_title(production: dict | None, episode: dict | None, scene: dict | None, shot: dict | None,

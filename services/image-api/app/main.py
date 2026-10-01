@@ -26,11 +26,13 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from . import audio_workflows as aw
 from . import estimates as est
 from . import image_models as im
 from . import library as lib
 from . import stitch
 from . import swap_workflows as swap
+from . import mix
 from . import video_workflows as vw
 from . import watch_sync as ws
 from .productions import dispatcher as prod_dispatcher
@@ -61,6 +63,11 @@ MAX_SOURCE_BYTES = max(1, int(os.getenv("MAX_SOURCE_MIB", "200"))) * 1024 * 1024
 # Source uploads keep this much (people swap runs up to 60 s; other video modes
 # still read only the first vw.MAX_SOURCE_SECONDS of it).
 MAX_UPLOAD_SECONDS = swap.MAX_SECONDS
+# Audio uploads (narration takes from the gateway, your own music) and finishing.
+MAX_AUDIO_UPLOAD_BYTES = max(1, int(os.getenv("MAX_AUDIO_UPLOAD_MIB", "60"))) * 1024 * 1024
+MAX_AUDIO_UPLOAD_SECONDS = 15 * 60
+MAX_NARRATION_LINES = 20
+FINISH_TIMEOUT_SECONDS = max(300, int(os.getenv("FINISH_TIMEOUT_SECONDS", "1800")))
 logger = logging.getLogger("burtson.image_api")
 # Random seeds stay below 2^53 (less room for per-take/segment offsets) so a
 # browser can hold them exactly; responses also carry `seedText`.
@@ -185,6 +192,9 @@ class Job:
     startedAt: str | None = None
     # time.monotonic() of the current take's first sampler step (not serialized).
     samplingStartedAt: float | None = None
+    audios: list[dict] = field(default_factory=list)
+    # History file name -> working key of inputs a finish job keeps (narration, music, logo).
+    inputFiles: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -225,6 +235,11 @@ active_job_id: str | None = None
 warm_image_model: tuple[str, float] | None = None
 reaper_task: asyncio.Task | None = None
 calibration = est.Calibration()
+audio_calibration = est.audio_calibration()
+# Finishing runs on the CPU: its own queue, so a mix never waits behind (or holds) the GPU.
+finish_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("FINISH_QUEUE_CAPACITY", "20")))
+finish_task: asyncio.Task | None = None
+active_finish_id: str | None = None
 library = lib.Library(lib.S3Store(lambda: s3_client(), BUCKET))
 watch_sync: ws.WatchSync | None = None
 
@@ -260,8 +275,11 @@ async def startup() -> None:
     await asyncio.to_thread(ensure_bucket)
     await asyncio.to_thread(ensure_bucket_lifecycle)
     await asyncio.to_thread(est.load_from, read_stats, calibration)
+    await asyncio.to_thread(est.load_from, lambda: read_stats(est.AUDIO_STATS_KEY), audio_calibration)
     await clear_orphaned_prompts()
     worker_task = asyncio.create_task(run_queue())
+    global finish_task
+    finish_task = asyncio.create_task(run_finish_queue())
     # The reaper backfills the history library before its first sweep.
     reaper_task = asyncio.create_task(run_reaper())
     start_productions()
@@ -304,6 +322,8 @@ async def clear_orphaned_prompts() -> None:
 async def shutdown() -> None:
     if worker_task:
         worker_task.cancel()
+    if finish_task:
+        finish_task.cancel()
     if reaper_task:
         reaper_task.cancel()
     if dispatcher:
@@ -322,8 +342,16 @@ async def ready() -> dict:
     # Anton's idle reaper reads `active` so it never releases the GPU under a
     # long-running job whose caller stopped polling.
     pending = pending_job_count()
+    # Finishing (CPU) is reported separately: it never needs the GPU, so it does not
+    # keep Anton's claim alive, but a rollout should still wait for finishJobs 0.
+    finishing = finish_job_count()
     return {"status": "ok", "queueDepth": queue.qsize(), "activeJob": active_job_id is not None,
-            "active": pending > 0, "activeJobs": pending}
+            "active": pending > 0, "activeJobs": pending, "finishJobs": finishing}
+
+
+def finish_job_count() -> int:
+    waiting = [jobs.get(job_id) for job_id in list(finish_queue._queue)]
+    return sum(1 for job in waiting if job and not job.cancelRequested) + (1 if active_finish_id else 0)
 
 
 def pending_job_count() -> int:
@@ -333,9 +361,9 @@ def pending_job_count() -> int:
     return count + (1 if active_job_id is not None else 0)
 
 
-def read_stats() -> bytes | None:
+def read_stats(key: str = est.STATS_KEY) -> bytes | None:
     try:
-        obj = s3_client().get_object(Bucket=BUCKET, Key=est.STATS_KEY)
+        obj = s3_client().get_object(Bucket=BUCKET, Key=key)
     except Exception as exc:
         if "NoSuchKey" in type(exc).__name__ or "NoSuchKey" in str(exc):
             return None
@@ -343,10 +371,10 @@ def read_stats() -> bytes | None:
     return obj["Body"].read()
 
 
-def write_stats() -> None:
+def write_stats(key: str = est.STATS_KEY, source: est.Calibration | None = None) -> None:
     try:
-        s3_client().put_object(Bucket=BUCKET, Key=est.STATS_KEY, Body=io.BytesIO(calibration.to_json()),
-                               ContentType="application/json")
+        body = (source or calibration).to_json()
+        s3_client().put_object(Bucket=BUCKET, Key=key, Body=io.BytesIO(body), ContentType="application/json")
     except Exception as exc:
         logger.warning("could not persist video timing stats: %s", type(exc).__name__)
 
@@ -399,7 +427,7 @@ def ensure_bucket_lifecycle() -> None:
 @app.post("/api/images/references", status_code=201)
 async def upload_reference(
     file: UploadFile = File(...),
-    kind: Literal["reference", "mask"] = Form(default="reference"),
+    kind: Literal["reference", "mask", "logo"] = Form(default="reference"),
     x_burtson_owner: str = Header(default="unknown"),
 ) -> dict:
     body = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -894,11 +922,12 @@ def public_job(job: Job) -> dict:
     value.pop("cancelRequested", None)
     value.pop("assetKeys", None)
     value.pop("samplingStartedAt", None)
+    value.pop("inputFiles", None)
     value["images"] = [
         {field: content for field, content in image.items() if field != "key"}
         for image in value["images"]
     ]
-    for output in value["images"] + value["videos"]:
+    for output in value["images"] + value["videos"] + value["audios"]:
         if output.get("seed") is not None:
             output["seedText"] = str(output["seed"])
     if value["request"].get("seed") is not None:
@@ -926,6 +955,8 @@ async def run_queue() -> None:
                 job.status = "cancelled"
             elif job.kind == "video":
                 await execute_video(job)
+            elif job.kind == "audio":
+                await execute_music(job)
             else:
                 await execute(job)
         except asyncio.CancelledError:
@@ -1309,6 +1340,12 @@ def estimate_swap(request: EstimateRequest) -> dict:
 
 def estimate_job_seconds(job: Job) -> float:
     """Seconds a whole job should take once the GPU is ready."""
+    if job.kind == "audio":
+        return float(est.estimate_music(audio_calibration, float(job.request.get("durationSeconds") or 30),
+                                        int(job.request.get("variants") or 1),
+                                        loopable=bool(job.request.get("loopable")))["seconds"])
+    if job.kind == "finish":
+        return float((job.request.get("estimate") or {}).get("seconds") or 60.0)
     if job.kind != "video":
         try:
             plan = image_plan(job.request)
@@ -1364,6 +1401,8 @@ async def video_queue(jobId: str | None = None, x_burtson_owner: str = Header(de
     if not jobId:
         return result
     job = owned_job(jobId, x_burtson_owner)
+    if job.kind == "finish":
+        return finish_queue_position(job, result)
     if running is not None and running.id == job.id:
         result.update(position=0, aheadSeconds=0, etaSeconds=round(running_left))
     elif job in waiting:
@@ -1872,6 +1911,9 @@ def normalize_upload(body: bytes, kind: str) -> tuple[bytes, int, int]:
                 raise HTTPException(413, "image dimensions are too large")
             if kind == "mask":
                 image = image.convert("L")
+            elif kind == "logo":
+                # Logo bookends composite the real logo onto a card: keep its alpha.
+                image = image.convert("RGBA")
             else:
                 # ComfyUI's LoadImage discards the alpha channel outright, so a
                 # transparent-background logo would arrive on whatever RGB values
@@ -1927,6 +1969,7 @@ def pending_input_keys() -> list[str]:
         if job.status in {"queued", "running"}:
             ids = [job.request.get(field) for field in ("referenceId", "endReferenceId", "sourceVideoId", "maskId")]
             ids += [subject.get("referenceId") for subject in job.request.get("subjects") or []]
+            ids += list(job.request.get("inputReferences") or [])
             for reference_id in ids + list(job.request.get("extraReferenceIds") or []):
                 reference = references.get(reference_id or "")
                 if reference:
@@ -2220,3 +2263,784 @@ def start_productions() -> None:
     )
     dispatcher.start()
     logger.info("productions: dispatcher started as %s", holder)
+
+
+# --- Audio: music (ACE-Step 1.5, GPU), audio uploads, finishing (CPU mix) ---------------
+# Anton proxies these as /image/audio*, /image/finish* (see README).
+
+
+class MusicRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=2000)
+    genre: str | None = Field(default=None, max_length=80)
+    mood: str | None = Field(default=None, max_length=80)
+    bpm: int | None = Field(default=None, ge=40, le=220)
+    keyscale: str | None = Field(default=None, max_length=12)
+    timeSignature: Literal["2", "3", "4", "6"] = "4"
+    durationSeconds: float = Field(default=30.0, ge=aw.MIN_SECONDS, le=aw.MAX_SECONDS)
+    instrumental: bool = True
+    lyrics: str | None = Field(default=None, max_length=4000)
+    language: str = Field(default="en", max_length=8)
+    loopable: bool = False
+    seed: int | None = Field(default=None, ge=0, le=2**62)
+    variants: int = Field(default=1, ge=1, le=4)
+    title: str | None = Field(default=None, max_length=120)
+    # Optional watch collection name for these tracks (e.g. "Burtson Stock Audio").
+    collection: str | None = Field(default=None, max_length=80)
+    # Sound effects have no licence-clean model yet; "sfx" is refused with the reason.
+    kind: Literal["music", "sfx"] = "music"
+
+
+class MusicEstimateRequest(BaseModel):
+    durationSeconds: float = Field(default=30.0, gt=0, le=600)
+    variants: int = Field(default=1, ge=1, le=4)
+    instrumental: bool = True
+    loopable: bool = False
+
+
+class TakeRef(BaseModel):
+    itemId: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    take: int = Field(default=0, ge=0, le=64)
+
+
+class FinishMusic(BaseModel):
+    itemId: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    take: int = Field(default=0, ge=0, le=64)
+    audioId: str | None = Field(default=None, min_length=8, max_length=64)
+    prompt: str | None = Field(default=None, min_length=3, max_length=2000)
+    genre: str | None = Field(default=None, max_length=80)
+    mood: str | None = Field(default=None, max_length=80)
+    bpm: int | None = Field(default=None, ge=40, le=220)
+    seed: int | None = Field(default=None, ge=0, le=2**62)
+
+    def source(self) -> str:
+        chosen = [name for name, present in (("item", self.itemId), ("upload", self.audioId),
+                                             ("prompt", self.prompt)) if present]
+        if len(chosen) != 1:
+            raise ValueError("music needs exactly one of itemId, audioId or prompt")
+        return chosen[0]
+
+
+class NarrationLine(BaseModel):
+    audioId: str = Field(min_length=8, max_length=64)
+    text: str | None = Field(default=None, max_length=2000)
+    voice: str | None = Field(default=None, max_length=80)
+    startSeconds: float | None = Field(default=None, ge=0, le=600)
+
+
+class FinishLogo(BaseModel):
+    referenceId: str = Field(min_length=8, max_length=64)
+    start: bool = True
+    end: bool = True
+    background: str = Field(default="#000000", pattern=r"^#?[0-9a-fA-F]{6}$")
+    seconds: float = Field(default=2.0, ge=1.0, le=5.0)
+
+
+class FinishRequest(BaseModel):
+    video: TakeRef
+    music: FinishMusic | None = None
+    musicStartSeconds: float = Field(default=0.0, ge=0.0, le=600)
+    narration: list[NarrationLine] = Field(default_factory=list, max_length=MAX_NARRATION_LINES)
+    originalAudio: Literal["auto", "keep", "drop"] = "auto"
+    sfx: Any = None
+    levels: Literal["voice-forward", "balanced", "music-forward"] = "balanced"
+    captions: bool = False
+    fadeInSeconds: float = Field(default=0.5, ge=0.0, le=5.0)
+    fadeOutSeconds: float = Field(default=1.5, ge=0.0, le=8.0)
+    videoFades: bool = False
+    fit: Literal["audio", "video"] = "audio"
+    logo: FinishLogo | None = None
+    title: str | None = Field(default=None, max_length=120)
+
+
+class FinishEstimateRequest(BaseModel):
+    videoSeconds: float = Field(default=5.0, gt=0, le=600)
+    resolution: Literal["480p", "720p", "1080p"] = "720p"
+    narrationLines: int = Field(default=0, ge=0, le=MAX_NARRATION_LINES)
+    narrationSeconds: float = Field(default=0.0, ge=0, le=1200)
+    captions: bool = False
+    logo: bool = False
+    videoFades: bool = False
+    musicPrompt: bool = False
+    musicSeconds: float | None = Field(default=None, gt=0, le=aw.MAX_SECONDS)
+
+
+class AudioLibraryRequest(BaseModel):
+    audioId: str = Field(min_length=8, max_length=64)
+    title: str | None = Field(default=None, max_length=120)
+    text: str | None = Field(default=None, max_length=4000)
+    voice: str | None = Field(default=None, max_length=80)
+    kind: Literal["narration", "upload"] = "narration"
+    collection: str | None = Field(default=None, max_length=80)
+
+
+@app.get("/api/audio/capabilities")
+async def audio_capabilities() -> dict:
+    return {
+        "music": {"available": True, "model": aw.MODEL_ALIAS, "label": aw.MODEL_LABEL, "licence": aw.MODEL_LICENSE,
+                  "workflowVersion": aw.WORKFLOW_VERSION, "minSeconds": aw.MIN_SECONDS, "maxSeconds": aw.MAX_SECONDS,
+                  "maxVariants": 4, "languages": list(aw.LANGUAGES), "timeSignatures": list(aw.TIME_SIGNATURES),
+                  "keyscales": list(aw.KEYSCALES), "loopCrossfadeSeconds": aw.LOOP_CROSSFADE_SECONDS},
+        "sfx": {"available": False, "reason": aw.SFX_UNAVAILABLE_REASON},
+        "narration": {"via": "gateway", "endpoint": "/api/stealth/tts", "defaultVoice": "en_US-heart-local"},
+        "finish": {"levels": list(mix.LEVELS), "maxNarrationLines": MAX_NARRATION_LINES,
+                   "maxAudioUploadMiB": MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024),
+                   "voiceLufs": mix.VOICE_LUFS, "truePeak": mix.VOICE_TP,
+                   "bedDb": {name: preset.bed_db for name, preset in mix.LEVELS.items()}},
+    }
+
+
+def music_plan_from(request: dict, variant: int) -> aw.MusicPlan:
+    return aw.plan_music(
+        prompt=request["prompt"], seed=int(request["seed"]) + variant * 1000,
+        duration_seconds=float(request["durationSeconds"]), instrumental=bool(request["instrumental"]),
+        lyrics=request.get("lyrics"), genre=request.get("genre"), mood=request.get("mood"), bpm=request.get("bpm"),
+        keyscale=request.get("keyscale"), time_signature=request.get("timeSignature") or "4",
+        language=request.get("language") or "en", loopable=bool(request.get("loopable")),
+    )
+
+
+@app.post("/api/audio/generations", status_code=202)
+async def generate_music(request: MusicRequest, x_burtson_owner: str = Header(default="unknown"),
+                         idempotency_key: str | None = Header(default=None, max_length=200)) -> dict:
+    return public_job(create_music_job(request, x_burtson_owner[:200], idempotency_key=idempotency_key))
+
+
+def create_music_job(request: MusicRequest, owner: str, *, idempotency_key: str | None = None,
+                     origin: dict | None = None) -> Job:
+    if request.kind == "sfx":
+        raise HTTPException(400, aw.SFX_UNAVAILABLE_REASON)
+    if idempotency_key:
+        existing = jobs.get(idempotency.get(idempotency_key, ""))
+        if existing is not None and existing.owner == owner:
+            return existing
+    if queue.full():
+        raise HTTPException(429, "generation queue is full")
+    payload = request.model_dump()
+    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
+    payload["model"] = aw.MODEL_ALIAS
+    try:
+        plan = music_plan_from(payload, 0)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    payload["plan"] = plan.describe()
+    payload["estimate"] = est.estimate_music(audio_calibration, plan.duration_seconds, request.variants,
+                                             loopable=plan.loopable)
+    if origin:
+        payload["origin"] = origin
+    job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="audio")
+    jobs[job.id] = job
+    if idempotency_key:
+        idempotency[idempotency_key] = job.id
+    queue.put_nowait(job.id)
+    return job
+
+
+@app.post("/api/audio/estimate")
+async def estimate_audio(request: MusicEstimateRequest) -> dict:
+    if not (aw.MIN_SECONDS <= request.durationSeconds <= aw.MAX_SECONDS):
+        return {"valid": False, "error": f"duration must be {aw.MIN_SECONDS:g}-{aw.MAX_SECONDS:g} s"}
+    if request.loopable and request.durationSeconds < aw.LOOP_CROSSFADE_SECONDS * 3:
+        return {"valid": False, "error": f"a loopable track must be at least {aw.LOOP_CROSSFADE_SECONDS * 3:g} s"}
+    return {"valid": True, **est.estimate_music(audio_calibration, request.durationSeconds, request.variants,
+                                                loopable=request.loopable)}
+
+
+async def execute_music(job: Job) -> None:
+    """One ComfyUI prompt per take, then mastering on the CPU (WAV, MP3, waveform)."""
+    request = job.request
+    job.status = "running"
+    job.progress = {"stage": "preparing", "percent": 0, "variant": 1, "variants": request["variants"]}
+    job.updatedAt = datetime.now(UTC).isoformat()
+    prefix = output_prefix(job, datetime.now(UTC))
+    expires_at = datetime.fromisoformat(job.expiresAt)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120)) as client:
+        if not await wait_for_worker(client, job):
+            return
+        for variant in range(request["variants"]):
+            if job.cancelRequested:
+                job.status = "cancelled"
+                return
+            plan = music_plan_from(request, variant)
+            take_started = time.monotonic()
+            job.samplingStartedAt = None
+            try:
+                raw = await run_music_prompt(client, job, plan, variant)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if job.status == "cancelled":
+                    return
+                if not job.audios:
+                    raise
+                job.error = f"take {variant + 1} failed: {str(exc)[:500]}"
+                break
+            if job.status == "cancelled":
+                return
+            job.progress = {**(job.progress or {}), "stage": "encoding"}
+            mastered = await asyncio.to_thread(master_music_bytes, raw, plan)
+            number = variant + 1
+            keys = [f"{prefix}/audio-{number:02d}.wav", f"{prefix}/audio-{number:02d}.mp3", f"{prefix}/wave-{number:02d}.jpg"]
+            job.progress = {**(job.progress or {}), "stage": "uploading"}
+            for key, body, content_type in zip(keys, (mastered["wavBytes"], mastered["mp3Bytes"], mastered["waveBytes"]),
+                                               ("audio/wav", "audio/mpeg", "image/jpeg")):
+                await asyncio.to_thread(upload, key, body, content_type, expires_at)
+            job.assetKeys.extend(keys)
+            record_music_timing(plan, take_started, job.samplingStartedAt, first=variant == 0)
+            base = len(job.assetKeys) - 3
+            job.audios.append({
+                "url": f"/image/jobs/{job.id}/assets/{base}", "mp3Url": f"/image/jobs/{job.id}/assets/{base + 1}",
+                "waveformUrl": f"/image/jobs/{job.id}/assets/{base + 2}",
+                "variant": number, "seed": plan.seed, "model": aw.MODEL_ALIAS, "mode": "music",
+                "workflowVersion": aw.WORKFLOW_VERSION, "durationSeconds": mastered["durationSeconds"],
+                "sampleRate": mastered["sampleRate"], "channels": mastered["channels"],
+                "lufs": mastered["lufs"], "truePeak": mastered["truePeak"],
+                "bytes": len(mastered["wavBytes"]), "sha256": hashlib.sha256(mastered["wavBytes"]).hexdigest(),
+                "mp3Bytes": len(mastered["mp3Bytes"]), "modelLicense": aw.MODEL_LICENSE,
+                "modelDigests": dict(aw.CHECKPOINT_SHA256), "bpm": plan.bpm, "keyscale": plan.keyscale,
+                "timeSignature": plan.time_signature, "instrumental": plan.instrumental, "loopable": plan.loopable,
+                "title": request.get("title"), "expiresAt": job.expiresAt, "plan": plan.describe(),
+            })
+    metadata = json.dumps({
+        "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": "audio",
+        "request": request, "audios": job.audios, "error": job.error,
+        "comfyuiWorkflow": "server-owned; see workflowVersion", "expiresAt": job.expiresAt,
+    }, indent=2).encode()
+    await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
+    job.progress = {**(job.progress or {}), "stage": "completed", "percent": 100}
+    job.status = "completed"
+
+
+async def run_music_prompt(client: httpx.AsyncClient, job: Job, plan: aw.MusicPlan, variant: int) -> bytes:
+    workflow = aw.ace_workflow(plan, filename_prefix=f"burtson-audio/{job.id}-{variant + 1}")
+    base = {"variant": variant + 1, "variants": job.request["variants"]}
+    job.progress = {**base, "stage": "loading_model", "percent": 0}
+    watcher = asyncio.create_task(watch_progress(job, [("sampler", aw.STEPS)], aw.STEPS, base))
+    try:
+        submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
+        if submitted.status_code >= 400:
+            raise RuntimeError(f"ComfyUI rejected the music workflow: {submitted.text[:600]}")
+        prompt_id = submitted.json()["prompt_id"]
+        job.comfyPromptId = prompt_id
+        deadline = time.monotonic() + 900
+        while True:
+            if job.cancelRequested:
+                await client.post(f"{COMFY_URL}/interrupt")
+                job.status = "cancelled"
+                return b""
+            if time.monotonic() > deadline:
+                await client.post(f"{COMFY_URL}/interrupt")
+                raise TimeoutError("music take exceeded 900 s")
+            await asyncio.sleep(2)
+            history = await client.get(f"{COMFY_URL}/history/{prompt_id}")
+            history.raise_for_status()
+            entry = history.json().get(prompt_id)
+            if entry:
+                break
+    finally:
+        watcher.cancel()
+    status = entry.get("status", {})
+    if status.get("status_str") == "error":
+        raise RuntimeError(f"ComfyUI failed: {comfy_error(status)}")
+    outputs = entry.get("outputs", {}).get("save", {}).get("audio", [])
+    if not outputs:
+        raise RuntimeError("ComfyUI completed without an audio output")
+    response = await client.get(f"{COMFY_URL}/view", params=outputs[0])
+    response.raise_for_status()
+    return response.content
+
+
+def master_music_bytes(raw: bytes, plan: aw.MusicPlan) -> dict:
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg is not installed in the image API")
+    with tempfile.TemporaryDirectory(prefix="burtson-music-") as work:
+        source = os.path.join(work, "raw.flac")
+        with open(source, "wb") as handle:
+            handle.write(raw)
+        result = mix.master_music(source, work, duration=plan.duration_seconds, loopable=plan.loopable)
+        return read_mastered(result)
+
+
+def read_mastered(result: dict) -> dict:
+    out = dict(result)
+    for name, key in (("wav", "wavBytes"), ("mp3", "mp3Bytes"), ("waveform", "waveBytes")):
+        with open(result[name], "rb") as handle:
+            out[key] = handle.read()
+    return out
+
+
+def record_music_timing(plan: aw.MusicPlan, started: float, sampling_started: float | None, *, first: bool) -> None:
+    elapsed = time.monotonic() - started
+    load = None
+    if first and sampling_started is not None:
+        load = max(0.0, sampling_started - started)
+        elapsed -= load
+    audio_calibration.record(est.MUSIC_KEY, elapsed / max(1.0, plan.render_seconds), load)
+    asyncio.get_running_loop().run_in_executor(None, write_stats, est.AUDIO_STATS_KEY, audio_calibration)
+
+
+@app.post("/api/audio/sources", status_code=201)
+async def upload_audio_source(request: Request, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """An audio file as the raw body (narration from the gateway, your own music).
+
+    Identified by probing; stored as 48 kHz stereo 16-bit WAV with the upload TTL."""
+    owner = x_burtson_owner[:200]
+    with tempfile.TemporaryDirectory(prefix="burtson-audio-src-") as work:
+        original = os.path.join(work, "original")
+        digest = hashlib.sha256()
+        size = 0
+        with open(original, "wb") as handle:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_AUDIO_UPLOAD_BYTES:
+                    raise HTTPException(413, f"audio exceeds the {MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024)} MiB upload limit")
+                digest.update(chunk)
+                handle.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "audio upload is empty")
+        normalized, info = await asyncio.to_thread(normalize_audio_upload, original, work)
+    reference = await asyncio.to_thread(
+        store_audio_reference, owner, normalized, info, digest.hexdigest(),
+        (request.headers.get("x-filename") or "audio.wav")[:200])
+    return public_reference(reference)
+
+
+def normalize_audio_upload(path: str, work: str) -> tuple[bytes, dict]:
+    probe = mix.probe_media(path)
+    if not probe or not probe.get("audio"):
+        raise HTTPException(400, "unsupported or corrupt audio: no decodable audio stream")
+    if probe["duration"] < 0.2:
+        raise HTTPException(400, "audio must be at least 0.2 s long")
+    if probe["duration"] > MAX_AUDIO_UPLOAD_SECONDS:
+        raise HTTPException(400, f"audio must be at most {MAX_AUDIO_UPLOAD_SECONDS // 60} minutes")
+    output = os.path.join(work, "normalized.wav")
+    try:
+        run_ffmpeg(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", path, "-vn", "-sn", "-dn",
+                    "-map_metadata", "-1", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", output])
+    except RuntimeError as exc:
+        raise HTTPException(400, "the audio could not be decoded") from exc
+    info = mix.probe_media(output)
+    with open(output, "rb") as handle:
+        return handle.read(), {"duration": info.get("duration") or probe["duration"]}
+
+
+def store_audio_reference(owner: str, body: bytes, info: dict, original_sha: str, filename: str) -> Reference:
+    reference_id = uuid.uuid4().hex
+    created = datetime.now(UTC)
+    key = f"v1/tenant/{safe_owner(owner)}/{created:%Y/%m/%d}/references/{reference_id}.wav"
+    expires_at = created + ASSET_TTL
+    upload(key, body, "audio/wav", expires_at)
+    reference = Reference(
+        id=reference_id, owner=owner, key=key, kind="audio", filename=filename, contentType="audio/wav",
+        width=0, height=0, bytes=len(body), createdAt=created.isoformat(), expiresAt=expires_at.isoformat(),
+        durationSeconds=info["duration"], sha256=hashlib.sha256(body).hexdigest(), originalSha256=original_sha,
+    )
+    references[reference_id] = reference
+    save_reference(reference)
+    return reference
+
+
+@app.post("/api/audio/library", status_code=201)
+async def save_audio_to_library(body: AudioLibraryRequest, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    """Keep an uploaded take (a narration line from the gateway, your own track) in History."""
+    owner = x_burtson_owner[:200]
+    reference = owned_reference(body.audioId, owner, expected_kind="audio")
+    job = Job(id=uuid.uuid4().hex, owner=owner, kind="audio", status="running", request={
+        "mode": body.kind, "title": body.title, "text": body.text, "voice": body.voice,
+        "prompt": body.text or body.title or reference.filename, "model": body.voice or "upload",
+        "collection": body.collection, "audioId": reference.id, "instrumental": body.kind != "narration",
+    })
+    jobs[job.id] = job
+    job.startedAt = datetime.now(UTC).isoformat()
+    try:
+        await asyncio.to_thread(save_upload_as_take, job, reference, body)
+        job.status = "completed"
+    except Exception as exc:
+        job.status = "failed"
+        job.error = str(exc)[:500]
+    job.updatedAt = datetime.now(UTC).isoformat()
+    await record_in_library(job)
+    if job.status != "completed":
+        raise HTTPException(500, f"could not save the audio: {job.error}")
+    return await asyncio.to_thread(library_call, library.get_item, owner, job.id)
+
+
+def save_upload_as_take(job: Job, reference: Reference, body: AudioLibraryRequest) -> None:
+    obj = s3_client().get_object(Bucket=BUCKET, Key=reference.key)
+    raw = obj["Body"].read()
+    with tempfile.TemporaryDirectory(prefix="burtson-audio-save-") as work:
+        source = os.path.join(work, "source.wav")
+        with open(source, "wb") as handle:
+            handle.write(raw)
+        # Narration keeps its own level (the mix sets voice loudness); uploads are left as they are too.
+        mastered = read_mastered(mix.master_wav(source, work, normalise=False))
+    prefix = output_prefix(job, datetime.now(UTC))
+    expires_at = datetime.fromisoformat(job.expiresAt)
+    keys = [f"{prefix}/audio-01.wav", f"{prefix}/audio-01.mp3", f"{prefix}/wave-01.jpg"]
+    for key, data, content_type in zip(keys, (mastered["wavBytes"], mastered["mp3Bytes"], mastered["waveBytes"]),
+                                       ("audio/wav", "audio/mpeg", "image/jpeg")):
+        upload(key, data, content_type, expires_at)
+    job.assetKeys.extend(keys)
+    job.audios.append({
+        "url": f"/image/jobs/{job.id}/assets/0", "mp3Url": f"/image/jobs/{job.id}/assets/1",
+        "waveformUrl": f"/image/jobs/{job.id}/assets/2", "variant": 1, "mode": body.kind,
+        "model": body.voice or "upload", "durationSeconds": mastered["durationSeconds"],
+        "sampleRate": mastered["sampleRate"], "channels": mastered["channels"], "lufs": mastered["lufs"],
+        "truePeak": mastered["truePeak"], "bytes": len(mastered["wavBytes"]),
+        "sha256": hashlib.sha256(mastered["wavBytes"]).hexdigest(), "mp3Bytes": len(mastered["mp3Bytes"]),
+        "title": body.title, "text": body.text, "voice": body.voice, "sourceSha256": reference.originalSha256,
+        "instrumental": body.kind != "narration", "expiresAt": job.expiresAt,
+    })
+    metadata = json.dumps({"jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": "audio",
+                           "request": job.request, "audios": job.audios, "error": None,
+                           "expiresAt": job.expiresAt}, indent=2).encode()
+    upload(f"{prefix}/metadata.json", metadata, "application/json", expires_at)
+
+
+# --- Finish video ------------------------------------------------------------------------
+
+
+@app.post("/api/finish/estimate")
+async def estimate_finish(request: FinishEstimateRequest) -> dict:
+    hold = request.narrationSeconds > request.videoSeconds
+    encode = request.captions or request.logo or request.videoFades or hold
+    output = max(request.videoSeconds, request.narrationSeconds + mix.NARRATION_LEAD + mix.NARRATION_TAIL
+                 if hold else request.videoSeconds) + (3.0 if request.logo else 0.0)
+    music_seconds = None
+    if request.musicPrompt:
+        music_seconds = min(aw.MAX_SECONDS, max(aw.MIN_SECONDS, request.musicSeconds or output + 1))
+    return {"valid": True, "encode": encode, "outputSeconds": round(output, 2),
+            **est.estimate_finish(audio_calibration, output_seconds=output, encode=encode,
+                                  resolution=request.resolution, music_seconds=music_seconds)}
+
+
+@app.post("/api/finish", status_code=202)
+async def finish_video(request: FinishRequest, x_burtson_owner: str = Header(default="unknown"),
+                       idempotency_key: str | None = Header(default=None, max_length=200)) -> dict:
+    owner = x_burtson_owner[:200]
+    if idempotency_key:
+        existing = jobs.get(idempotency.get(idempotency_key, ""))
+        if existing is not None and existing.owner == owner:
+            return public_job(existing)
+    if finish_queue.full():
+        raise HTTPException(429, "finishing queue is full")
+    payload = await asyncio.to_thread(validate_finish, request, owner)
+    job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="finish")
+    jobs[job.id] = job
+    if idempotency_key:
+        idempotency[idempotency_key] = job.id
+    finish_queue.put_nowait(job.id)
+    return public_job(job)
+
+
+def validate_finish(request: FinishRequest, owner: str) -> dict:
+    """Resolve and check every input at submit time (400 for impossible requests)."""
+    if request.sfx not in (None, False, [], {}):
+        raise HTTPException(400, "sound effects are not available: " + aw.SFX_UNAVAILABLE_REASON)
+    item = library_call(library.get_item, owner, request.video.itemId)
+    if item.get("kind") != "video" or item.get("status") != "completed":
+        raise HTTPException(400, "video must be a completed video item in History")
+    output = next((o for o in item.get("outputs") or [] if o.get("index") == request.video.take), None)
+    if output is None or not output.get("file"):
+        raise HTTPException(400, f"take {request.video.take} not found in that item")
+    music_source = None
+    if request.music is not None:
+        try:
+            music_source = request.music.source()
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if music_source == "item":
+            track = library_call(library.get_item, owner, request.music.itemId)
+            take = next((o for o in track.get("outputs") or [] if o.get("index") == request.music.take), None)
+            if track.get("kind") != "audio" or take is None:
+                raise HTTPException(400, "music must be an audio item (and take) in History")
+        elif music_source == "upload":
+            owned_reference(request.music.audioId, owner, expected_kind="audio")
+    for line in request.narration:
+        owned_reference(line.audioId, owner, expected_kind="audio")
+    if request.captions and not any((line.text or "").strip() for line in request.narration):
+        raise HTTPException(400, "captions need narration lines with text")
+    if request.logo is not None:
+        owned_reference(request.logo.referenceId, owner, expected_kind="logo")
+        if not (request.logo.start or request.logo.end):
+            raise HTTPException(400, "logo needs start and/or end")
+    payload = request.model_dump()
+    payload.pop("sfx", None)
+    payload["musicSource"] = music_source
+    payload["prompt"] = item.get("prompt") or ""
+    payload["model"] = "finish"
+    payload["mode"] = "finished"
+    payload["sourceItem"] = {"id": item["id"], "take": request.video.take, "file": output["file"],
+                             "sha256": output.get("sha256"), "durationSeconds": output.get("durationSeconds"),
+                             "width": output.get("width"), "height": output.get("height"), "fps": output.get("fps"),
+                             "prompt": item.get("prompt")}
+    payload["inputReferences"] = [line.audioId for line in request.narration] + \
+        ([request.music.audioId] if music_source == "upload" else []) + \
+        ([request.logo.referenceId] if request.logo else [])
+    narration_seconds = 0.0
+    for line in request.narration:
+        reference = references.get(line.audioId)
+        narration_seconds += (reference.durationSeconds or 0.0) + mix.NARRATION_GAP if reference else 0.0
+    video_seconds = float(output.get("durationSeconds") or 5.0)
+    hold = request.fit == "audio" and narration_seconds + mix.NARRATION_LEAD > video_seconds
+    encode = bool(request.captions or request.logo or request.videoFades or hold)
+    out_seconds = max(video_seconds, narration_seconds + mix.NARRATION_LEAD + mix.NARRATION_TAIL if hold else 0) + \
+        (3.0 if request.logo else 0.0)
+    payload["estimate"] = est.estimate_finish(
+        audio_calibration, output_seconds=out_seconds, encode=encode,
+        resolution=est.resolution_of(output.get("width"), output.get("height")),
+        music_seconds=min(aw.MAX_SECONDS, max(aw.MIN_SECONDS, out_seconds + 1)) if music_source == "prompt" else None)
+    return payload
+
+
+def finish_queue_position(job: Job, result: dict) -> dict:
+    waiting = [jobs[job_id] for job_id in list(finish_queue._queue) if job_id in jobs]
+    waiting = [other for other in waiting if not other.cancelRequested]
+    if active_finish_id == job.id:
+        left = max(15.0, estimate_job_seconds(job) - elapsed_seconds(job))
+        result.update(position=0, aheadSeconds=0, etaSeconds=round(left))
+    elif job in waiting:
+        index = waiting.index(job)
+        running = jobs.get(active_finish_id or "")
+        ahead = (max(15.0, estimate_job_seconds(running) - elapsed_seconds(running)) if running else 0.0) + \
+            sum(estimate_job_seconds(other) for other in waiting[:index])
+        result.update(position=index + 1, aheadSeconds=round(ahead), etaSeconds=round(ahead + estimate_job_seconds(job)))
+    else:
+        result.update(position=None, aheadSeconds=None, etaSeconds=None)
+    result["status"] = job.status
+    result["queue"] = "finish"
+    return result
+
+
+def elapsed_seconds(job: Job) -> float:
+    if not job.startedAt:
+        return 0.0
+    return (datetime.now(UTC) - datetime.fromisoformat(job.startedAt)).total_seconds()
+
+
+async def run_finish_queue() -> None:
+    global active_finish_id
+    while True:
+        job_id = await finish_queue.get()
+        job = jobs[job_id]
+        active_finish_id = job_id
+        job.startedAt = datetime.now(UTC).isoformat()
+        try:
+            if job.cancelRequested:
+                job.status = "cancelled"
+            else:
+                await asyncio.wait_for(execute_finish(job), timeout=FINISH_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("finish job %s failed: %s", job.id, type(exc).__name__)
+            job.status = "failed"
+            job.error = (str(exc) or type(exc).__name__)[:1000]
+        finally:
+            active_finish_id = None
+            job.updatedAt = datetime.now(UTC).isoformat()
+            finish_queue.task_done()
+        await record_in_library(job)
+
+
+def library_bytes(owner: str, item_id: str, name: str) -> bytes:
+    body, _ = library_call(library.read_file, owner, item_id, name)
+    return body
+
+
+def reference_bytes(reference_id: str, owner: str) -> bytes:
+    reference = owned_reference(reference_id, owner)
+    return s3_client().get_object(Bucket=BUCKET, Key=reference.key)["Body"].read()
+
+
+async def execute_finish(job: Job) -> None:
+    request = job.request
+    owner = job.owner
+    job.status = "running"
+    job.progress = {"stage": "preparing", "percent": 0}
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="burtson-finish-") as work:
+        source = request["sourceItem"]
+        video_path = os.path.join(work, "take.mp4")
+        body = await asyncio.to_thread(library_bytes, owner, source["id"], source["file"])
+        await asyncio.to_thread(write_file, video_path, body)
+        lines: list[mix.Line] = []
+        line_paths: dict[str, str] = {}
+        for i, line in enumerate(request.get("narration") or []):
+            path = os.path.join(work, f"line-{i:02d}.wav")
+            await asyncio.to_thread(write_file, path, await asyncio.to_thread(reference_bytes, line["audioId"], owner))
+            line_paths[f"input-narration-{i + 1:02d}.wav"] = references[line["audioId"]].key
+            lines.append(mix.Line(path=path, duration=0.0, lufs=0.0, text=line.get("text") or "",
+                                  start=line.get("startSeconds")))
+        job.progress = {"stage": "measuring", "percent": 5}
+        spec = await asyncio.to_thread(measure_finish_inputs, video_path, lines, request)
+        music_path = None
+        music_info: dict[str, Any] = {"source": request.get("musicSource")}
+        if request.get("musicSource") == "prompt":
+            job.progress = {"stage": "waiting_for_music", "percent": 10}
+            music_path, music_info = await generate_bed_for(job, spec, work)
+            if job.cancelRequested:
+                job.status = "cancelled"
+                return
+        elif request.get("musicSource") == "item":
+            music = request["music"]
+            track = await asyncio.to_thread(library_call, library.get_item, owner, music["itemId"])
+            take = next(o for o in track["outputs"] if o["index"] == music.get("take", 0))
+            music_path = os.path.join(work, "music.wav")
+            await asyncio.to_thread(write_file, music_path,
+                                    await asyncio.to_thread(library_bytes, owner, music["itemId"], take["file"]))
+            music_info.update(itemId=music["itemId"], take=music.get("take", 0), title=track.get("title"),
+                              sha256=take.get("sha256"))
+        elif request.get("musicSource") == "upload":
+            music_path = os.path.join(work, "music.wav")
+            await asyncio.to_thread(write_file, music_path,
+                                    await asyncio.to_thread(reference_bytes, request["music"]["audioId"], owner))
+            job.inputFiles["input-music.wav"] = references[request["music"]["audioId"]].key
+            music_info.update(audioId=request["music"]["audioId"])
+        if music_path:
+            spec.music = await asyncio.to_thread(measure_bed, music_path, float(request.get("musicStartSeconds") or 0),
+                                                 mix.timeline(spec).total)
+        logo_info = None
+        if request.get("logo"):
+            logo = request["logo"]
+            logo_path = os.path.join(work, "logo.png")
+            await asyncio.to_thread(write_file, logo_path,
+                                    await asyncio.to_thread(reference_bytes, logo["referenceId"], owner))
+            card = os.path.join(work, "card.png")
+            await asyncio.to_thread(mix.logo_card, logo_path, card, spec.width, spec.height, logo["background"])
+            spec.logo = mix.Logo(path=card, start=logo["start"], end=logo["end"], seconds=float(logo["seconds"]))
+            job.inputFiles["input-logo.png"] = references[logo["referenceId"]].key
+            logo_info = {k: logo[k] for k in ("start", "end", "background", "seconds")}
+        if request.get("captions"):
+            tl = mix.timeline(spec)
+            cues = mix.caption_cues(spec.lines, tl.line_starts, mix.caption_chars(spec.width, spec.height))
+            spec.captions = []
+            for j, (text, a, b) in enumerate(cues):
+                png = os.path.join(work, f"cap{j:03d}.png")
+                await asyncio.to_thread(mix.caption_png, text, png, spec.width, spec.height)
+                spec.captions.append((text, a, b, png))
+        job.inputFiles.update(line_paths)
+        job.progress = {"stage": "mixing", "percent": 40}
+        graph = mix.build_graph(spec)
+        output = os.path.join(work, "finished.mp4")
+        script = os.path.join(work, "graph.txt")
+        await asyncio.to_thread(write_file, script, graph.filter.encode())
+        command = mix.ffmpeg_command(graph, script, output, fps=spec.fps, crf=VIDEO_CRF)
+        job.progress = {"stage": "encoding", "percent": 50}
+        mix_started = time.monotonic()
+        await asyncio.to_thread(mix.run, command, FINISH_TIMEOUT_SECONDS)
+        mix_elapsed = time.monotonic() - mix_started
+        final = await asyncio.to_thread(mix.measure, output)
+        poster_path = os.path.join(work, "poster.jpg")
+        await asyncio.to_thread(run_ffmpeg, [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{min(graph.timeline.total / 3, graph.timeline.main_offset + 1.0):.2f}", "-i", output,
+            "-frames:v", "1", "-q:v", "3", poster_path])
+        probe = await asyncio.to_thread(probe_video, output)
+        final_bytes = await asyncio.to_thread(read_file, output)
+        poster_bytes = await asyncio.to_thread(read_file, poster_path)
+    job.progress = {"stage": "uploading", "percent": 90}
+    prefix = output_prefix(job, datetime.now(UTC))
+    expires_at = datetime.fromisoformat(job.expiresAt)
+    await asyncio.to_thread(upload, f"{prefix}/video-01.mp4", final_bytes, "video/mp4", expires_at)
+    await asyncio.to_thread(upload, f"{prefix}/poster-01.jpg", poster_bytes, "image/jpeg", expires_at)
+    job.assetKeys.extend([f"{prefix}/video-01.mp4", f"{prefix}/poster-01.jpg"])
+    encode = not graph.copy_video
+    key = est.finish_key(encode, est.resolution_of(spec.width, spec.height))
+    audio_calibration.record(key, max(0.0, mix_elapsed) / max(1.0, graph.timeline.total))
+    asyncio.get_running_loop().run_in_executor(None, write_stats, est.AUDIO_STATS_KEY, audio_calibration)
+    job.videos.append({
+        "url": f"/image/jobs/{job.id}/assets/0", "posterUrl": f"/image/jobs/{job.id}/assets/1", "variant": 1,
+        "model": "finish", "mode": "finished", "workflowVersion": "finish-v1",
+        "width": probe.get("width", spec.width), "height": probe.get("height", spec.height), "fps": spec.fps,
+        "durationSeconds": probe.get("duration", round(graph.timeline.total, 2)), "frames": probe.get("frames"),
+        "codec": probe.get("codec"), "pixelFormat": probe.get("pix_fmt"), "bytes": len(final_bytes),
+        "sha256": hashlib.sha256(final_bytes).hexdigest(), "sourceItemId": source["id"], "sourceTake": source["take"],
+        "sourceSha256": source.get("sha256"), "expiresAt": job.expiresAt,
+        "mix": {"levels": request.get("levels"), "lufs": round(final["lufs"], 2), "truePeak": round(final["truePeak"], 2),
+                "narrationLines": len(spec.lines), "voices": sorted({l.get("voice") for l in request.get("narration") or []
+                                                                     if l.get("voice")}),
+                "music": music_info if music_path else None, "originalAudio": spec.original is not None,
+                "captions": len(spec.captions), "logo": logo_info, "videoCopied": graph.copy_video,
+                "heldSeconds": round(graph.timeline.hold_seconds, 2), "applied": graph.levels,
+                "elapsedSeconds": round(time.monotonic() - started, 1)},
+    })
+    metadata = json.dumps({
+        "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": "finish", "request": request,
+        "videos": job.videos, "inputFiles": job.inputFiles, "graph": graph.filter, "error": None,
+        "expiresAt": job.expiresAt,
+    }, indent=2).encode()
+    await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
+    job.progress = {"stage": "completed", "percent": 100}
+    job.status = "completed"
+
+
+def write_file(path: str, body: bytes) -> None:
+    with open(path, "wb") as handle:
+        handle.write(body)
+
+
+def read_file(path: str) -> bytes:
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def measure_finish_inputs(video_path: str, lines: list[mix.Line], request: dict) -> mix.MixSpec:
+    probe = mix.probe_media(video_path)
+    video = probe.get("video") or {}
+    if not video:
+        raise RuntimeError("the take has no video stream")
+    for line in lines:
+        line.duration = mix.probe_media(line.path).get("duration") or 0.0
+        line.lufs = mix.measure(line.path)["lufs"]
+    original = None
+    choice = request.get("originalAudio") or "auto"
+    if choice != "drop" and probe.get("audio"):
+        measured = mix.measure(video_path)
+        if measured["lufs"] > mix.SILENT_LUFS:
+            original = mix.Bed(path=None, duration=probe["duration"], lufs=measured["lufs"], role="original")
+    elif choice == "keep" and not probe.get("audio"):
+        logger.info("finish: originalAudio=keep but the take has no audio track")
+    return mix.MixSpec(
+        video_path=video_path, video_duration=probe["duration"], width=int(video["width"]), height=int(video["height"]),
+        fps=float(video.get("fps") or 24), lines=lines, original=original, levels=request.get("levels") or "balanced",
+        fade_in=float(request.get("fadeInSeconds", 0.5)), fade_out=float(request.get("fadeOutSeconds", 1.5)),
+        video_fades=bool(request.get("videoFades")), fit=request.get("fit") or "audio",
+        logo=(mix.Logo(path="pending", start=request["logo"]["start"], end=request["logo"]["end"],
+                       seconds=float(request["logo"]["seconds"])) if request.get("logo") else None),
+    )
+
+
+def measure_bed(path: str, offset: float, total: float) -> mix.Bed:
+    duration = mix.probe_media(path).get("duration") or 0.0
+    if offset >= duration:
+        raise RuntimeError(f"musicStartSeconds {offset:g} is past the end of the track ({duration:g} s)")
+    # Measure the part that will play (the whole remainder when it has to loop).
+    window = None if duration - offset < total else total + 0.5
+    measured = mix.measure(path, start=offset, duration=window)
+    return mix.Bed(path=path, duration=duration, lufs=measured["lufs"], offset=offset, role="music")
+
+
+async def generate_bed_for(job: Job, spec: mix.MixSpec, work: str) -> tuple[str, dict]:
+    """Queue a music job sized to the finished length, wait for it, return its WAV."""
+    music = job.request["music"]
+    length = min(aw.MAX_SECONDS, max(aw.MIN_SECONDS, mix.timeline(spec).total + 1.0))
+    request = MusicRequest(prompt=music["prompt"], genre=music.get("genre"), mood=music.get("mood"),
+                           bpm=music.get("bpm"), seed=music.get("seed"), durationSeconds=round(length, 2),
+                           instrumental=True, title=f"Bed for {job.request.get('title') or 'finished video'}"[:120])
+    child = create_music_job(request, job.owner, origin={"kind": "finish", "jobId": job.id})
+    job.request["musicJobId"] = child.id
+    while child.status in {"queued", "running"}:
+        if job.cancelRequested:
+            child.cancelRequested = True
+            return "", {}
+        stage = (child.progress or {}).get("stage") or child.status
+        job.progress = {"stage": "waiting_for_music", "percent": 10, "musicJobId": child.id, "musicStage": stage}
+        await asyncio.sleep(2)
+    if child.status != "completed" or not child.audios:
+        raise RuntimeError(f"the music bed failed: {child.error or child.status}")
+    path = os.path.join(work, "music.wav")
+    body = await asyncio.to_thread(lambda: s3_client().get_object(Bucket=BUCKET, Key=child.assetKeys[0])["Body"].read())
+    await asyncio.to_thread(write_file, path, body)
+    take = child.audios[0]
+    return path, {"source": "prompt", "itemId": child.id, "take": 0, "prompt": music["prompt"], "seed": take.get("seed"),
+                  "sha256": take.get("sha256")}

@@ -86,8 +86,11 @@ def generated_seconds(plan: vw.VideoPlan) -> float:
 class Calibration:
     """Recent per-key rate samples plus the model-load overhead."""
 
-    def __init__(self, seeds: dict[str, float] | None = None) -> None:
+    def __init__(self, seeds: dict[str, float] | None = None, *, default_load: float | None = None,
+                 fallback_rate: float = FALLBACK_RATE) -> None:
         self.seeds = dict(SEED_RATES if seeds is None else seeds)
+        self.default_load = MODEL_LOAD_SECONDS if default_load is None else default_load
+        self.fallback_rate = fallback_rate
         self.samples: dict[str, list[float]] = {}
         self.load_samples: list[float] = []
         # Per-image-model load overhead (image models differ by 3x in size).
@@ -110,12 +113,12 @@ class Calibration:
         for candidate in (f"{pipeline}|{model}|720p|{schedule}", f"i2v|{model}|{resolution}|{schedule}"):
             if candidate in self.seeds:
                 return self.seeds[candidate]
-        return FALLBACK_RATE
+        return self.fallback_rate
 
     def load_seconds(self, model: str | None = None) -> float:
         with self._lock:
             recent = (self.model_loads.get(model, []) if model else self.load_samples)[-MAX_SAMPLES:]
-        default = IMAGE_LOAD_SEEDS.get(model, MODEL_LOAD_SECONDS) if model else MODEL_LOAD_SECONDS
+        default = IMAGE_LOAD_SEEDS.get(model, self.default_load) if model else self.default_load
         if len(recent) < MIN_SAMPLES:
             recent = recent + [default] * (MIN_SAMPLES - len(recent))
         return float(statistics.median(recent))
@@ -232,3 +235,67 @@ def load_from(fetch: Callable[[], bytes | None], calibration: Calibration) -> No
             calibration.load_json(body)
     except Exception as exc:  # stats are an optimisation, never fatal
         logger.warning("could not load video timing stats: %s", type(exc).__name__)
+
+
+# --- audio (music on the GPU, finishing on the CPU) ---------------------------------
+
+AUDIO_STATS_KEY = "v1/stats/audio-timings.json"
+MUSIC_KEY = "music|music-ace15|turbo"
+# ACE-Step 1.5 turbo: the 1.7B LM writes 5 Hz audio codes, then 8 DiT steps and the
+# VAE decode. Seeded from the model card (a full song in under 10 s on a 3090) with
+# room for the LM pass, mastering (two-pass loudnorm, MP3, waveform) and upload;
+# self-calibrates from the first takes.
+MUSIC_LOAD_SECONDS = float(os.getenv("MUSIC_MODEL_LOAD_SECONDS", "30"))
+AUDIO_SEED_RATES: dict[str, float] = {
+    MUSIC_KEY: 0.5,
+    # Finishing, seconds of wall clock per second of output on image-api's 2 CPUs:
+    # stream copy (music/narration only) vs a libx264 re-encode (captions, logo, hold, fades).
+    "finish|copy": 0.25,
+    "finish|encode|480p": 0.6, "finish|encode|720p": 1.0, "finish|encode|1080p": 2.0,
+}
+FINISH_FIXED_SECONDS = 6.0   # measuring the inputs, poster, probe, upload
+
+
+def audio_calibration() -> Calibration:
+    return Calibration(AUDIO_SEED_RATES, default_load=MUSIC_LOAD_SECONDS, fallback_rate=1.0)
+
+
+def music_render_seconds(duration: float, loopable: bool) -> float:
+    return duration + (4.0 if loopable else 0.0)
+
+
+def estimate_music(calibration: Calibration, duration: float, variants: int = 1, *, loopable: bool = False) -> dict[str, Any]:
+    rate, basis, samples = calibration.rate(MUSIC_KEY)
+    per_take = rate * music_render_seconds(duration, loopable) + 4.0  # + mastering and upload
+    load = calibration.load_seconds()
+    total = load + per_take * max(1, variants)
+    return {
+        "key": MUSIC_KEY, "basis": basis, "samples": samples, "ratePerSecond": round(rate, 2),
+        "perTakeSeconds": round(per_take), "loadSeconds": round(load), "claimSeconds": round(CLAIM_SECONDS),
+        "variants": max(1, variants), "seconds": round(total),
+    }
+
+
+def finish_key(encode: bool, resolution: str) -> str:
+    return f"finish|encode|{resolution}" if encode else "finish|copy"
+
+
+def resolution_of(width: int | None, height: int | None) -> str:
+    short = min(width or 720, height or 720)
+    return "480p" if short <= 540 else "720p" if short <= 800 else "1080p"
+
+
+def estimate_finish(calibration: Calibration, *, output_seconds: float, encode: bool, resolution: str,
+                    music_seconds: float | None = None) -> dict[str, Any]:
+    key = finish_key(encode, resolution)
+    rate, basis, samples = calibration.rate(key)
+    mix_seconds = FINISH_FIXED_SECONDS + rate * max(1.0, output_seconds)
+    music = estimate_music(calibration, music_seconds, 1) if music_seconds else None
+    total = mix_seconds + (music["seconds"] if music else 0)
+    return {
+        "key": key, "basis": basis, "samples": samples, "ratePerSecond": round(rate, 2),
+        "mixSeconds": round(mix_seconds), "musicSeconds": music["seconds"] if music else 0,
+        # The GPU claim only matters when a bed is generated for this finish.
+        "claimSeconds": round(CLAIM_SECONDS) if music else 0,
+        "seconds": round(total),
+    }

@@ -63,10 +63,15 @@ INPUT_ROLES = {
 LIST_INPUT_ROLES = {"extraReferenceIds": "reference"}
 FILE_NAME = re.compile(
     r"^(?:(?:image|thumb|poster|video)-\d{2}\.(?:png|jpg|mp4)"
+    r"|audio-\d{2}\.(?:wav|mp3)"
     r"|input-(?:reference[2-9]?|end|source|mask|person-[1-4])\.(?:png|mp4)"
+    r"|input-(?:music|logo|narration-\d{2})\.(?:wav|png)"
     r"|metadata\.json)$"
 )
-CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".json": "application/json"}
+CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".json": "application/json",
+                 ".wav": "audio/wav", ".mp3": "audio/mpeg"}
+# metadata.json "kind" -> History kind. A finished (mixed) video is a video take.
+HISTORY_KIND = {"finish": "video"}
 
 
 class ObjectStore(Protocol):
@@ -436,9 +441,12 @@ class Library:
         owner_key = safe_owner(owner)
         request = dict(metadata.get("request") or {})
         request.pop("plan", None)
-        kind = metadata.get("kind") or ("video" if metadata.get("videos") else "image")
+        kind = metadata.get("kind") or ("video" if metadata.get("videos") else
+                                        "audio" if metadata.get("audios") else "image")
+        kind = HISTORY_KIND.get(kind, kind)
         takes, asset_files = self._copy_outputs(owner, job_id, kind, metadata, tenant_dir) if status == "completed" else ([], [])
         inputs = self._copy_inputs(owner, job_id, request, input_keys or {})
+        inputs.update(self._copy_named_inputs(owner, job_id, metadata.get("inputFiles") or {}))
         if status == "completed":
             self.store.put(self.item_key(owner, job_id, "metadata.json"),
                            json.dumps(metadata, indent=2).encode(), "application/json")
@@ -446,8 +454,9 @@ class Library:
             "id": job_id, "owner": owner, "kind": kind, "status": status,
             "createdAt": metadata.get("createdAt") or now_iso(),
             "startedAt": started_at, "completedAt": completed_at or now_iso(),
-            "prompt": request.get("prompt", ""), "model": request.get("model"),
-            "mode": takes[0].get("mode") if takes else None,
+            "prompt": request.get("prompt") or request.get("text") or request.get("title") or "",
+            "model": request.get("model"), "title": request.get("title"),
+            "mode": takes[0].get("mode") if takes else request.get("mode"),
             "request": request, "outputs": takes, "assetFiles": asset_files, "inputs": inputs,
             "error": metadata.get("error"), "persistedAt": now_iso(),
         }
@@ -486,7 +495,9 @@ class Library:
                     continue
                 asset_files += [f.name for f in files]
                 thumb = self._thumbnail(owner, job_id, files[1].name, number)
+                extra = {key: video[key] for key in ("mix", "sourceItemId", "sourceTake") if video.get(key) is not None}
                 takes.append({
+                    **extra,
                     "index": position, "variant": number, "kind": "video",
                     "file": files[0].name, "poster": files[1].name, "thumb": thumb,
                     "width": video.get("width"), "height": video.get("height"), "seed": video.get("seed"),
@@ -495,6 +506,29 @@ class Library:
                     "model": video.get("model"), "workflowVersion": video.get("workflowVersion"),
                     "mode": video.get("mode"), "favorite": False, "hidden": False,
                     **({"swap": video["swap"]} if video.get("swap") else {}),
+                })
+        elif kind == "audio":
+            for position, audio in enumerate(metadata.get("audios") or []):
+                number = int(audio.get("variant") or position + 1)
+                # The waveform image is the take's thumbnail.
+                files = [TakeFile(f"{tenant_dir}/audio-{number:02d}.wav", f"audio-{number:02d}.wav"),
+                         TakeFile(f"{tenant_dir}/audio-{number:02d}.mp3", f"audio-{number:02d}.mp3"),
+                         TakeFile(f"{tenant_dir}/wave-{number:02d}.jpg", f"thumb-{number:02d}.jpg")]
+                if not self._copy_all(owner, job_id, files):
+                    logger.warning("library: audio take %s of %s is gone; skipped", number, job_id)
+                    continue
+                asset_files += [f.name for f in files]
+                takes.append({
+                    "index": position, "variant": number, "kind": "audio",
+                    "file": files[0].name, "mp3": files[1].name, "poster": None, "thumb": files[2].name,
+                    "seed": audio.get("seed"), "durationSeconds": audio.get("durationSeconds"),
+                    "bytes": audio.get("bytes"), "sha256": audio.get("sha256"), "lufs": audio.get("lufs"),
+                    "truePeak": audio.get("truePeak"), "sampleRate": audio.get("sampleRate"),
+                    "model": audio.get("model"), "workflowVersion": audio.get("workflowVersion"),
+                    "mode": audio.get("mode"), "bpm": audio.get("bpm"), "keyscale": audio.get("keyscale"),
+                    "instrumental": audio.get("instrumental"), "loopable": audio.get("loopable"),
+                    "title": audio.get("title"), "text": audio.get("text"), "voice": audio.get("voice"),
+                    "favorite": False, "hidden": False,
                 })
         else:
             for position, image in enumerate(metadata.get("images") or []):
@@ -564,6 +598,17 @@ class Library:
                 name = f"input-{role}{posixpath.splitext(source)[1] or '.png'}"
                 if self.store.copy(source, self.item_key(owner, job_id, name), content_type_for(name)):
                     inputs[role] = name
+        return inputs
+
+    def _copy_named_inputs(self, owner: str, job_id: str, files: dict[str, str]) -> dict[str, str]:
+        """Inputs a job lists itself (``inputFiles``: History name -> working key), e.g. a
+        finish job's narration takes, music and logo, kept so the mix can be redone."""
+        inputs: dict[str, str] = {}
+        for name, source in files.items():
+            if not FILE_NAME.match(name) or not name.startswith("input-") or not source:
+                continue
+            if self.store.copy(source, self.item_key(owner, job_id, name), content_type_for(name)):
+                inputs[posixpath.splitext(name[len("input-"):])[0]] = name
         return inputs
 
     def backfill(self, owner: str | None = None) -> list[str]:
@@ -653,8 +698,12 @@ def job_metadata(job: Any) -> dict:
         "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": job.kind,
         "request": job.request, "error": job.error,
     }
-    if job.kind == "video":
+    if job.kind in ("video", "finish"):
         value["videos"] = job.videos
+    elif job.kind == "audio":
+        value["audios"] = job.audios
     else:
         value["images"] = job.images
+    if getattr(job, "inputFiles", None):
+        value["inputFiles"] = job.inputFiles
     return value
