@@ -28,6 +28,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import estimates as est
 from . import library as lib
+from . import stitch
+from . import swap_workflows as swap
 from . import video_workflows as vw
 from . import watch_sync as ws
 from .productions import dispatcher as prod_dispatcher
@@ -52,6 +54,9 @@ VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
 # How long a queued job waits for the GPU worker (Anton claims on submit).
 WORKER_WAIT_SECONDS = max(60, int(os.getenv("WORKER_WAIT_SECONDS", "600")))
 MAX_SOURCE_BYTES = max(1, int(os.getenv("MAX_SOURCE_MIB", "200"))) * 1024 * 1024
+# Source uploads keep this much (people swap runs up to 60 s; other video modes
+# still read only the first vw.MAX_SOURCE_SECONDS of it).
+MAX_UPLOAD_SECONDS = swap.MAX_SECONDS
 logger = logging.getLogger("burtson.image_api")
 # Random seeds stay below 2^53 (less room for per-take/segment offsets) so a
 # browser can hold them exactly; responses also carry `seedText`.
@@ -88,11 +93,23 @@ class GenerationRequest(BaseModel):
         return None if value is None else validate_dimension(value)
 
 
+class SwapSubject(BaseModel):
+    """One person to swap: their photo and a tap point on them in the first frame."""
+    referenceId: str = Field(min_length=8, max_length=64)
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+
+
+VideoModeAll = Literal["restyle", "motion", "extend", "animate", "replace"]
+
+
 class VideoRequest(BaseModel):
     """One request shape for every input combination.
 
     text only -> text-to-video; + referenceId -> image-to-video;
-    + sourceVideoId -> video-conditioned (VACE) with `mode`.
+    + sourceVideoId -> video-conditioned (VACE) with `mode`;
+    + sourceVideoId + subjects with mode animate/replace -> people swap
+    (Wan2.2-Animate), which requires `consent`.
     """
     prompt: str = Field(min_length=3, max_length=4000)
     # video-fast = Wan2.2-TI2V-5B (text or image to video);
@@ -122,11 +139,18 @@ class VideoRequest(BaseModel):
     endReferenceId: str | None = Field(default=None, min_length=8, max_length=64)
     # Video-conditioned generation (video-quality only).
     sourceVideoId: str | None = Field(default=None, min_length=8, max_length=64)
-    mode: vw.VideoMode | None = None
+    mode: VideoModeAll | None = None
     control: vw.Control | None = None
     controlStrength: float = Field(default=1.0, ge=0.1, le=2.0)
-    # restyle/motion use a <=5 s window of the source starting here.
-    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=vw.MAX_SOURCE_SECONDS)
+    # restyle/motion use a <=5 s window of the source starting here; people
+    # swap processes from here (durationSeconds, or to the end with fullLength).
+    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=MAX_UPLOAD_SECONDS)
+    # People swap (mode animate/replace): one photo + first-frame point per person.
+    subjects: list[SwapSubject] | None = Field(default=None, max_length=swap.MAX_PEOPLE)
+    keepAudio: bool = True
+    fullLength: bool = False
+    # The caller confirms everyone shown has given permission; required for swaps.
+    consent: bool = False
 
 
 @dataclass
@@ -171,6 +195,9 @@ class Reference:
     sha256: str | None = None
     originalSha256: str | None = None
     originalDurationSeconds: float | None = None
+    # Source videos: the original audio track (AAC, first MAX_UPLOAD_SECONDS), if any.
+    hasAudio: bool | None = None
+    audioKey: str | None = None
 
 
 app = FastAPI(title="Burtson Image API", version="0.1.0")
@@ -419,9 +446,10 @@ async def upload_source_video(request: Request, x_burtson_owner: str = Header(de
     """Accept a source video as the raw request body (streamed to disk).
 
     Content is identified by probing, never by extension or Content-Type. The
-    stored copy is normalised once: first 10 s, 16 fps (VACE's native rate),
-    long side <= 1280, H.264 yuv420p, no audio. Jobs crop/scale it to their
-    own aspect and resolution inside the workflow.
+    stored copy is normalised once: first 60 s, 16 fps (Wan's native rate),
+    long side <= 1280, H.264 yuv420p, no audio; the original audio track is
+    kept beside it as AAC for people swap. Jobs crop/scale it to their own
+    aspect and resolution inside the workflow (VACE modes read the first 10 s).
     """
     owner = x_burtson_owner[:200]
     with tempfile.TemporaryDirectory(prefix="burtson-source-") as work:
@@ -438,11 +466,25 @@ async def upload_source_video(request: Request, x_burtson_owner: str = Header(de
         if size == 0:
             raise HTTPException(400, "video upload is empty")
         normalized, info = await asyncio.to_thread(normalize_source_video, original, work)
+        audio_path = os.path.join(work, "audio.m4a")
+        try:
+            has_audio = await asyncio.to_thread(stitch.extract_audio, original, audio_path, MAX_UPLOAD_SECONDS)
+        except RuntimeError:
+            logger.warning("source audio could not be extracted; keeping the video only")
+            has_audio = False
+        audio = None
+        if has_audio:
+            with open(audio_path, "rb") as handle:
+                audio = handle.read()
     reference_id = uuid.uuid4().hex
     created = datetime.now(UTC)
     key = f"v1/tenant/{safe_owner(owner)}/{created:%Y/%m/%d}/references/{reference_id}.mp4"
     expires_at = created + ASSET_TTL
     await asyncio.to_thread(upload, key, normalized, "video/mp4", expires_at)
+    audio_key = None
+    if audio:
+        audio_key = key[:-4] + ".m4a"
+        await asyncio.to_thread(upload, audio_key, audio, "audio/mp4", expires_at)
     reference = Reference(
         id=reference_id, owner=owner, key=key, kind="video",
         filename=(request.headers.get("x-filename") or "source.mp4")[:200], contentType="video/mp4",
@@ -451,6 +493,7 @@ async def upload_source_video(request: Request, x_burtson_owner: str = Header(de
         durationSeconds=info["duration"], frames=info["frames"],
         sha256=hashlib.sha256(normalized).hexdigest(), originalSha256=digest.hexdigest(),
         originalDurationSeconds=info["originalDuration"],
+        hasAudio=bool(audio_key), audioKey=audio_key,
     )
     references[reference_id] = reference
     await asyncio.to_thread(save_reference, reference)
@@ -468,7 +511,7 @@ def normalize_source_video(path: str, work: str) -> tuple[bytes, dict]:
     try:
         run_ffmpeg([
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", path,
-            "-t", str(vw.MAX_SOURCE_SECONDS), "-an", "-sn", "-dn", "-map_metadata", "-1",
+            "-t", str(MAX_UPLOAD_SECONDS), "-an", "-sn", "-dn", "-map_metadata", "-1",
             "-vf", f"fps={vw.SOURCE_FPS},scale=w='{long_side[0]}':h='{long_side[1]}':flags=lanczos,"
                    "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
@@ -553,6 +596,10 @@ def create_video_job(request: VideoRequest, owner: str, *, idempotency_key: str 
             return existing
     if queue.full():
         raise HTTPException(429, "generation queue is full")
+    if request.mode in swap.SWAP_MODES:
+        return create_swap_job(request, owner, idempotency_key=idempotency_key)
+    if request.subjects:
+        raise HTTPException(400, "subjects are for people swap: use mode animate or replace")
     if request.referenceId:
         owned_reference(request.referenceId, owner, expected_kind="reference")
     if request.endReferenceId:
@@ -587,6 +634,72 @@ def create_video_job(request: VideoRequest, owner: str, *, idempotency_key: str 
         idempotency[idempotency_key] = job.id
     queue.put_nowait(job.id)
     return job
+
+
+def create_swap_job(request: VideoRequest, owner: str, *, idempotency_key: str | None = None) -> Job:
+    """People swap (Wan2.2-Animate): validate inputs, consent and the plan, then enqueue."""
+    if not request.consent:
+        raise HTTPException(400, f"people swap uses real people's photos: confirm \"{swap.CONSENT_STATEMENT}\" (consent: true)")
+    if not request.sourceVideoId:
+        raise HTTPException(400, "people swap needs a source video (sourceVideoId)")
+    if request.model != "video-quality":
+        raise HTTPException(400, "people swap runs on Quality (Wan2.2-Animate 14B)")
+    if request.variants != 1:
+        raise HTTPException(400, "people swap renders one take per job")
+    if request.referenceId or request.endReferenceId:
+        raise HTTPException(400, "people swap takes its photos from subjects, not referenceId")
+    source = owned_reference(request.sourceVideoId, owner, expected_kind="video")
+    subjects = request.subjects or []
+    for subject in subjects:
+        owned_reference(subject.referenceId, owner, expected_kind="reference")
+    payload = request.model_dump()
+    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
+    payload["accelerated"] = True if request.accelerated is None else request.accelerated
+    payload["preserveText"] = False
+    payload["sourceFrames"] = source.frames or 0
+    payload["sourceWidth"], payload["sourceHeight"] = source.width, source.height
+    payload["sourceSha256"] = source.sha256
+    payload["sourceOriginalSha256"] = source.originalSha256
+    payload["sourceHasAudio"] = bool(source.audioKey)
+    try:
+        plan = swap_plan(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    payload["plan"] = plan.describe()
+    payload["durationSeconds"] = plan.duration_seconds
+    payload["aspect"] = f"{plan.out_width}:{plan.out_height}"
+    payload["consent"] = {
+        "confirmed": True, "statement": swap.CONSENT_STATEMENT, "by": owner,
+        "confirmedAt": datetime.now(UTC).isoformat(), "people": len(subjects),
+    }
+    payload["estimate"] = swap.estimate(calibration, plan)
+    job = Job(id=uuid.uuid4().hex, owner=owner, request=payload, kind="video")
+    jobs[job.id] = job
+    if idempotency_key:
+        idempotency[idempotency_key] = job.id
+    queue.put_nowait(job.id)
+    return job
+
+
+def is_swap(request: dict) -> bool:
+    return request.get("mode") in swap.SWAP_MODES
+
+
+def swap_plan(request: dict, subjects: list | None = None) -> swap.SwapPlan:
+    """Compile a stored swap request; ``subjects`` substitutes ComfyUI file names."""
+    people = subjects if subjects is not None else [
+        swap.Subject(item["referenceId"], item["x"], item["y"]) for item in request.get("subjects") or []]
+    return swap.plan_swap(
+        mode=request["mode"], prompt=request["prompt"], seed=int(request["seed"]),
+        resolution=request["resolution"], output_fps=int(request["fps"]),
+        source_width=int(request.get("sourceWidth") or 0), source_height=int(request.get("sourceHeight") or 0),
+        source_frames=int(request.get("sourceFrames") or 0),
+        start_seconds=float(request.get("sourceStartSeconds") or 0.0),
+        duration_seconds=request.get("durationSeconds"), full_length=bool(request.get("fullLength")),
+        subjects=people, accelerated=bool(request.get("accelerated", True)),
+        keep_audio=bool(request.get("keepAudio", True)) and bool(request.get("sourceHasAudio", True)),
+        upscaler=request.get("upscaler") or "esrgan",
+    )
 
 
 def video_plan(request: dict, *, variant: int, start_image: str | None, end_image: str | None,
@@ -716,6 +829,7 @@ def public_reference(reference: Reference) -> dict:
     value = asdict(reference)
     value.pop("owner", None)
     value.pop("key", None)
+    value.pop("audioKey", None)
     return value
 
 
@@ -852,6 +966,9 @@ async def execute_video(job: Job) -> None:
     with the delivered takes and an error note, rather than discarding them.
     """
     request = job.request
+    if is_swap(request):
+        await execute_swap(job)
+        return
     job.status = "running"
     job.progress = {"stage": "preparing", "percent": 0, "variant": 1, "variants": request["variants"]}
     job.updatedAt = datetime.now(UTC).isoformat()
@@ -976,9 +1093,15 @@ class EstimateRequest(BaseModel):
     hasEndImage: bool = False
     hasVideo: bool = False
     sourceSeconds: float = Field(default=vw.MAX_SOURCE_SECONDS, gt=0, le=600)
-    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=vw.MAX_SOURCE_SECONDS)
-    mode: vw.VideoMode | None = None
+    sourceStartSeconds: float = Field(default=0.0, ge=0.0, le=MAX_UPLOAD_SECONDS)
+    mode: VideoModeAll | None = None
     control: vw.Control | None = None
+    # People swap: how many people, the source's frame size (for the
+    # generation size), and full length vs durationSeconds from the start.
+    subjects: int = Field(default=1, ge=0, le=swap.MAX_PEOPLE)
+    fullLength: bool = False
+    sourceWidth: int = Field(default=1280, ge=16, le=8192)
+    sourceHeight: int = Field(default=720, ge=16, le=8192)
 
 
 @app.post("/api/videos/estimate")
@@ -988,6 +1111,8 @@ async def estimate_video(request: EstimateRequest) -> dict:
     Invalid combinations come back as {"valid": false, "error": ...} so the
     form can explain them inline.
     """
+    if request.mode in swap.SWAP_MODES:
+        return estimate_swap(request)
     accelerated = request.accelerated if request.accelerated is not None else not request.hasVideo
     try:
         plan = vw.plan_video(
@@ -1008,10 +1133,36 @@ async def estimate_video(request: EstimateRequest) -> dict:
             "accelerated": accelerated, **est.estimate_plan(calibration, plan, request.variants)}
 
 
+def estimate_swap(request: EstimateRequest) -> dict:
+    if not request.hasVideo:
+        return {"valid": False, "error": "people swap needs a source video"}
+    if request.model != "video-quality":
+        return {"valid": False, "error": "people swap runs on Quality (Wan2.2-Animate 14B)"}
+    source_seconds = min(request.sourceSeconds, MAX_UPLOAD_SECONDS)
+    try:
+        plan = swap.plan_swap(
+            mode=request.mode, prompt="estimate", seed=0, resolution=request.resolution,
+            output_fps=request.fps, source_width=request.sourceWidth, source_height=request.sourceHeight,
+            source_frames=round(source_seconds * vw.SOURCE_FPS) + 1,
+            start_seconds=request.sourceStartSeconds, duration_seconds=request.durationSeconds,
+            full_length=request.fullLength, subjects=request.subjects,
+            accelerated=True if request.accelerated is None else request.accelerated, upscaler=request.upscaler,
+        )
+    except ValueError as exc:
+        return {"valid": False, "error": str(exc)}
+    return {"valid": True, "pipeline": "animate", "durationSeconds": plan.duration_seconds,
+            "accelerated": plan.accelerated, **swap.estimate(calibration, plan)}
+
+
 def estimate_job_seconds(job: Job) -> float:
     """Seconds a whole job should take once the GPU is ready."""
     if job.kind != "video":
         return 20.0
+    if is_swap(job.request):
+        try:
+            return float(swap.estimate(calibration, swap_plan(job.request))["seconds"])
+        except ValueError:
+            return 900.0
     try:
         plan = video_plan(job.request, variant=0,
                           start_image="start.png" if job.request.get("referenceId") else None,
@@ -1117,7 +1268,8 @@ def comfy_error(status: dict) -> str:
     return "unknown error"
 
 
-async def watch_progress(job: Job, samplers: list[tuple[str, int]], total_steps: int, base: dict) -> None:
+async def watch_progress(job: Job, samplers: list[tuple[str, int]], total_steps: int, base: dict,
+                         percent_range: tuple[float, float] = (0.0, 90.0)) -> None:
     """Best-effort step progress from ComfyUI's websocket; polling stays authoritative."""
     stages = {"upscale": "upscaling", "resize": "resizing", "interpolate": "interpolating",
               "video": "encoding", "save": "encoding"}
@@ -1144,9 +1296,10 @@ async def watch_progress(job: Job, samplers: list[tuple[str, int]], total_steps:
                         job.samplingStartedAt = time.monotonic()
                     offset, _ = offsets[node]
                     done = offset + int(data.get("value", 0))
+                    low, high = percent_range
                     job.progress = {**base, "stage": "sampling", "node": node,
                                     "step": done, "steps": total_steps,
-                                    "percent": round(90 * done / total_steps)}
+                                    "percent": round(low + (high - low) * done / total_steps)}
                 elif event.get("type") == "executing" and node:
                     stage = ("decoding" if node.endswith("_decode") else stages.get(node))
                     if stage:
@@ -1191,6 +1344,307 @@ def finalize_video(raw: bytes, plan: vw.VideoPlan) -> tuple[bytes, bytes, dict]:
         with open(poster, "rb") as handle:
             poster_bytes = handle.read()
     return final_bytes, poster_bytes, probe
+
+
+async def execute_swap(job: Job) -> None:
+    """People swap (Wan2.2-Animate): per person, prepare then every window; stitch,
+    finish (upscale/interpolate in chunks) and mux the source's audio back.
+
+    One take per job; the GPU stays claimed throughout, so the Animate model
+    stays warm across windows. See app/swap_workflows.py for the graphs.
+    """
+    request = job.request
+    job.status = "running"
+    job.progress = {"stage": "preparing", "percent": 0}
+    job.updatedAt = datetime.now(UTC).isoformat()
+    created = datetime.now(UTC)
+    prefix = output_prefix(job, created)
+    expires_at = datetime.fromisoformat(job.expiresAt)
+    plan = swap_plan(request)
+    windows = len(plan.windows)
+    units = plan.passes * (windows + 1) + 1  # prepare + windows per pass, then finish
+    span = 96.0 / units
+
+    def percent(unit: float) -> int:
+        return min(99, round(unit * span))
+
+    timing = {"prepare": 0.0, "finish": 0.0, "load": None}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=300)) as client:
+        if not await wait_for_worker(client, job):
+            return
+        with tempfile.TemporaryDirectory(prefix="burtson-swap-") as work:
+            def local(name: str) -> str:
+                return os.path.join(work, name)
+
+            source = owned_reference(request["sourceVideoId"], job.owner, expected_kind="video")
+            await asyncio.to_thread(download_object, source.key, local("source.mp4"))
+            audio = None
+            if plan.keep_audio and source.audioKey:
+                audio = local("audio.m4a")
+                await asyncio.to_thread(download_object, source.audioKey, audio)
+            await asyncio.to_thread(stitch.prepare_range, local("source.mp4"), local("range.mp4"),
+                                    start=plan.source_start, frames=plan.frames,
+                                    width=plan.gen_width, height=plan.gen_height)
+            discard(local("source.mp4"))
+            photos = []
+            for number, subject in enumerate(plan.subjects, start=1):
+                reference = owned_reference(subject.reference, job.owner, expected_kind="reference")
+                body = await asyncio.to_thread(read_object, reference.key)
+                fitted = await asyncio.to_thread(fit_photo, body, plan.gen_width, plan.gen_height)
+                photos.append(await upload_comfy_bytes(client, f"burtson-{job.id}-person-{number}.png", fitted,
+                                                       "image/png"))
+            range_name = await upload_comfy_file(client, local("range.mp4"), f"burtson-{job.id}-range.mp4")
+
+            current = local("range.mp4")
+            unit = 0
+            for pass_index in range(plan.passes):
+                base = {"pass": pass_index + 1, "passes": plan.passes, "segments": windows}
+                job.progress = {**base, "stage": "tracking", "segment": 0, "percent": percent(unit)}
+                started = time.monotonic()
+                prepared = await run_comfy(
+                    client, job, swap.prepare_workflow(plan, pass_index, range_name,
+                                                       f"burtson-swap/{job.id}-p{pass_index + 1}"),
+                    ["save_mask", "save_pose", "save_face"])
+                if prepared is None:
+                    return
+                timing["prepare"] += time.monotonic() - started
+                unit += 1
+                inputs = {}
+                for kind in ("mask", "pose", "face"):
+                    inputs[kind] = local(f"p{pass_index}-{kind}.mp4")
+                    with open(inputs[kind], "wb") as handle:
+                        handle.write(prepared[f"save_{kind}"])
+                stitched = local(f"pass-{pass_index + 1}.mp4")
+                stitcher = stitch.Stitcher(stitched, plan.gen_width, plan.gen_height, plan.frames,
+                                           swap.OVERLAP_FRAMES)
+                for window in plan.windows:
+                    names = {}
+                    for kind, path in (("source", current), ("pose", inputs["pose"]), ("face", inputs["face"]),
+                                       ("mask", inputs["mask"])):
+                        if kind == "mask" and plan.mode != "replace":
+                            continue
+                        cut = local(f"p{pass_index}-w{window.index}-{kind}.mp4")
+                        await asyncio.to_thread(stitch.cut, path, cut, start=window.start, length=window.length,
+                                                total=plan.frames)
+                        names[kind] = await upload_comfy_file(
+                            client, cut, f"burtson-{job.id}-p{pass_index}-w{window.index}-{kind}.mp4")
+                    tail = None
+                    if window.overlap:
+                        tail_path = local(f"p{pass_index}-w{window.index}-tail.mp4")
+                        await asyncio.to_thread(stitcher.tail, tail_path)
+                        tail = await upload_comfy_file(client, tail_path,
+                                                       f"burtson-{job.id}-p{pass_index}-w{window.index}-tail.mp4")
+                    workflow = swap.segment_workflow(
+                        plan, window=window, pass_index=pass_index, reference=photos[pass_index],
+                        source_file=names["source"], pose_file=names["pose"], face_file=names["face"],
+                        mask_file=names.get("mask"), tail_file=tail,
+                        prefix=f"burtson-swap/{job.id}-p{pass_index + 1}-w{window.index + 1}")
+                    segment_base = {**base, "segment": window.index + 1}
+                    job.progress = {**segment_base, "stage": "loading_model", "percent": percent(unit)}
+                    job.samplingStartedAt = None
+                    started = time.monotonic()
+                    produced = await run_comfy(client, job, workflow, ["save"], base=segment_base,
+                                               sampler=("sampler", plan.steps),
+                                               percent_range=(percent(unit), percent(unit + 0.9)))
+                    if produced is None:
+                        return
+                    elapsed = time.monotonic() - started
+                    load = None
+                    if timing["load"] is None and job.samplingStartedAt is not None:
+                        load = timing["load"] = max(0.0, job.samplingStartedAt - started)
+                        elapsed -= load
+                    calibration.record(swap.sample_key(plan), elapsed / (window.length / swap.FPS), load)
+                    unit += 1
+                    job.progress = {**segment_base, "stage": "stitching", "percent": percent(unit)}
+                    segment_path = local(f"p{pass_index}-w{window.index}-out.mp4")
+                    with open(segment_path, "wb") as handle:
+                        handle.write(produced["save"])
+                    await asyncio.to_thread(stitcher.add, segment_path, window.start, window.overlap)
+                    discard(segment_path, *(local(f"p{pass_index}-w{window.index}-{kind}.mp4")
+                                            for kind in ("source", "pose", "face", "mask", "tail")))
+                await asyncio.to_thread(stitcher.close)
+                # Later passes read the range from the worker's copy; earlier passes are folded in.
+                discard(*inputs.values(), current)
+                current = stitched
+
+            finished = current
+            if swap.needs_finish(plan):
+                started = time.monotonic()
+                chunks = swap.finish_chunks(plan.frames)
+                chunk_paths = []
+                for number, (first, end) in enumerate(chunks, start=1):
+                    job.progress = {"stage": "finishing", "chunk": number, "chunks": len(chunks),
+                                    "passes": plan.passes, "segments": windows,
+                                    "percent": percent(unit + (number - 1) / len(chunks))}
+                    cut = local(f"finish-{number}-in.mp4")
+                    await asyncio.to_thread(stitch.cut, current, cut, start=first, length=end - first,
+                                            total=plan.frames)
+                    name = await upload_comfy_file(client, cut, f"burtson-{job.id}-finish-{number}.mp4")
+                    produced = await run_comfy(client, job, swap.finish_workflow(
+                        plan, name, f"burtson-swap/{job.id}-finish-{number}"), ["save"])
+                    if produced is None:
+                        return
+                    chunk_paths.append(local(f"finish-{number}-out.mp4"))
+                    with open(chunk_paths[-1], "wb") as handle:
+                        handle.write(produced["save"])
+                    discard(cut)
+                await asyncio.to_thread(stitch.join_chunks, chunk_paths, local("finished.mp4"),
+                                        plan.out_width, plan.out_height, plan.workflow_fps)
+                discard(current)
+                finished = local("finished.mp4")
+                discard(*chunk_paths)
+                timing["finish"] = time.monotonic() - started
+            unit += 1
+            job.progress = {"stage": "encoding", "passes": plan.passes, "segments": windows, "percent": 97}
+            final, poster, probe = await asyncio.to_thread(
+                deliver_swap, finished, local("final.mp4"), local("poster.jpg"), plan, audio)
+
+    job.progress = {**(job.progress or {}), "stage": "uploading", "percent": 98}
+    video_key, poster_key = f"{prefix}/video-01.mp4", f"{prefix}/poster-01.jpg"
+    await asyncio.to_thread(upload, video_key, final, "video/mp4", expires_at)
+    await asyncio.to_thread(upload, poster_key, poster, "image/jpeg", expires_at)
+    job.assetKeys.extend([video_key, poster_key])
+    if timing["prepare"] and plan.subjects:
+        calibration.record(swap.prepare_key(plan), timing["prepare"] / len(plan.subjects) / plan.duration_seconds)
+    if timing["finish"]:
+        calibration.record(swap.finish_key(plan), timing["finish"] / plan.duration_seconds)
+    asyncio.get_running_loop().run_in_executor(None, write_stats)
+    audio_state = "kept" if audio else ("dropped" if request.get("sourceHasAudio") else "none")
+    job.videos.append({
+        "url": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 2}",
+        "posterUrl": f"/image/jobs/{job.id}/assets/{len(job.assetKeys) - 1}",
+        "variant": 1, "seed": plan.seed, "model": "video-quality",
+        "workflowVersion": swap.WORKFLOW_VERSION,
+        "width": probe.get("width", plan.out_width), "height": probe.get("height", plan.out_height),
+        "fps": plan.output_fps, "durationSeconds": probe.get("duration", plan.duration_seconds),
+        "frames": probe.get("frames"), "codec": probe.get("codec"), "pixelFormat": probe.get("pix_fmt"),
+        "bytes": len(final), "sha256": hashlib.sha256(final).hexdigest(),
+        "modelLicense": swap.LICENSE, "modelDigests": swap.model_digests(plan),
+        "expiresAt": job.expiresAt, "mode": "people-swap",
+        "sourceSha256": request.get("sourceSha256"),
+        "swap": {
+            "mode": plan.mode, "passes": plan.passes, "segments": windows, "audio": audio_state,
+            "startSeconds": plan.start_seconds, "durationSeconds": plan.duration_seconds,
+            "subjects": [{"person": number, "x": s.x, "y": s.y} for number, s in enumerate(plan.subjects, 1)],
+        },
+        "consent": request.get("consent"),
+        "plan": plan.describe(),
+    })
+    metadata = json.dumps({
+        "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt, "kind": "video",
+        "request": request, "videos": job.videos, "error": job.error,
+        "comfyuiWorkflow": "server-owned; see workflowVersion", "expiresAt": job.expiresAt,
+    }, indent=2).encode()
+    await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
+    job.progress = {**(job.progress or {}), "stage": "completed", "percent": 100}
+    job.status = "completed"
+
+
+def deliver_swap(video: str, target: str, poster: str, plan: swap.SwapPlan,
+                 audio: str | None) -> tuple[bytes, bytes, dict]:
+    stitch.deliver(video, target, width=plan.out_width, height=plan.out_height, fps=plan.output_fps,
+                   crf=VIDEO_CRF, audio=audio, audio_start=plan.start_seconds, duration=plan.duration_seconds)
+    poster_at = f"{min(1.0, plan.duration_seconds / 3):.2f}"
+    run_ffmpeg(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", poster_at,
+                "-i", target, "-frames:v", "1", "-q:v", "3", poster])
+    probe = probe_video(target)
+    with open(target, "rb") as handle:
+        final = handle.read()
+    with open(poster, "rb") as handle:
+        poster_bytes = handle.read()
+    return final, poster_bytes, probe
+
+
+def fit_photo(body: bytes, width: int, height: int) -> bytes:
+    """Fit a person photo into the generation frame without cropping them: the
+    photo is contained, over a blurred, cover-scaled copy of itself."""
+    from PIL import ImageFilter
+
+    with Image.open(io.BytesIO(body)) as source:
+        photo = ImageOps.exif_transpose(source).convert("RGB")
+    backdrop = ImageOps.fit(photo, (width, height), Image.Resampling.LANCZOS)
+    backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=max(8, width // 40)))
+    contained = ImageOps.contain(photo, (width, height), Image.Resampling.LANCZOS)
+    backdrop.paste(contained, ((width - contained.width) // 2, (height - contained.height) // 2))
+    output = io.BytesIO()
+    backdrop.save(output, format="PNG")
+    return output.getvalue()
+
+
+def discard(*paths: str) -> None:
+    """Delete intermediates as soon as they are used (image-api's /tmp is small)."""
+    for path in paths:
+        if path:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+
+def read_object(key: str) -> bytes:
+    return s3_client().get_object(Bucket=BUCKET, Key=key)["Body"].read()
+
+
+def download_object(key: str, path: str) -> None:
+    s3_client().download_file(BUCKET, key, path)
+
+
+async def upload_comfy_bytes(client: httpx.AsyncClient, name: str, body: bytes, content_type: str) -> str:
+    response = await client.post(f"{COMFY_URL}/upload/image", files={"image": (name, body, content_type)},
+                                 data={"type": "input", "overwrite": "true"})
+    response.raise_for_status()
+    return response.json().get("name") or name
+
+
+async def upload_comfy_file(client: httpx.AsyncClient, path: str, name: str) -> str:
+    with open(path, "rb") as handle:
+        body = handle.read()
+    return await upload_comfy_bytes(client, name, body, "video/mp4")
+
+
+async def run_comfy(client: httpx.AsyncClient, job: Job, workflow: dict, output_nodes: list[str], *,
+                    base: dict | None = None, sampler: tuple[str, int] | None = None,
+                    percent_range: tuple[float, float] = (0.0, 90.0)) -> dict[str, bytes] | None:
+    """Run one ComfyUI prompt and fetch the named SaveVideo outputs; None when cancelled."""
+    watcher = None
+    if sampler is not None:
+        watcher = asyncio.create_task(watch_progress(job, [sampler], sampler[1], base or {}, percent_range))
+    try:
+        submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
+        if submitted.status_code >= 400:
+            raise RuntimeError(f"ComfyUI rejected the workflow: {submitted.text[:600]}")
+        prompt_id = submitted.json()["prompt_id"]
+        job.comfyPromptId = prompt_id
+        deadline = time.monotonic() + VIDEO_VARIANT_TIMEOUT_SECONDS
+        while True:
+            if job.cancelRequested:
+                await client.post(f"{COMFY_URL}/interrupt")
+                job.status = "cancelled"
+                return None
+            if time.monotonic() > deadline:
+                await client.post(f"{COMFY_URL}/interrupt")
+                raise TimeoutError(f"a ComfyUI step exceeded {VIDEO_VARIANT_TIMEOUT_SECONDS} s")
+            await asyncio.sleep(2)
+            history = await client.get(f"{COMFY_URL}/history/{prompt_id}")
+            history.raise_for_status()
+            entry = history.json().get(prompt_id)
+            if entry:
+                break
+    finally:
+        if watcher is not None:
+            watcher.cancel()
+    status = entry.get("status", {})
+    if status.get("status_str") == "error":
+        raise RuntimeError(f"ComfyUI failed: {comfy_error(status)}")
+    results: dict[str, bytes] = {}
+    for node in output_nodes:
+        items = entry.get("outputs", {}).get(node, {}).get("images", [])
+        if not items:
+            raise RuntimeError(f"ComfyUI completed without the {node} output")
+        response = await client.get(f"{COMFY_URL}/view", params=items[0])
+        response.raise_for_status()
+        results[node] = response.content
+    return results
 
 
 def run_ffmpeg(command: list[str]) -> None:
@@ -1314,10 +1768,14 @@ def pending_input_keys() -> list[str]:
     keys: list[str] = []
     for job in list(jobs.values()):
         if job.status in {"queued", "running"}:
-            for field in ("referenceId", "endReferenceId", "sourceVideoId", "maskId"):
-                reference = references.get(job.request.get(field) or "")
+            ids = [job.request.get(field) for field in ("referenceId", "endReferenceId", "sourceVideoId", "maskId")]
+            ids += [subject.get("referenceId") for subject in job.request.get("subjects") or []]
+            for reference_id in ids:
+                reference = references.get(reference_id or "")
                 if reference:
                     keys += [reference.key, reference_record_key(reference.owner, reference.id)]
+                    if reference.audioKey:
+                        keys.append(reference.audioKey)
     return keys
 
 

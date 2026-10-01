@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 
 from . import video_workflows as vw
+from .swap_workflows import SEED_RATES as SWAP_SEED_RATES
 
 logger = logging.getLogger("burtson.image_api.estimates")
 
@@ -60,6 +61,8 @@ SEED_RATES: dict[str, float] = {
     # 5B, 20 steps: 30-step runs measured 56 s (480p) and 225-246 s (720p).
     "t2v|video-fast|480p|steps20": 8, "t2v|video-fast|720p|steps20": 32,
     "i2v|video-fast|480p|steps20": 8, "i2v|video-fast|720p|steps20": 32,
+    # People swap (Wan2.2-Animate): see app/swap_workflows.py.
+    **SWAP_SEED_RATES,
 }
 
 

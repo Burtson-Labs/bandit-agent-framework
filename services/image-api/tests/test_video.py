@@ -528,7 +528,7 @@ class SourceNormalizationTests(unittest.TestCase):
         subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *args, path], check=True)
         return path
 
-    def test_long_4k_clip_is_trimmed_resampled_and_downscaled(self):
+    def test_4k_clip_is_resampled_and_downscaled(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as work:
@@ -536,10 +536,20 @@ class SourceNormalizationTests(unittest.TestCase):
                                                "-t", "12", "-c:v", "libx264", "-preset", "ultrafast"])
             body, info = main.normalize_source_video(path, work)
         self.assertEqual((info["width"], info["height"]), (1280, 720))
-        self.assertEqual(info["frames"], 160)
+        self.assertEqual(info["frames"], 192)  # 12 s kept whole at 16 fps (swap reads up to 60 s)
         self.assertEqual(info["originalDuration"], 12.0)
         self.assertEqual(info["codec"], "h264")
         self.assertGreater(len(body), 1000)
+
+    def test_long_clip_is_trimmed_to_sixty_seconds(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as work:
+            path = self._make(work, "in.mp4", ["-f", "lavfi", "-i", "testsrc2=size=160x120:rate=16", "-t", "63",
+                                               "-c:v", "libx264", "-preset", "ultrafast"])
+            _, info = main.normalize_source_video(path, work)
+        self.assertEqual(info["frames"], 960)
+        self.assertEqual(info["originalDuration"], 63.0)
 
     def test_portrait_keeps_orientation(self):
         import tempfile

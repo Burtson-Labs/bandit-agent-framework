@@ -60,7 +60,7 @@ INPUT_ROLES = {
 }
 FILE_NAME = re.compile(
     r"^(?:(?:image|thumb|poster|video)-\d{2}\.(?:png|jpg|mp4)"
-    r"|input-(?:reference|end|source|mask)\.(?:png|mp4)"
+    r"|input-(?:reference|end|source|mask|person-[1-4])\.(?:png|mp4)"
     r"|metadata\.json)$"
 )
 CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".json": "application/json"}
@@ -491,6 +491,7 @@ class Library:
                     "frames": video.get("frames"), "bytes": video.get("bytes"), "sha256": video.get("sha256"),
                     "model": video.get("model"), "workflowVersion": video.get("workflowVersion"),
                     "mode": video.get("mode"), "favorite": False, "hidden": False,
+                    **({"swap": video["swap"]} if video.get("swap") else {}),
                 })
         else:
             for position, image in enumerate(metadata.get("images") or []):
@@ -539,8 +540,12 @@ class Library:
 
     def _copy_inputs(self, owner: str, job_id: str, request: dict, input_keys: dict[str, str]) -> dict[str, str]:
         inputs: dict[str, str] = {}
-        for field, role in INPUT_ROLES.items():
-            reference_id = request.get(field)
+        roles = [(request.get(field), role) for field, role in INPUT_ROLES.items()]
+        # People swap: one photo per person (input-person-1.png ...).
+        roles += [(subject.get("referenceId"), f"person-{number}")
+                  for number, subject in enumerate(request.get("subjects") or [], start=1)
+                  if isinstance(subject, dict)][:4]
+        for reference_id, role in roles:
             source = input_keys.get(reference_id) if reference_id else None
             if not source:
                 continue

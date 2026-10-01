@@ -44,9 +44,53 @@ testing); `sourceStartSeconds` picks the <= 5 s window for restyle/motion.
 Source videos go to `POST /api/videos/sources` as the raw request body
 (Anton: `POST /image/sources`, 200 MiB). They are identified by ffprobe, not by
 extension; still images and undecodable files get 400. The stored copy is the
-first 10 s at 16 fps, long side <= 1280, H.264, no audio; both the original and
-normalised SHA-256 are recorded and the latter is copied into every job's
-provenance.
+first 60 s at 16 fps, long side <= 1280, H.264, no audio (VACE modes read its
+first 10 s); the original audio track, if any, is kept beside it as AAC
+(`hasAudio` in the response) for people swap. Both the original and normalised
+SHA-256 are recorded and the latter is copied into every job's provenance.
+
+### People swap (Wan2.2-Animate-14B)
+
+`mode: "replace"` swaps people inside the source video (scene, lighting and
+camera kept, relighting LoRA on); `mode: "animate"` makes the photo perform one
+source person's body and face motion. Request: `sourceVideoId`, `subjects`
+(1-4 `{referenceId, x, y}`: a photo per person and a tap point on that person,
+normalised 0..1, in the frame at `sourceStartSeconds`; animate takes exactly
+one), `fullLength` (to the end of the source, max 60 s) or `durationSeconds`,
+`keepAudio` (default true), `resolution`, `fps`, `accelerated` (default true:
+6 steps with the lightx2v distill LoRA; false: 20 steps), `prompt`, `seed`, and
+**`consent: true`** (400 otherwise): the caller confirms "I have permission
+from everyone shown". The confirmation (statement, user, time, people) is
+stored in the job's request and provenance. One take per job.
+
+Pipeline (`app/swap_workflows.py`, `app/stitch.py`, worker nodes in
+`services/image-worker/custom_nodes/burtson_people`):
+
+1. The range is cut from the source at a generation size that keeps the
+   source's shape (about 832x480 or 1280x720 pixels' worth, 16-px grid).
+2. Per person, one *prepare* prompt: SAM 2.1 tracks the person from the tap
+   point; the mask is grown and blockified (Wan-Animate's training masks) and
+   gives a box per frame; SDPose reads keypoints inside the box; the pose video
+   (body + hands) and 512 px face crops are saved.
+3. Per person, one prompt per window of up to 77 frames (~4.8 s). Windows
+   overlap by 5 frames: each continues from the previous window's last frames
+   (`continue_motion`), and the API crossfades the overlap. `replace` feeds the
+   scene with the person blacked out plus the mask, and composites the result
+   over the source through a feathered mask, so everything outside the person
+   (including people swapped in earlier passes) keeps its pixels. Pass N's
+   stitched video is pass N+1's source.
+4. *Finish* prompts upscale (1080p) and interpolate (RIFE) in 81-frame chunks
+   that share a boundary frame; the API joins them, encodes the delivery file
+   and muxes the source's audio trimmed to the processed range (`keepAudio`).
+
+Progress reports `pass`/`passes` and `segment`/`segments` with the stages
+`tracking`, `loading_model`, `sampling`, `stitching`, `finishing`, `encoding`.
+The estimate covers every pass and window up front (`passes`, `segments`,
+`processedSeconds`; prepare, sampling, finish and stitch parts) and calibrates
+from finished jobs like the other pipelines. Outputs have `mode:
+"people-swap"` and a `swap` block (mode, passes, segments, audio
+kept/dropped/none, subjects); History keeps each person's photo as
+`input-person-N.png`, and watch titles them "Swap people · Replace · 2 people".
 
 Request fields: `prompt`, `model`, `aspect` (`16:9`, `9:16`, `1:1`), `resolution`
 (`480p`, `720p`, `1080p`), `durationSeconds` (clamped to 2-10 s; over ~5 s a

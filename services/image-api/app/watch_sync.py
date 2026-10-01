@@ -120,6 +120,10 @@ def history_metadata(item: dict, output: dict, tag: str) -> dict:
     is_image = output.get("kind") == "image"
     many = len(item.get("outputs") or []) > 1
     title = short(item.get("prompt") or "Studio take", 90)
+    if output.get("mode") == "people-swap":
+        people = len(request.get("subjects") or []) or 1
+        kind = "Replace" if request.get("mode") == "replace" else "Animate"
+        title = f"Swap people · {kind} · {people} {'person' if people == 1 else 'people'}"
     if many:
         title += f" · {'image' if is_image else 'take'} {number}"
     extra = {k: str(v) for k, v in {
