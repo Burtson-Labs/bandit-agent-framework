@@ -292,7 +292,16 @@ def plan_swap(
 
 # --- graphs ---------------------------------------------------------------------
 
-def _save(g: vw._Graph, node_id: str, images: list, prefix: str, crf: float = 10.0, fps: float = FPS) -> None:
+class _Graph(vw._Graph):
+    """A graph that refuses to reuse a node id (a reused id silently rewires links)."""
+
+    def add(self, node_id: str, class_type: str, **inputs: Any) -> list:
+        if node_id in self.nodes:
+            raise ValueError(f"duplicate node id {node_id!r}")
+        return super().add(node_id, class_type, **inputs)
+
+
+def _save(g: _Graph, node_id: str, images: list, prefix: str, crf: float = 10.0, fps: float = FPS) -> None:
     video = g.add(f"{node_id}_video", "CreateVideo", images=images, fps=float(fps))
     g.add(node_id, "SaveVideo", video=video, filename_prefix=prefix, **{
         "format": "mp4", "format.codec": "h264", "format.codec.encoding": "re-encode",
@@ -300,7 +309,7 @@ def _save(g: vw._Graph, node_id: str, images: list, prefix: str, crf: float = 10
     })
 
 
-def _frames(g: vw._Graph, node_id: str, file: str) -> list:
+def _frames(g: _Graph, node_id: str, file: str) -> list:
     video = g.add(f"{node_id}_file", "LoadVideo", file=file)
     return g.add(node_id, "GetVideoComponents", video=video)
 
@@ -320,7 +329,7 @@ def prepare_workflow(plan: SwapPlan, subject_index: int, source_file: str, prefi
     Outputs (SaveVideo node ids): ``save_mask``, ``save_pose``, ``save_face``.
     """
     subject = plan.subjects[subject_index]
-    g = vw._Graph()
+    g = _Graph()
     frames = _frames(g, "source", source_file)
     tracked = g.add("track", "BurtsonSAM2VideoTrack", images=frames,
                     points=json.dumps([{"x": subject.x, "y": subject.y}]), model=SAM2_MODEL, threshold=0.0)
@@ -347,7 +356,7 @@ def segment_workflow(plan: SwapPlan, *, window: Window, pass_index: int, referen
                      prefix: str) -> dict[str, Any]:
     """One Wan2.2-Animate window. Every input video holds exactly ``window.length`` frames
     at generation size (the API cuts and pads them). Output node: ``save``."""
-    g = vw._Graph()
+    g = _Graph()
     replace = plan.mode == "replace"
     width, height, length = plan.gen_width, plan.gen_height, window.length
 
@@ -386,7 +395,7 @@ def segment_workflow(plan: SwapPlan, *, window: Window, pass_index: int, referen
         mask_scaled = g.add("mask_scaled", "ImageScale", image=_frames(g, "mask", mask_file),
                             upscale_method="bilinear", width=width, height=height, crop="center")
         mask = g.add("mask_threshold", "ThresholdMask",
-                     mask=g.add("mask", "ImageToMask", image=mask_scaled, channel="red"), value=0.5)
+                     mask=g.add("mask_channel", "ImageToMask", image=mask_scaled, channel="red"), value=0.5)
         black = g.add("black", "EmptyImage", width=width, height=height, batch_size=length, color=0)
         # Wan-Animate's background video: the scene with the person's region blacked out.
         cond["background_video"] = g.add("background", "ImageCompositeMasked", destination=source,
@@ -424,7 +433,7 @@ def subject_prompt(plan: SwapPlan, pass_index: int) -> str:
 
 def finish_workflow(plan: SwapPlan, source_file: str, prefix: str) -> dict[str, Any]:
     """Upscale (1080p) and interpolate one chunk of the stitched result. Output node: ``save``."""
-    g = vw._Graph()
+    g = _Graph()
     frames = _frames(g, "source", source_file)
     if plan.upscale:
         upscaler = g.add("upscale_model", "UpscaleModelLoader", model_name=vw.UPSCALE_MODEL)
