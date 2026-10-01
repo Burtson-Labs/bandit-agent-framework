@@ -71,6 +71,7 @@ class ObjectStore(Protocol):
     def put(self, key: str, body: bytes, content_type: str) -> None: ...
     def copy(self, source: str, target: str, content_type: str) -> bool: ...
     def list(self, prefix: str) -> Iterable[tuple[str, datetime | None]]: ...
+    def delete(self, key: str) -> None: ...
 
 
 class S3Store:
@@ -105,6 +106,9 @@ class S3Store:
                 return False
             raise
         return True
+
+    def delete(self, key: str) -> None:
+        self._client().delete_object(Bucket=self._bucket, Key=key)
 
     def list(self, prefix: str) -> Iterable[tuple[str, datetime | None]]:
         paginator = self._client().get_paginator("list_objects_v2")
@@ -144,6 +148,8 @@ class Library:
         self._cache: dict[str, dict] = {}
         self._locks: dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
+        # Set by the watch sync: fetches a take's file from watch once the local copy was dropped.
+        self.remote_file: Any = None
 
     # --- index ------------------------------------------------------------
     def _lock(self, owner_key: str) -> threading.Lock:
@@ -286,6 +292,11 @@ class Library:
         if name not in known:
             raise LibraryError(404, "file not found")
         body = self.store.get(self.item_key(owner, job_id, name))
+        if body is None and self.remote_file is not None:
+            # The MP4 may have been dropped here after its import to watch was confirmed.
+            output = next((o for o in item.get("outputs") or [] if o.get("file") == name), None)
+            if output is not None and (output.get("watch") or {}).get("state") == "present":
+                body = self.remote_file(owner, output)
         if body is None:
             raise LibraryError(404, "file not found")
         return body, content_type_for(name)
@@ -302,6 +313,43 @@ class Library:
             return None
         body = self.store.get(self.item_key(owner, job_id, files[index]))
         return (body, content_type_for(files[index])) if body is not None else None
+
+    # --- watch sync ---------------------------------------------------------
+    def owner_keys(self) -> list[str]:
+        """Every owner folder that has library items."""
+        keys = set()
+        for key, _ in self.store.list(LIBRARY_PREFIX):
+            rest = key[len(LIBRARY_PREFIX):]
+            if "/items/" in rest and rest.endswith("/item.json"):
+                keys.add(rest.split("/", 1)[0])
+        return sorted(keys)
+
+    def items_of(self, owner_key: str) -> list[dict]:
+        """Deep copies of one owner folder's items (for the sync to read without the lock)."""
+        with self._lock(owner_key):
+            return json.loads(json.dumps(list(self._load(owner_key)["items"].values())))
+
+    def set_output_state(self, owner_key: str, job_id: str, index: int, **changes: Any) -> None:
+        """Merge sync state (``watch``, ``localDropped``) into one take; one item.json write."""
+        with self._lock(owner_key):
+            item = self._load(owner_key)["items"].get(job_id)
+            if item is None:
+                return
+            output = next((o for o in item.get("outputs") or [] if o["index"] == index), None)
+            if output is None:
+                return
+            for key, value in changes.items():
+                if key == "watch" and isinstance(value, dict):
+                    output["watch"] = {**(output.get("watch") or {}), **value}
+                else:
+                    output[key] = value
+            self._put_item(owner_key, item)
+
+    def read_raw(self, owner_key: str, job_id: str, name: str) -> bytes | None:
+        return self.store.get(f"{self._prefix(owner_key)}/items/{job_id}/{name}")
+
+    def drop_raw(self, owner_key: str, job_id: str, name: str) -> None:
+        self.store.delete(f"{self._prefix(owner_key)}/items/{job_id}/{name}")
 
     # --- user state ---------------------------------------------------------
     def update_item(self, owner: str, job_id: str, changes: dict) -> dict:
@@ -412,6 +460,9 @@ class Library:
                     if old:
                         output["favorite"] = old.get("favorite", False)
                         output["hidden"] = old.get("hidden", False)
+                        for key in ("watch", "localDropped"):
+                            if key in old:
+                                output[key] = old[key]
             else:
                 entry.update(favorite=False, hidden=False, projectId=None)
             index["items"][job_id] = entry

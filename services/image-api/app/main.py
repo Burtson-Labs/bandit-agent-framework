@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 from . import estimates as est
 from . import library as lib
 from . import video_workflows as vw
+from . import watch_sync as ws
 from .productions import dispatcher as prod_dispatcher
 from .productions import routes as prod_routes
 from .productions import store as prod_store
@@ -59,6 +60,12 @@ JS_SAFE_SEED = 2**53 - 100_000
 MONGO_URI = os.getenv("MONGO_URI", "")
 MONGO_DB = os.getenv("MONGO_DB", "burtson_studio")
 PRODUCTIONS_PREFIX = "v1/productions"
+# Every finished take is imported into watch (see app/watch_sync.py). Off without a key.
+WATCH_URL = os.getenv("WATCH_URL", "http://watch.watch.svc.cluster.local")
+WATCH_SERVICE_KEY = os.getenv("WATCH_SERVICE_KEY", "")
+WATCH_SYNC_SECONDS = max(15, int(os.getenv("WATCH_SYNC_SECONDS", "60")))
+# Days to keep a History MP4 in MinIO after watch confirmed its copy; 0 keeps it.
+WATCH_DROP_LOCAL_MP4_DAYS = max(0.0, float(os.getenv("WATCH_DROP_LOCAL_MP4_DAYS", "7")))
 
 
 class GenerationRequest(BaseModel):
@@ -179,6 +186,7 @@ active_job_id: str | None = None
 reaper_task: asyncio.Task | None = None
 calibration = est.Calibration()
 library = lib.Library(lib.S3Store(lambda: s3_client(), BUCKET))
+watch_sync: ws.WatchSync | None = None
 
 
 def s3_client():
@@ -217,6 +225,23 @@ async def startup() -> None:
     # The reaper backfills the history library before its first sweep.
     reaper_task = asyncio.create_task(run_reaper())
     start_productions()
+    start_watch_sync()
+
+
+def start_watch_sync() -> None:
+    global watch_sync
+    if not WATCH_SERVICE_KEY:
+        logger.info("watch sync: WATCH_SERVICE_KEY not set; takes stay in MinIO only")
+        return
+    store = prod_routes.runtime.store if prod_routes.runtime is not None else None
+    watch_sync = ws.WatchSync(
+        library, ws.WatchClient(WATCH_URL, WATCH_SERVICE_KEY),
+        productions_db=(lambda: store.db) if store is not None else None,
+        read_production_object=lambda key: (production_object(key) or (None,))[0],
+        drop_after_days=WATCH_DROP_LOCAL_MP4_DAYS, interval_seconds=WATCH_SYNC_SECONDS,
+    )
+    watch_sync.start()
+    logger.info("watch sync: on (%s, drop local MP4s after %s days)", WATCH_URL, WATCH_DROP_LOCAL_MP4_DAYS)
 
 
 async def clear_orphaned_prompts() -> None:
@@ -243,6 +268,8 @@ async def shutdown() -> None:
         reaper_task.cancel()
     if dispatcher:
         dispatcher.stop()
+    if watch_sync:
+        watch_sync.stop()
 
 
 @app.get("/health/live")
@@ -738,6 +765,8 @@ async def record_in_library(job: Job) -> None:
         )
     except Exception:
         logger.exception("could not record job %s in the history library", job.id)
+    if watch_sync is not None and job.status == "completed":
+        watch_sync.kick()
 
 
 async def execute(job: Job) -> None:
@@ -1354,6 +1383,12 @@ def library_call(fn, *args):
         return fn(*args)
     except lib.LibraryError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.get("/api/watch/sync")
+async def watch_sync_status() -> dict:
+    """The last watch sync pass (cluster-internal; not proxied by Anton)."""
+    return {"enabled": watch_sync is not None, "lastPass": watch_sync.last_pass if watch_sync else None}
 
 
 @app.get("/api/library")

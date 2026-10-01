@@ -116,7 +116,8 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
   jobs whose copy failed and uploads that queued/running jobs still use, so
   nothing is reaped before it is persisted. The bucket lifecycle rule runs one
   day behind the app TTL as a backstop only.
-- Hiding is a soft delete; the service never deletes library files.
+- Hiding is a soft delete. The only library file the service ever deletes is a
+  take's MP4, and only after watch has confirmed its copy (see below).
 - `GET /api/images/jobs/{id}/assets/{index}` falls back to the library once the
   in-memory job is gone, so result links keep working after a restart.
 - Reference records are persisted beside the upload
@@ -137,6 +138,34 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
 | `DELETE /api/library/projects/{id}` | `DELETE /image/library/projects/{id}` | delete; its items stay, unassigned |
 
 Every route is scoped by `X-Burtson-Owner`, which Anton sets from the JWT.
+
+## watch (every take in watch.burtson.ai)
+
+Every finished take is imported into watch, Mark's R2-backed library, where he
+renames, deletes, organises and shares them (`app/watch_sync.py`). History video
+takes and images go to watch's "Burtson Video Studio" collection; production
+takes to one collection per production (`studio:production:{id}`), titled
+`E01 S02 Shot 03 · {shot} · take 1`. Tags: `studio:{jobId}:take{n}`,
+`studio:{jobId}:image{n}`, `studio:{takeId}:take{n}` (idempotent imports).
+
+- A pass runs every `WATCH_SYNC_SECONDS` (60) and right after a job is
+  recorded. It looks up pending takes first (so nothing already in watch is
+  uploaded again), imports the rest through
+  `POST http://watch.watch.svc.cluster.local/api/internal/studio/imports`
+  (header `X-Watch-Service-Key` from the `watch-studio-import` secret), backs off
+  1/5/15/30/60 min on errors, and refreshes imported takes: the current title
+  in watch, or `deleted` when Mark deleted it there. Deleted takes are never
+  imported again. Hidden History takes wait until un-hidden.
+- State is on the take: `outputs[n].watch` in History (`state` present /
+  deleted / pending / refused, `videoId`, `url`, `title`, `collectionName`,
+  `importedAt`), `watch` on a Productions take.
+- `WATCH_DROP_LOCAL_MP4_DAYS` (default 7; 0 keeps them): days after the watch
+  copy is confirmed before the History MP4 is deleted from MinIO. Thumbnails,
+  posters, inputs and metadata stay (Remix needs them). A dropped take's file
+  route serves the watch copy (presigned R2 URL, fetched by image-api), so
+  History playback and download keep working.
+- `GET /api/watch/sync` (cluster-internal, not proxied): the last pass's counters.
+- Without `WATCH_SERVICE_KEY` the sync is off and nothing else changes.
 
 ## Productions (overnight shots)
 
