@@ -421,12 +421,14 @@ def ffmpeg_command(graph: Graph, script_path: str, output: str, *, fps: float, c
 
 def loop_seam_filter(duration: float, crossfade: float) -> str:
     """Make a seamless loop: the first ``crossfade`` seconds are crossfaded with the
-    ``crossfade`` seconds rendered past the end, so the end flows into the start."""
-    return (f"[0:a]aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo,asplit=2[a][b];"
-            f"[a]atrim=end={num(duration)},asetpts=PTS-STARTPTS,"
+    ``crossfade`` seconds rendered past the end, so the end flows into the start.
+    Expects the take opened twice (inputs 0 and 1): an asplit feeding amix cuts the
+    output short on ffmpeg 6.x."""
+    fmt = f"aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
+    return (f"[0:a]{fmt},atrim=end={num(duration)},asetpts=PTS-STARTPTS,"
             f"afade=t=in:st=0:d={num(crossfade)}:curve=qsin[head];"
-            f"[b]atrim=start={num(duration)}:end={num(duration + crossfade)},asetpts=PTS-STARTPTS,"
-            f"afade=t=out:st=0:d={num(crossfade)}:curve=qsin[tail];"
+            f"[1:a]{fmt},atrim=start={num(duration)}:end={num(duration + crossfade)},asetpts=PTS-STARTPTS,"
+            f"afade=t=out:st=0:d={num(crossfade)}:curve=qsin,apad[tail];"
             f"[head][tail]amix=inputs=2:duration=first:normalize=0[out]")
 
 
@@ -528,7 +530,8 @@ def master_music(raw: str, work: str, *, duration: float, loopable: bool,
     MP3 (LAME V0) and a waveform JPEG. Returns paths and the measured result."""
     shaped = os.path.join(work, "shaped.wav")
     graph = loop_seam_filter(duration, crossfade) if loopable else trim_filter(duration)
-    run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", raw,
+    inputs = ["-i", raw, "-i", raw] if loopable else ["-i", raw]
+    run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", *inputs,
          "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_f32le", shaped])
     return master_wav(shaped, work)
 
