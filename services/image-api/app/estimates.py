@@ -22,6 +22,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any, Callable
 
+from . import image_models as im
 from . import video_workflows as vw
 from .swap_workflows import SEED_RATES as SWAP_SEED_RATES
 
@@ -89,14 +90,16 @@ class Calibration:
         self.seeds = dict(SEED_RATES if seeds is None else seeds)
         self.samples: dict[str, list[float]] = {}
         self.load_samples: list[float] = []
+        # Per-image-model load overhead (image models differ by 3x in size).
+        self.model_loads: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
-    def rate(self, key: str) -> tuple[float, str, int]:
+    def rate(self, key: str, default: float | None = None) -> tuple[float, str, int]:
         with self._lock:
             measured = list(self.samples.get(key, []))[-MAX_SAMPLES:]
         seed = self.seeds.get(key)
         if seed is None:
-            seed = self._nearest_seed(key)
+            seed = default if default is not None else self._nearest_seed(key)
         if not measured:
             return seed, "seeded", 0
         padded = measured + [seed] * max(0, MIN_SAMPLES - len(measured))
@@ -109,14 +112,16 @@ class Calibration:
                 return self.seeds[candidate]
         return FALLBACK_RATE
 
-    def load_seconds(self) -> float:
+    def load_seconds(self, model: str | None = None) -> float:
         with self._lock:
-            recent = self.load_samples[-MAX_SAMPLES:]
+            recent = (self.model_loads.get(model, []) if model else self.load_samples)[-MAX_SAMPLES:]
+        default = IMAGE_LOAD_SEEDS.get(model, MODEL_LOAD_SECONDS) if model else MODEL_LOAD_SECONDS
         if len(recent) < MIN_SAMPLES:
-            recent = recent + [MODEL_LOAD_SECONDS] * (MIN_SAMPLES - len(recent))
+            recent = recent + [default] * (MIN_SAMPLES - len(recent))
         return float(statistics.median(recent))
 
-    def record(self, key: str, rate: float, load_seconds: float | None = None) -> None:
+    def record(self, key: str, rate: float, load_seconds: float | None = None, *,
+               load_model: str | None = None) -> None:
         if rate <= 0 or rate > 10_000:
             return
         with self._lock:
@@ -124,14 +129,15 @@ class Calibration:
             bucket.append(round(rate, 2))
             del bucket[:-MAX_SAMPLES]
             if load_seconds is not None and 0 <= load_seconds < 1800:
-                self.load_samples.append(round(load_seconds, 1))
-                del self.load_samples[:-MAX_SAMPLES]
+                loads = self.model_loads.setdefault(load_model, []) if load_model else self.load_samples
+                loads.append(round(load_seconds, 1))
+                del loads[:-MAX_SAMPLES]
 
     def to_json(self) -> bytes:
         with self._lock:
             return json.dumps({
                 "version": 1, "updatedAt": datetime.now(UTC).isoformat(),
-                "rates": self.samples, "load": self.load_samples,
+                "rates": self.samples, "load": self.load_samples, "modelLoads": self.model_loads,
             }, indent=2).encode()
 
     def load_json(self, body: bytes) -> None:
@@ -140,6 +146,8 @@ class Calibration:
             self.samples = {str(k): [float(x) for x in v][-MAX_SAMPLES:]
                             for k, v in (data.get("rates") or {}).items()}
             self.load_samples = [float(x) for x in (data.get("load") or [])][-MAX_SAMPLES:]
+            self.model_loads = {str(k): [float(x) for x in v][-MAX_SAMPLES:]
+                                for k, v in (data.get("modelLoads") or {}).items()}
 
 
 def estimate_plan(calibration: Calibration, plan: vw.VideoPlan, variants: int) -> dict[str, Any]:
@@ -157,6 +165,63 @@ def estimate_plan(calibration: Calibration, plan: vw.VideoPlan, variants: int) -
         "variants": max(1, variants),
         # Excludes the GPU claim; add claimSeconds when the GPU is not ready.
         "seconds": round(total),
+    }
+
+
+# --- Images -------------------------------------------------------------------
+# An image's GPU time is ``rate x megapixels`` keyed by
+# ``image|model|mode|s{steps}``; the seed rate is per-step x steps (plus a
+# fixed per-image cost for text encoding and VAE decode, folded into the
+# per-step figure at the default step count). Seeds are first estimates for
+# the RTX 5090 and are replaced by measurements after three images per key.
+IMAGE_STEP_SECONDS: dict[str, float] = {
+    # seconds per sampling step per megapixel (warm model)
+    "flux-schnell": 0.6, "z-image-turbo": 0.45, "flux2-klein-4b": 0.5,
+    "qwen-image": 1.3, "qwen-image-edit": 1.6,
+}
+IMAGE_FIXED_SECONDS: dict[str, float] = {
+    # text encoding + VAE decode + PNG, per image
+    "flux-schnell": 2, "z-image-turbo": 2, "flux2-klein-4b": 2, "qwen-image": 4, "qwen-image-edit": 6,
+}
+IMAGE_LOAD_SEEDS: dict[str, float] = {
+    # cold load from the model disk into VRAM, seconds
+    "flux-schnell": 25, "z-image-turbo": 25, "flux2-klein-4b": 20, "qwen-image": 45, "qwen-image-edit": 45,
+}
+
+
+def image_key(plan: im.ImagePlan) -> str:
+    return f"image|{plan.model.id}|{plan.mode}|s{plan.steps}"
+
+
+def image_units(plan: im.ImagePlan) -> float:
+    """Megapixels generated (the rate's denominator); references add encode work."""
+    return max(plan.megapixels, 0.25)
+
+
+def image_seed_rate(plan: im.ImagePlan) -> float:
+    model = plan.model.id
+    per_image = IMAGE_STEP_SECONDS.get(model, 1.0) * plan.steps * max(plan.megapixels, 0.25)
+    per_image += IMAGE_FIXED_SECONDS.get(model, 3) + 1.5 * plan.references
+    return per_image / image_units(plan)
+
+
+def estimate_image(calibration: Calibration, plan: im.ImagePlan, *, warm_model: str | None = None,
+                   images: int = 1) -> dict[str, Any]:
+    """Seconds for an image job once the GPU is held. The model load is added
+    unless ``warm_model`` says the worker last ran this same model."""
+    key = image_key(plan)
+    rate, basis, samples = calibration.rate(key, default=image_seed_rate(plan))
+    per_image = rate * image_units(plan)
+    load = 0.0 if warm_model == plan.model.id else calibration.load_seconds(plan.model.id)
+    return {
+        "key": key, "basis": basis, "samples": samples,
+        "model": plan.model.id, "requestedModel": plan.requested, "mode": plan.mode, "steps": plan.steps,
+        "perImageSeconds": round(per_image, 1),
+        "loadSeconds": round(load),
+        "modelWarm": warm_model == plan.model.id,
+        "claimSeconds": round(CLAIM_SECONDS),
+        # Excludes the GPU claim; add claimSeconds when the GPU is not ready.
+        "seconds": max(1, round(load + per_image * max(1, images))),
     }
 
 

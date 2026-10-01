@@ -9,6 +9,17 @@ Expected file:
 
 - `models/checkpoints/flux1-schnell-fp8.safetensors`
 
+Selectable image models (all Apache-2.0; record in
+`models/manifests/MODELS-image.md`):
+
+- `models/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors` (Qwen-Image-2512)
+- `models/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors` (Qwen-Image-Edit-2511)
+- `models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors`, `models/vae/qwen_image_vae.safetensors`
+- `models/diffusion_models/flux-2-klein-4b.safetensors`, `models/vae/flux2-vae.safetensors` (FLUX.2 Klein 4B;
+  not Klein 9B, which is non-commercial)
+- `models/diffusion_models/z_image_turbo_bf16.safetensors`, `models/vae/ae.safetensors` (Z-Image-Turbo)
+- `models/text_encoders/qwen_3_4b.safetensors` (shared by Klein and Z-Image)
+
 Video (Wan 2.2) files, staged with SHA-256 verification; licences, revisions and
 digests are in `models/manifests/MODELS-wan22.md` on the volume:
 

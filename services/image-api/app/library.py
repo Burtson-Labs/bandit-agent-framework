@@ -58,9 +58,12 @@ INPUT_ROLES = {
     "sourceVideoId": "source",
     "maskId": "mask",
 }
+# List field -> role stem; item n (0-based) is stored as {stem}{n + 2}
+# (input-reference2.png, input-reference3.png, ...).
+LIST_INPUT_ROLES = {"extraReferenceIds": "reference"}
 FILE_NAME = re.compile(
     r"^(?:(?:image|thumb|poster|video)-\d{2}\.(?:png|jpg|mp4)"
-    r"|input-(?:reference|end|source|mask|person-[1-4])\.(?:png|mp4)"
+    r"|input-(?:reference[2-9]?|end|source|mask|person-[1-4])\.(?:png|mp4)"
     r"|metadata\.json)$"
 )
 CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".json": "application/json"}
@@ -552,6 +555,15 @@ class Library:
             name = f"input-{role}{posixpath.splitext(source)[1] or '.png'}"
             if self.store.copy(source, self.item_key(owner, job_id, name), content_type_for(name)):
                 inputs[role] = name
+        for field, stem in LIST_INPUT_ROLES.items():
+            for position, reference_id in enumerate(request.get(field) or []):
+                source = input_keys.get(reference_id) if isinstance(reference_id, str) else None
+                if not source:
+                    continue
+                role = f"{stem}{position + 2}"
+                name = f"input-{role}{posixpath.splitext(source)[1] or '.png'}"
+                if self.store.copy(source, self.item_key(owner, job_id, name), content_type_for(name)):
+                    inputs[role] = name
         return inputs
 
     def backfill(self, owner: str | None = None) -> list[str]:

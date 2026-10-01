@@ -8,9 +8,37 @@ The service has no public ingress and no Kubernetes credentials. Anton authentic
 callers, claims the single GPU, and proxies `/image/generations` and job requests.
 ComfyUI is also ClusterIP-only.
 
-The initial production model is FLUX.1 Schnell because its Apache-2.0 license is
-commercially permissive and its four-step workflow is a good fit for an on-demand
-single RTX 5090. Model files are mounted, not baked into either image.
+Model files are mounted, not baked into either image.
+
+## Image models
+
+`POST /api/images/generations` takes `model` (validated against the registry in
+`app/image_models.py`; `GET /api/images/models` lists it). Every model is
+Apache-2.0; revisions and SHA-256 digests are in
+`/mnt/ai-models/comfyui/manifests/MODELS-image.md` on the model volume.
+
+| `model` | Weights | Tier | Generate | Edit | Refs | Mask | Default / max steps |
+|---|---|---|---|---|---|---|---|
+| `flux2-klein-4b` | FLUX.2 Klein 4B (distilled) | Balanced | yes | reference conditioning | 1-4 | no | 4 / 8 |
+| `qwen-image` | Qwen-Image-2512 fp8 | Quality | yes | runs `qwen-image-edit` | 1-3 | no | 30 / 50 |
+| `qwen-image-edit` | Qwen-Image-Edit-2511 fp8 mixed | Quality edit | no | multi-image edit | 1-3 | no | 20 / 40 |
+| `z-image-turbo` | Z-Image-Turbo bf16 | Fast | yes | img2img (`strength`) | 1 | no | 8 / 16 |
+| `flux-schnell` | FLUX.1 Schnell fp8 (default when omitted) | Classic | yes | img2img (`strength`) | 1 | yes | 4 / 12 |
+
+Further reference images go in `extraReferenceIds` (Picture 2, 3, ... after
+`referenceId`); History keeps them as `input-reference2.png` etc. for remix.
+Canvas 256-2048 px per side in multiples of 64, capped per model (FLUX.1
+Schnell 1536). Impossible combinations (an edit-only model without an image, a
+mask on anything but FLUX.1 Schnell, too many references, steps out of range)
+return 400 at submit time. FLUX.2 Klein 9B is non-commercial and not offered.
+
+Each image records `model`, `requestedModel`, `modelRevision`, `modelDigests`
+(file -> SHA-256), `workflowVersion`, `steps`, `seed`, output `sha256` and
+`seconds`. Estimates: `POST /api/images/estimate` (or `POST /api/videos/estimate`
+with `"kind": "image"`, which Anton already forwards) returns seconds per image
+from the shared self-calibrating estimator (key `image|model|mode|s{steps}`,
+rate per megapixel) plus a per-model cold-load figure, skipped when the worker
+last ran the same model.
 
 ## Video (Wan 2.2)
 

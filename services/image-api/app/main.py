@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Iterable, Literal
+from typing import Annotated, Any, Iterable, Literal
 from urllib.parse import urlencode
 
 import boto3
@@ -24,9 +24,10 @@ import httpx
 from botocore.client import Config
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from . import estimates as est
+from . import image_models as im
 from . import library as lib
 from . import stitch
 from . import swap_workflows as swap
@@ -35,13 +36,16 @@ from . import watch_sync as ws
 from .productions import dispatcher as prod_dispatcher
 from .productions import routes as prod_routes
 from .productions import store as prod_store
-from .workflows import fit_canvas, flux_workflow, validate_dimension
+from .workflows import fit_canvas, validate_dimension
 
 COMFY_URL = os.getenv("COMFYUI_BASE_URL", "http://image-worker:8188").rstrip("/")
 BUCKET = os.getenv("MINIO_BUCKET", "generated-images")
-WORKFLOW_VERSION = "flux-schnell-v1"
-MODEL_DIGEST = os.getenv("FLUX_MODEL_SHA256", "unverified")
-MODEL_LICENSE = "Apache-2.0"
+# Per-image ceiling, including a cold model load (Qwen at 50 steps and 4 MP is
+# the slowest legal request).
+IMAGE_TIMEOUT_SECONDS = max(120, int(os.getenv("IMAGE_TIMEOUT_SECONDS", "1200")))
+# The worker keeps the last model in VRAM; after this long without an image job
+# (or after any video job) the estimate assumes a cold load again.
+WARM_MODEL_SECONDS = max(60, int(os.getenv("WARM_MODEL_SECONDS", "1500")))
 ASSET_TTL_HOURS = max(1, min(int(os.getenv("ASSET_TTL_HOURS", "24")), 168))
 ASSET_TTL = timedelta(hours=ASSET_TTL_HOURS)
 REAPER_INTERVAL_SECONDS = max(60, int(os.getenv("REAPER_INTERVAL_SECONDS", "900")))
@@ -80,10 +84,15 @@ class GenerationRequest(BaseModel):
     # non-square reference onto a mismatched canvas is what mangles logos.
     width: int | None = None
     height: int | None = None
-    model: Literal["flux-schnell"] = "flux-schnell"
-    steps: int = Field(default=4, ge=1, le=12)
+    # See app/image_models.py. qwen-image with a reference runs qwen-image-edit.
+    model: im.ModelId = im.DEFAULT_MODEL
+    # Omitted: the model's default (FLUX.1 Schnell 4, Klein 4, Z-Image 8, Qwen 30/20).
+    steps: int | None = Field(default=None, ge=1, le=50)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     referenceId: str | None = Field(default=None, min_length=8, max_length=64)
+    # Further reference images (Picture 2, 3, ...) for multi-reference models.
+    extraReferenceIds: list[Annotated[str, Field(min_length=8, max_length=64)]] = Field(
+        default_factory=list, max_length=im.MAX_REFERENCES - 1)
     maskId: str | None = Field(default=None, min_length=8, max_length=64)
     strength: float = Field(default=0.72, ge=0.05, le=1.0)
 
@@ -212,6 +221,8 @@ references: dict[str, Reference] = {}
 queue: asyncio.Queue[str] = asyncio.Queue(maxsize=int(os.getenv("QUEUE_CAPACITY", "20")))
 worker_task: asyncio.Task | None = None
 active_job_id: str | None = None
+# (model id, time.monotonic()) of the last finished image job; None after video.
+warm_image_model: tuple[str, float] | None = None
 reaper_task: asyncio.Task | None = None
 calibration = est.Calibration()
 library = lib.Library(lib.S3Store(lambda: s3_client(), BUCKET))
@@ -559,22 +570,89 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
     owner = x_burtson_owner[:200]
     if request.maskId and not request.referenceId:
         raise HTTPException(400, "maskId requires referenceId")
+    if request.extraReferenceIds and not request.referenceId:
+        raise HTTPException(400, "extraReferenceIds requires referenceId")
     width, height = request.width, request.height
     if request.referenceId:
         reference = owned_reference(request.referenceId, owner, expected_kind="reference")
         if width is None or height is None:
             width, height = fit_canvas(reference.width, reference.height)
+    for extra in request.extraReferenceIds:
+        owned_reference(extra, owner, expected_kind="reference")
     if request.maskId:
         owned_reference(request.maskId, owner, expected_kind="mask")
-    job_id = uuid.uuid4().hex
     payload = request.model_dump()
     payload["width"] = width or 1024
     payload["height"] = height or 1024
+    try:
+        plan = image_plan(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    payload["requestedModel"] = request.model
+    payload["model"] = plan.model.id
+    payload["steps"] = plan.steps
+    payload["strength"] = plan.strength
+    payload["plan"] = plan.describe()
     payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
+    payload["estimate"] = est.estimate_image(calibration, plan, warm_model=current_warm_model())
+    job_id = uuid.uuid4().hex
     job = Job(id=job_id, owner=owner, request=payload)
     jobs[job_id] = job
     await queue.put(job_id)
     return public_job(job)
+
+
+def image_plan(request: dict) -> im.ImagePlan:
+    """Validated plan for an image request dict (submit, estimate, queue ETA)."""
+    references = (1 if request.get("referenceId") else 0) + len(request.get("extraReferenceIds") or [])
+    return im.plan_image(
+        request.get("requestedModel") or request["model"], width=request["width"], height=request["height"],
+        steps=request.get("steps"), references=references, mask=bool(request.get("maskId")),
+        strength=request.get("strength"),
+    )
+
+
+def current_warm_model() -> str | None:
+    if warm_image_model is None:
+        return None
+    model, finished = warm_image_model
+    return model if time.monotonic() - finished < WARM_MODEL_SECONDS else None
+
+
+@app.get("/api/images/models")
+async def list_image_models() -> dict:
+    """The image model registry (labels, licences, capabilities, step ranges)."""
+    return {"default": im.DEFAULT_MODEL, "models": [model.public() for model in im.MODELS.values()]}
+
+
+class ImageEstimateRequest(BaseModel):
+    """What the image form currently says; uploads are counted, not required."""
+    model: im.ModelId = im.DEFAULT_MODEL
+    width: int = 1024
+    height: int = 1024
+    steps: int | None = Field(default=None, ge=1, le=50)
+    references: int = Field(default=0, ge=0, le=im.MAX_REFERENCES)
+    hasMask: bool = False
+
+    @field_validator("width", "height")
+    @classmethod
+    def valid_dimension(cls, value: int) -> int:
+        return validate_dimension(value)
+
+
+@app.post("/api/images/estimate")
+async def estimate_image(request: ImageEstimateRequest) -> dict:
+    """Seconds one image should take once the GPU is held (claimSeconds extra when it is not).
+
+    Invalid combinations come back as {"valid": false, "error": ...}.
+    """
+    try:
+        plan = im.plan_image(request.model, width=request.width, height=request.height, steps=request.steps,
+                             references=request.references, mask=request.hasMask)
+    except ValueError as exc:
+        return {"valid": False, "error": str(exc)}
+    return {"valid": True, "kind": "image", "label": plan.model.label,
+            **est.estimate_image(calibration, plan, warm_model=current_warm_model())}
 
 
 @app.post("/api/videos/generations", status_code=202)
@@ -887,37 +965,63 @@ async def record_in_library(job: Job) -> None:
 
 
 async def execute(job: Job) -> None:
+    global warm_image_model
     request = job.request
     job.status = "running"
     job.updatedAt = datetime.now(UTC).isoformat()
+    plan = image_plan(request)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=30)) as client:
         if not await wait_for_worker(client, job):
             return
-        reference_name = await upload_comfy_reference(client, job, request.get("referenceId"))
+        reference_names = []
+        for reference_id in [request.get("referenceId"), *(request.get("extraReferenceIds") or [])]:
+            if reference_id:
+                reference_names.append(await upload_comfy_reference(client, job, reference_id))
         mask_name = await upload_comfy_reference(client, job, request.get("maskId"))
-        workflow = flux_workflow(
-            request["prompt"], request["width"], request["height"], request["steps"], request["seed"],
-            reference_name=reference_name, mask_name=mask_name, strength=request.get("strength", 0.72),
-        )
-        submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
-        submitted.raise_for_status()
-        prompt_id = submitted.json()["prompt_id"]
-        job.comfyPromptId = prompt_id
-        while True:
-            if job.cancelRequested:
-                await client.post(f"{COMFY_URL}/interrupt")
-                job.status = "cancelled"
-                return
-            await asyncio.sleep(2)
-            history = await client.get(f"{COMFY_URL}/history/{prompt_id}")
-            history.raise_for_status()
-            entry = history.json().get(prompt_id)
-            if entry:
-                break
-        outputs = entry.get("outputs", {}).get("7", {}).get("images", [])
+        workflow = im.build_workflow(plan, request["prompt"], request["seed"], reference_names=reference_names,
+                                     mask_name=mask_name, filename_prefix=f"burtson-image/{job.id}")
+        warm = current_warm_model() == plan.model.id
+        base = {"variant": 1, "variants": 1, "model": plan.model.id}
+        job.progress = {**base, "stage": "loading_model" if not warm else "encoding_prompt", "percent": 0}
+        job.samplingStartedAt = None
+        started = time.monotonic()
+        watcher = asyncio.create_task(
+            watch_progress(job, [(im.sampler_node(plan), plan.steps)], plan.steps, base))
+        try:
+            submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
+            if submitted.status_code >= 400:
+                raise RuntimeError(f"ComfyUI rejected the {plan.model.label} workflow: {submitted.text[:600]}")
+            prompt_id = submitted.json()["prompt_id"]
+            job.comfyPromptId = prompt_id
+            deadline = started + IMAGE_TIMEOUT_SECONDS
+            while True:
+                if job.cancelRequested:
+                    await client.post(f"{COMFY_URL}/interrupt")
+                    job.status = "cancelled"
+                    return
+                if time.monotonic() > deadline:
+                    await client.post(f"{COMFY_URL}/interrupt")
+                    raise TimeoutError(f"image exceeded {IMAGE_TIMEOUT_SECONDS} s")
+                await asyncio.sleep(1)
+                history = await client.get(f"{COMFY_URL}/history/{prompt_id}")
+                history.raise_for_status()
+                entry = history.json().get(prompt_id)
+                if entry:
+                    break
+        finally:
+            watcher.cancel()
+        finished = time.monotonic()
+        status = entry.get("status", {})
+        if status.get("status_str") == "error":
+            raise RuntimeError(f"ComfyUI failed: {comfy_error(status)}")
+        outputs = entry.get("outputs", {}).get(im.OUTPUT_NODE, {}).get("images", [])
         if not outputs:
             raise RuntimeError("ComfyUI completed without an image output")
+        warm_image_model = (plan.model.id, finished)
+        record_image_timing(plan, started, job.samplingStartedAt, finished, warm=warm)
+        job.progress = {**base, "stage": "uploading", "percent": 95}
         created = datetime.now(UTC)
+        digests = im.model_files(plan)
         for index, image in enumerate(outputs, start=1):
             response = await client.get(f"{COMFY_URL}/view", params=image)
             response.raise_for_status()
@@ -928,19 +1032,50 @@ async def execute(job: Job) -> None:
             job.images.append({
                 "url": f"/image/jobs/{job.id}/assets/{index - 1}", "key": key,
                 "width": request["width"], "height": request["height"],
-                "model": request["model"], "seed": request["seed"], "workflowVersion": WORKFLOW_VERSION,
-                "modelDigest": MODEL_DIGEST, "modelLicense": MODEL_LICENSE,
-                "expiresAt": job.expiresAt, "mode": "edit" if reference_name else "generate",
+                "model": plan.model.id, "modelLabel": plan.model.label, "requestedModel": plan.requested,
+                "modelRevision": plan.model.revision, "seed": request["seed"], "steps": plan.steps,
+                "workflowVersion": plan.model.workflow_version,
+                "modelDigests": digests,
+                # Kept for older readers: the main weights file's digest.
+                "modelDigest": next(iter(digests.values()), "unverified"),
+                "modelLicense": plan.model.license,
+                "sha256": hashlib.sha256(response.content).hexdigest(),
+                "expiresAt": job.expiresAt, "mode": plan.mode, "references": plan.references,
+                "seconds": round(finished - started, 1),
             })
         metadata_key = f"v1/tenant/{safe_owner(job.owner)}/{created:%Y/%m/%d}/{job.id}/metadata.json"
         metadata = json.dumps({
             "jobId": job.id, "owner": job.owner, "createdAt": job.createdAt,
-            "request": request, "workflowVersion": WORKFLOW_VERSION,
-            "modelDigest": MODEL_DIGEST, "modelLicense": MODEL_LICENSE,
+            "request": request, "workflowVersion": plan.model.workflow_version,
+            "model": plan.model.id, "modelRevision": plan.model.revision,
+            "modelDigests": digests, "modelLicense": plan.model.license,
+            "comfyuiWorkflow": "server-owned; see workflowVersion",
             "expiresAt": job.expiresAt, "images": job.images,
         }, indent=2).encode()
         await asyncio.to_thread(upload, metadata_key, metadata, "application/json", datetime.fromisoformat(job.expiresAt))
+        job.progress = {**base, "stage": "completed", "percent": 100}
         job.status = "completed"
+
+
+def record_image_timing(plan: im.ImagePlan, started: float, sampling_started: float | None, finished: float,
+                        *, warm: bool) -> None:
+    """Feed a finished image back into the estimator and persist the stats.
+
+    The per-image rate covers first sampler step -> saved image. Time before
+    the first step is the model load on a cold worker (recorded per model) and
+    prompt encoding on a warm one (folded into the rate's seed, not recorded).
+    """
+    if sampling_started is None:
+        if not warm:
+            return  # cannot split load from sampling without the progress stream
+        sampling_started = started
+    load = None if warm else max(0.0, sampling_started - started)
+    calibration.record(est.image_key(plan), (finished - sampling_started) / est.image_units(plan), load,
+                       load_model=plan.model.id)
+    try:
+        asyncio.get_running_loop().run_in_executor(None, write_stats)
+    except RuntimeError:
+        write_stats()
 
 
 async def upload_comfy_reference(client: httpx.AsyncClient, job: Job, reference_id: str | None) -> str | None:
@@ -968,7 +1103,9 @@ async def execute_video(job: Job) -> None:
     A variant that fails after earlier ones succeeded leaves the job completed
     with the delivered takes and an error note, rather than discarding them.
     """
+    global warm_image_model
     request = job.request
+    warm_image_model = None  # video loads other weights
     if is_swap(request):
         await execute_swap(job)
         return
@@ -1108,6 +1245,19 @@ class EstimateRequest(BaseModel):
 
 
 @app.post("/api/videos/estimate")
+async def estimate_any(body: dict) -> dict:
+    """The studio estimator. ``{"kind": "image", ...}`` estimates an image
+    (Anton already forwards this route, so the image form needs no new proxy);
+    anything else is a video estimate."""
+    try:
+        if body.get("kind") == "image":
+            fields = {key: value for key, value in body.items() if key != "kind"}
+            return await estimate_image(ImageEstimateRequest(**fields))
+        return await estimate_video(EstimateRequest(**body))
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors(include_url=False, include_context=False)) from exc
+
+
 async def estimate_video(request: EstimateRequest) -> dict:
     """Seconds a job with these settings should take, excluding the GPU claim.
 
@@ -1160,7 +1310,11 @@ def estimate_swap(request: EstimateRequest) -> dict:
 def estimate_job_seconds(job: Job) -> float:
     """Seconds a whole job should take once the GPU is ready."""
     if job.kind != "video":
-        return 20.0
+        try:
+            plan = image_plan(job.request)
+        except (ValueError, KeyError):
+            return 20.0
+        return float(est.estimate_image(calibration, plan, warm_model=current_warm_model())["seconds"])
     if is_swap(job.request):
         try:
             return float(swap.estimate(calibration, swap_plan(job.request))["seconds"])
@@ -1773,7 +1927,7 @@ def pending_input_keys() -> list[str]:
         if job.status in {"queued", "running"}:
             ids = [job.request.get(field) for field in ("referenceId", "endReferenceId", "sourceVideoId", "maskId")]
             ids += [subject.get("referenceId") for subject in job.request.get("subjects") or []]
-            for reference_id in ids:
+            for reference_id in ids + list(job.request.get("extraReferenceIds") or []):
                 reference = references.get(reference_id or "")
                 if reference:
                     keys += [reference.key, reference_record_key(reference.owner, reference.id)]

@@ -5,8 +5,9 @@ from typing import Any
 
 
 def validate_dimension(value: int) -> int:
-    if value < 256 or value > 1536 or value % 64:
-        raise ValueError("must be 256-1536 and divisible by 64")
+    # The chosen model may cap this further (FLUX.1 Schnell: 1536).
+    if value < 256 or value > 2048 or value % 64:
+        raise ValueError("must be 256-2048 and divisible by 64")
     return value
 
 
