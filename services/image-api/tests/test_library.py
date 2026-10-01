@@ -96,6 +96,8 @@ class RecordTests(unittest.TestCase):
         self.assertNotIn("plan", item["request"])
         self.assertEqual(item["inputs"], {"reference": "input-reference.png"})
         self.assertEqual([o["seed"] for o in item["outputs"]], [42, 1042])
+        self.assertEqual([o["seedText"] for o in item["outputs"]], ["42", "1042"])
+        self.assertEqual(item["seedText"], "42")
         self.assertEqual(item["elapsedSeconds"], 240.0)
         self.assertEqual(item["mode"], "image-to-video")
         self.assertFalse(item["favorite"])
@@ -298,6 +300,22 @@ class EndpointTests(unittest.TestCase):
         job = main.Job(id="running00001", owner=OWNER, status="running", request={"prompt": "x"})
         asyncio.run(main.record_in_library(job))
         self.assertFalse(main.library.has(OWNER, "running00001"))
+
+
+class SeedTests(unittest.TestCase):
+    def tearDown(self):
+        main.jobs.clear()
+        while not main.queue.empty():
+            main.queue.get_nowait()
+
+    def test_random_seeds_fit_a_javascript_number_and_carry_text(self):
+        job = asyncio.run(main.generate(main.GenerationRequest(prompt="a brass robot"), x_burtson_owner=OWNER))
+        self.assertLess(job["request"]["seed"], 2**53)
+        self.assertEqual(job["seedText"], str(job["request"]["seed"]))
+
+    def test_big_seed_as_string_is_accepted_exactly(self):
+        request = main.VideoRequest.model_validate({"prompt": "a lighthouse", "seed": "3458764513820540928"})
+        self.assertEqual(request.seed, 3458764513820540928)
 
 
 class ReaperTests(unittest.TestCase):

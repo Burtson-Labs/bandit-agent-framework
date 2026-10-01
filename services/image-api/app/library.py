@@ -463,6 +463,11 @@ def clean_name(name: str) -> str:
 
 def public_item(item: dict) -> dict:
     value = {key: content for key, content in item.items() if key not in {"owner", "assetFiles"}}
+    # Older seeds reach 2^62; browsers parse JSON numbers as doubles.
+    value["outputs"] = [{**output, "seedText": None if output.get("seed") is None else str(output["seed"])}
+                        for output in item.get("outputs") or []]
+    seed = (item.get("request") or {}).get("seed")
+    value["seedText"] = None if seed is None else str(seed)
     started, completed = item.get("startedAt"), item.get("completedAt")
     if started and completed:
         try:

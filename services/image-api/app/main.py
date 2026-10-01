@@ -49,6 +49,9 @@ VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
 WORKER_WAIT_SECONDS = max(60, int(os.getenv("WORKER_WAIT_SECONDS", "600")))
 MAX_SOURCE_BYTES = max(1, int(os.getenv("MAX_SOURCE_MIB", "200"))) * 1024 * 1024
 logger = logging.getLogger("burtson.image_api")
+# Random seeds stay below 2^53 (less room for per-take/segment offsets) so a
+# browser can hold them exactly; responses also carry `seedText`.
+JS_SAFE_SEED = 2**53 - 100_000
 
 
 class GenerationRequest(BaseModel):
@@ -431,7 +434,7 @@ async def generate(request: GenerationRequest, x_burtson_owner: str = Header(def
     payload = request.model_dump()
     payload["width"] = width or 1024
     payload["height"] = height or 1024
-    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**63)
+    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
     job = Job(id=job_id, owner=owner, request=payload)
     jobs[job_id] = job
     await queue.put(job_id)
@@ -452,7 +455,7 @@ async def generate_video(request: VideoRequest, x_burtson_owner: str = Header(de
     payload["sourceFrames"] = source.frames if source else 0
     payload["sourceSha256"] = source.sha256 if source else None
     payload["sourceOriginalSha256"] = source.originalSha256 if source else None
-    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, 2**62)
+    payload["seed"] = request.seed if request.seed is not None else random.randrange(0, JS_SAFE_SEED)
     if payload["accelerated"] is None:
         payload["accelerated"] = not request.sourceVideoId
     if payload["preserveText"] is None:
@@ -589,6 +592,11 @@ def public_job(job: Job) -> dict:
         {field: content for field, content in image.items() if field != "key"}
         for image in value["images"]
     ]
+    for output in value["images"] + value["videos"]:
+        if output.get("seed") is not None:
+            output["seedText"] = str(output["seed"])
+    if value["request"].get("seed") is not None:
+        value["seedText"] = str(value["request"]["seed"])
     return value
 
 
