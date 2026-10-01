@@ -73,6 +73,60 @@ per-file model SHA-256, output SHA-256).
 idle reaper keeps the GPU claimed in that state so a long video is never cut off
 because its caller stopped polling.
 
+## Audio (music, uploads, Finish video)
+
+Videos come out finished with sound: music, narration and the take's own audio,
+mixed on the CPU. Models and licences are in
+`/mnt/ai-models/comfyui/manifests/MODELS-audio.md`.
+
+- **Music**: ACE-Step 1.5 turbo (MIT; text embedding Qwen3-Embedding-0.6B,
+  Apache-2.0) on ComfyUI's native ACE-Step 1.5 nodes at the pinned commit
+  (`app/audio_workflows.py`, workflow `ace15-turbo-v1`, model alias
+  `music-ace15`). `POST /api/audio/generations` (Anton: `POST /image/audio`,
+  auto-claims the GPU) queues a job (`kind: "audio"`) on the shared GPU queue:
+  `prompt`, `genre`, `mood`, `bpm` (40-220), `keyscale` ("C major"),
+  `timeSignature`, `durationSeconds` (3-240), `instrumental` or `lyrics`
+  (section tags like `[Verse]`), `language`, `loopable` (renders 4 s extra and
+  crossfades the tail into the head), `seed`, `variants` (1-4), `title`,
+  `collection` (watch collection name). Each take is mastered on the CPU to a
+  48 kHz 16-bit stereo WAV at -16 LUFS / -1.5 dBTP (two-pass loudnorm), a LAME
+  V0 MP3 and a waveform JPEG; assets per take are WAV, MP3, waveform.
+  `POST /api/audio/estimate` works like the video estimate (own calibration,
+  `v1/stats/audio-timings.json`).
+- **Sound effects** are not available: no candidate passed the licence bar
+  (MMAudio CC-BY-NC; ThinkSound research-only with a Stability community VAE;
+  HunyuanVideo-Foley Tencent community licence; Stable Audio 3 SFX Stability
+  community licence). `kind: "sfx"` and a finish `sfx` field are refused with
+  the reason; `GET /api/audio/capabilities` reports it.
+- **Narration** comes from the gateway (`POST /api/stealth/tts`, local Heart
+  and friends or Kokoro), called by the client with its own token; the audio is
+  uploaded with `POST /api/audio/sources` (raw body, 60 MiB, probed, stored as
+  48 kHz WAV with the upload TTL; Anton: `POST /image/audio/sources`).
+  `POST /api/audio/library` keeps an upload in History (`mode: "narration"` or
+  `"upload"`).
+- **Finish video**: `POST /api/finish` (Anton: `POST /image/finish`, auto-claims
+  only when `music.prompt` asks for a generated bed) queues a CPU job on its own
+  queue (one at a time, never holds the GPU): a History video take plus any of
+  a music bed (History audio item, upload, or a prompt generated to fit),
+  narration lines (`audioId`, `text`, `voice`, `startSeconds` or sequential),
+  the take's own audio (`originalAudio`), `levels`
+  (`voice-forward` bed -24 dB / `balanced` -20 / `music-forward` -15),
+  `captions` (narration text burned in, timed by line length), fades, `fit`
+  (`audio` holds the last frame until the narration ends), and logo bookends
+  (a real logo uploaded with `kind=logo`, centred on a solid card). The mix
+  (`app/mix.py`) is the walkthrough recipe: each line gained to speech at -16
+  LUFS, the bed set from its measured loudness under the voice, looped with
+  crossfades, faded, ducked by a sidechain compressor keyed on the voice, and a
+  -1.5 dBTP limiter over the sum. The video stream is copied unless captions,
+  bookends, fades or a held frame need a re-encode. The result is a History
+  video item with `mode: "finished"` (`outputs[0].mix` has the levels and the
+  measured loudness; narration, music and logo inputs are kept as
+  `input-*.wav/png`), imported to watch like any take. `POST /api/finish/estimate`
+  estimates it; `/health/ready` reports `finishJobs`.
+- History lists audio items (`kind=audio`); every audio take is imported to watch
+  as `studio:{jobId}:audio{n}` (the WAV; watch makes the playback file and
+  waveform).
+
 ## Estimates, queue and GPU handling
 
 - `POST /api/videos/estimate` (Anton: `POST /image/videos/estimate`) takes the
