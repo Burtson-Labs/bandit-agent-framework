@@ -33,6 +33,7 @@ import { createProvider, getModelCapabilities, type ProviderSettings, buildExten
 import { CliToolExecutionContext } from '../cliToolContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
+import { writeRunTrace } from './traceOut';
 import type {
   EvalReport,
   Fixture,
@@ -50,6 +51,8 @@ export interface RunnerProvider {
    *  the VS Code extension's identity + operational prompt so we can
    *  run the same fixtures under both hosts and compare. */
   variant?: 'cli' | 'extension';
+  /** When set, each run's full transcript is written here as a canonical training example. */
+  traceOut?: string;
 }
 
 /**
@@ -212,6 +215,20 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     const result = await loop.runWithMessages(seedMessages, chat, systemPrompt, { emitEvent });
 
     const evalResult = evaluateRun(toolCalls, result.iterations, result.finalResponse, fixture.assertions);
+
+    if (provider.traceOut) {
+      await writeRunTrace(provider.traceOut, {
+        fixtureId: fixture.id,
+        runNumber,
+        model: provider.model,
+        systemPrompt,
+        tools: registry.buildNativeToolsSchema(),
+        messages: result.messages,
+        hitLimit: result.hitLimit,
+        passed: evalResult.passed,
+        failureReasons: evalResult.reasons
+      }).catch(err => process.stderr.write(`bandit eval: trace-out failed: ${err instanceof Error ? err.message : String(err)}\n`));
+    }
 
     return {
       runNumber,

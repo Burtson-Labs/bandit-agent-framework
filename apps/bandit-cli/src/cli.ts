@@ -6000,6 +6000,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (rawArgs[0] === 'train') {
+    // Burtson Training Studio, data side: collect + scrub locally, inspect, upload.
+    const { runTrainCommand } = await import('./training/command');
+    const version = (require('../package.json') as { version: string }).version;
+    process.exit(await runTrainCommand(rawArgs.slice(1), process.cwd(), version));
+  }
+
   if (rawArgs[0] === 'artifact') {
     // Publish a local file as a shareable Bandit Artifact (cloud) → prints a URL.
     const { runArtifactCommand } = await import('./artifactCommand');

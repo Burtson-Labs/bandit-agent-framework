@@ -1,0 +1,8 @@
+# Burtson Training Studio — scrub denylist (scrub-v1)
+# Copy to ~/.bandit/training/denylist.txt and replace the placeholders with real terms.
+# One term per line. "person:" terms become [PERSON], everything else [CLIENT].
+# Matching is case-insensitive on whole words. Never commit the real list.
+client: Example Client Co
+client: example-client-portal
+person: Jane Placeholder
+person: John Placeholder

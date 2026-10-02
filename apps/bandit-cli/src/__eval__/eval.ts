@@ -9,8 +9,14 @@
  *
  * Flags:
  *   --filter <substr>   only run fixtures whose id contains the substring
- *   --provider <kind>   override provider (ollama|bandit)
+ *   --provider <kind>   override provider (ollama|bandit|openai-compatible)
  *   --model <name>      override model
+ *   --base-url <url>    openai-compatible: the served model's …/v1 base URL
+ *                       (vLLM, llama.cpp server, LM Studio)
+ *   --api-key <key>     openai-compatible: bearer key, if the server wants one
+ *   --trace-out <dir>   write every run's full transcript in the Training Studio
+ *                       canonical format (passed/failureReasons in labels) —
+ *                       verifiable-reward data and the worker's eval capture
  *   --runs <N>          override the per-fixture run count (default 3)
  *   --out <path>        markdown output path (default .bandit/eval-report.md)
  *   --json-out <path>   ALSO write a machine-readable JSON report (off by
@@ -32,8 +38,14 @@ import type { Fixture } from './types';
 
 interface EvalArgs {
   filter?: string;
-  provider?: 'ollama' | 'bandit';
+  provider?: 'ollama' | 'bandit' | 'openai-compatible';
   model?: string;
+  /** openai-compatible only: base URL (…/v1) of a served model, e.g. vLLM or llama.cpp server. */
+  baseUrl?: string;
+  /** openai-compatible only: bearer key (optional for local servers). */
+  apiKey?: string;
+  /** Directory for full per-run transcripts in the Training Studio canonical format. */
+  traceOut?: string;
   runs?: number;
   out: string;
   /** Optional machine-readable report path. Absent = not written. */
@@ -60,7 +72,10 @@ function parseArgs(argv: string[]): EvalArgs {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--filter') args.filter = argv[++i];
-    else if (a === '--provider') args.provider = argv[++i] as 'ollama' | 'bandit';
+    else if (a === '--provider') args.provider = argv[++i] as 'ollama' | 'bandit' | 'openai-compatible';
+    else if (a === '--base-url') args.baseUrl = argv[++i];
+    else if (a === '--api-key') args.apiKey = argv[++i];
+    else if (a === '--trace-out') args.traceOut = argv[++i];
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
     else if (a === '--out') args.out = argv[++i];
@@ -105,8 +120,16 @@ async function main(): Promise<void> {
   const fileConfig = await loadConfigFiles(cwd);
   const resolved = resolveConfig(fileConfig, {
     provider: args.provider,
-    model: args.model
+    model: args.model,
+    openaiBaseUrl: args.baseUrl,
+    openaiApiKey: args.apiKey,
+    openaiModel: args.provider === 'openai-compatible' ? args.model : undefined
   });
+
+  if (resolved.provider === 'openai-compatible' && (!resolved.openaiBaseUrl || !resolved.model)) {
+    process.stderr.write('bandit eval: --provider openai-compatible needs --base-url <…/v1> and --model <name>. Aborting.\n');
+    process.exit(1);
+  }
 
   if (resolved.provider === 'bandit' && !resolved.apiKey) {
     process.stderr.write('bandit eval: BANDIT_API_KEY required for provider=bandit. Aborting.\n');
@@ -121,14 +144,18 @@ async function main(): Promise<void> {
     ollamaModel: resolved.provider === 'ollama' ? resolved.model : undefined,
     ollamaHeaders: resolved.provider === 'ollama' && Object.keys(resolved.ollamaHeaders).length > 0
       ? resolved.ollamaHeaders
-      : undefined
+      : undefined,
+    openaiBaseUrl: resolved.provider === 'openai-compatible' ? resolved.openaiBaseUrl : undefined,
+    openaiApiKey: resolved.provider === 'openai-compatible' ? resolved.openaiApiKey : undefined,
+    openaiModel: resolved.provider === 'openai-compatible' ? resolved.model : undefined
   };
 
   const provider: RunnerProvider = {
     kind: resolved.provider,
     model: resolved.model,
     settings,
-    variant: args.variant ?? 'cli'
+    variant: args.variant ?? 'cli',
+    traceOut: args.traceOut
   };
 
   // Discover workspace fixtures alongside the built-in set unless the caller
