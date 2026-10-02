@@ -1,0 +1,10 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+httpx==0.28.1
+boto3==1.40.39
+pydantic==2.11.9
+python-multipart==0.0.20
+pymongo==4.18.2
+PyJWT==2.10.1
+kubernetes==33.1.0
+tzdata==2026.4
