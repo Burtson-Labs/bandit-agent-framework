@@ -36,11 +36,11 @@ class Base(unittest.TestCase):
         self.client = TestClient(main.app)
         self.admin = bearer()
 
-    def upload(self, examples, *, headers=None, manifest=None, report=None):
+    def upload(self, examples, *, headers=None, manifest=None, report=None, snake=False):
         files = {"manifest": ("manifest.json", json.dumps(manifest or {"name": "cli sessions", "scrubVersion": "scrub-v1"})),
                  "examples": ("examples.jsonl.gz", gz(examples), "application/gzip")}
         if report is not None:
-            files["scrubReport"] = ("scrub-report.json", json.dumps(report))
+            files["scrub_report" if snake else "scrubReport"] = ("scrub-report.json", json.dumps(report))
         return self.client.post("/api/datasets", files=files, headers=headers or self.admin)
 
     def dataset(self, n=20, **kw):
@@ -92,6 +92,12 @@ class DatasetTests(Base):
         detail = self.client.get(f"/api/datasets/{body['id']}", headers=self.admin).json()
         self.assertEqual(detail["scrubReport"]["totals"], {"secret": 4})
         self.assertEqual(detail["name"], "cli sessions")
+
+    def test_the_cli_field_name_for_the_scrub_report_is_accepted(self):
+        res = self.upload([example(i) for i in range(3)], report={"totals": {"email": 2}}, snake=True)
+        self.assertEqual(res.status_code, 201, res.text)
+        detail = self.client.get(f"/api/datasets/{res.json()['id']}", headers=self.admin).json()
+        self.assertEqual(detail["scrubReport"]["totals"], {"email": 2})
 
     def test_unscrubbed_or_malformed_examples_are_rejected(self):
         bad = example(1)

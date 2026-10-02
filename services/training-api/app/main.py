@@ -121,10 +121,13 @@ async def get_catalog(_: auth.Caller = Depends(auth.admin)) -> dict:
 @app.post("/api/datasets", status_code=201)
 async def upload_dataset(manifest: UploadFile = File(...), examples: UploadFile = File(...),
                          scrubReport: UploadFile | None = File(default=None),
+                         scrub_report: UploadFile | None = File(default=None),
                          caller: auth.Caller = Depends(auth.uploader)) -> dict:
     ready()
     manifest_raw = await manifest.read()
-    report_raw = await scrubReport.read() if scrubReport else None
+    # `bandit train upload` sends scrub_report; scrubReport is kept for other clients.
+    report = scrub_report or scrubReport
+    report_raw = await report.read() if report else None
     doc = await asyncio.to_thread(ds.ingest, state.store, state.db, owner=caller.owner, manifest_raw=manifest_raw,
                                   examples_gz=examples.file, scrub_report_raw=report_raw, max_bytes=MAX_DATASET_BYTES)
     return {"id": doc["_id"], "stats": doc["stats"], "rejected": doc["rejectedCount"],
