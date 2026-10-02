@@ -21,10 +21,17 @@ class Api:
     def _url(self, path: str) -> str:
         return f"{self.base}/internal/runs/{self.run_id}/{path}"
 
-    def spec(self) -> dict:
-        res = self.client.get(self._url("spec"))
-        res.raise_for_status()
-        return res.json()
+    def spec(self, *, attempts: int = 30) -> dict:
+        # The first call races the NetworkPolicy for this new pod; retry connection errors briefly.
+        for attempt in range(attempts):
+            try:
+                res = self.client.get(self._url("spec"))
+                res.raise_for_status()
+                return res.json()
+            except httpx.ConnectError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(2)
 
     def post(self, path: str, body: dict, *, retries: int = 5) -> dict:
         for attempt in range(retries):

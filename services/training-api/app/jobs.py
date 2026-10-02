@@ -10,6 +10,19 @@ def job_name(run: dict) -> str:
     return f"train-{base}-a{int(run.get('attempt') or 1)}"[:63].rstrip("-")
 
 
+WAIT_FOR_API = (
+    "import os, time, urllib.request\n"
+    "url = os.environ['TRAINING_API_URL'].rstrip('/') + '/health/live'\n"
+    "for i in range(90):\n"
+    "    try:\n"
+    "        urllib.request.urlopen(url, timeout=3); print('training-api reachable after', i * 2, 's'); break\n"
+    "    except Exception:\n"
+    "        time.sleep(2)\n"
+    "else:\n"
+    "    raise SystemExit('training-api unreachable for 180 s')\n"
+)
+
+
 def job_manifest(run: dict, token: str, *, image: str, namespace: str, api_url: str) -> dict:
     name = job_name(run)
     env = [
@@ -49,6 +62,15 @@ def job_manifest(run: dict, token: str, *, image: str, namespace: str, api_url: 
                     "nodeSelector": {"kubernetes.io/hostname": os.getenv("TRAINING_NODE", "son-of-anton")},
                     "tolerations": [{"key": "dedicated", "operator": "Equal", "value": "ai", "effect": "NoSchedule"}],
                     "terminationGracePeriodSeconds": 120,
+                    # k3s applies the training-api NetworkPolicy to a new pod's IP a few seconds after it
+                    # starts; until then connections are refused. Wait for training-api before the worker
+                    # runs (same image, so nothing extra to pull).
+                    "initContainers": [{
+                        "name": "wait-for-api", "image": image, "imagePullPolicy": "IfNotPresent",
+                        "command": ["python3", "-c", WAIT_FOR_API],
+                        "env": [{"name": "TRAINING_API_URL", "value": api_url}],
+                        "resources": {"requests": {"cpu": "50m", "memory": "64Mi"}},
+                    }],
                     "containers": [{
                         "name": "worker", "image": image, "imagePullPolicy": "IfNotPresent",
                         "args": ["--run", run["_id"]] + (["--smoke"] if run.get("smoke") else []),
