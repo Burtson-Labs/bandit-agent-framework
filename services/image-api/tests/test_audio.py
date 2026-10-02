@@ -59,8 +59,41 @@ class MusicPlanTests(unittest.TestCase):
             aw.plan_music(prompt="pop song", seed=1, duration_seconds=30, instrumental=False)
         song = aw.plan_music(prompt="pop song", seed=1, duration_seconds=30, instrumental=False,
                              lyrics="[Verse]\nhello")
-        self.assertEqual(song.lyrics, "[Verse]\nhello")
+        self.assertEqual(song.lyrics, "[Verse]\nhello\n\n[Outro]")   # an ending is always asked for
         self.assertEqual(song.bpm, aw.DEFAULT_BPM_SONG)
+        self.assertIn(aw.ENDING_TAG, song.tags)
+        self.assertEqual(song.render_seconds, 30 + aw.ENDING_TAIL_SECONDS)
+        self.assertEqual(song.ending, (21.0, 36.0))
+        kept = aw.plan_music(prompt="pop song", seed=1, duration_seconds=30, instrumental=False,
+                             lyrics="[Verse]\nhello\n[Outro]\nbye")
+        self.assertEqual(kept.lyrics, "[Verse]\nhello\n[Outro]\nbye")
+        with self.assertRaisesRegex(ValueError, "cannot be loopable"):
+            aw.plan_music(prompt="pop song", seed=1, duration_seconds=30, instrumental=False, lyrics="x", loopable=True)
+
+    def test_song_length_from_lyrics_and_limits(self):
+        words = "\n".join(["[Intro]", "[Verse 1]"] + [f"line number {i}" for i in range(16)]
+                          + ["[Chorus]"] + [f"chorus line {i}" for i in range(8)] + ["[Guitar Solo]", "[Outro]"])
+        song = aw.plan_music(prompt="rock", seed=1, duration_seconds=None, instrumental=False, lyrics=words, bpm=120)
+        # 24 lines x 2 bars + intro 8 + solo 16 + outro 8 = 80 bars of 4/4 at 120 bpm = 160 s, +10 % = 176 s
+        self.assertEqual(song.duration_seconds, 176.0)
+        self.assertTrue(song.duration_derived)
+        self.assertTrue(song.describe()["durationDerived"])
+        short = aw.plan_music(prompt="rock", seed=1, duration_seconds=None, instrumental=False, lyrics="hi", bpm=120)
+        self.assertEqual(short.duration_seconds, 60.0)
+        long = aw.plan_music(prompt="rock", seed=1, duration_seconds=None, instrumental=False,
+                             lyrics="\n".join(f"l {i}" for i in range(400)), bpm=60)
+        self.assertEqual(long.duration_seconds, aw.SONG_MAX_SECONDS)
+        self.assertEqual(aw.plan_music(prompt="rock", seed=1, duration_seconds=350, instrumental=False,
+                                       lyrics="hi").duration_seconds, 350)
+        with self.assertRaisesRegex(ValueError, "for a song"):
+            aw.plan_music(prompt="rock", seed=1, duration_seconds=361, instrumental=False, lyrics="hi")
+        with self.assertRaises(ValueError):
+            aw.plan_music(prompt="bed", seed=1, duration_seconds=300)
+        bed = aw.plan_music(prompt="bed", seed=1, duration_seconds=None)
+        self.assertEqual((bed.duration_seconds, bed.render_seconds, bed.ending), (30.0, 30.0, (27.0, 30.0)))
+        loop = aw.plan_music(prompt="bed", seed=1, duration_seconds=30, loopable=True)
+        self.assertIsNone(loop.ending)
+        self.assertNotIn(aw.ENDING_TAG, loop.tags)
 
     def test_limits(self):
         for seconds in (2.9, 241):
@@ -184,7 +217,10 @@ class MusicRouteTests(unittest.TestCase):
             asyncio.run(main.generate_music(main.MusicRequest(prompt="a song", instrumental=False),
                                             x_burtson_owner=OWNER, idempotency_key=None))
         with self.assertRaises(ValidationError):
-            main.MusicRequest(prompt="x y z", durationSeconds=300)
+            main.MusicRequest(prompt="x y z", durationSeconds=400)
+        with self.assertRaises(HTTPException):     # 300 s is a song length; instrumentals stop at 240
+            asyncio.run(main.generate_music(main.MusicRequest(prompt="x y z", durationSeconds=300),
+                                            x_burtson_owner=OWNER, idempotency_key=None))
         with self.assertRaises(ValidationError):
             main.MusicRequest(prompt="x y z", bpm=500)
 

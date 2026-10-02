@@ -32,6 +32,7 @@ from . import image_models as im
 from . import library as lib
 from . import stitch
 from . import swap_workflows as swap
+from . import lyrics as lyr
 from . import mix
 from . import video_workflows as vw
 from . import watch_sync as ws
@@ -78,6 +79,11 @@ MONGO_DB = os.getenv("MONGO_DB", "burtson_studio")
 PRODUCTIONS_PREFIX = "v1/productions"
 # Every finished take is imported into watch (see app/watch_sync.py). Off without a key.
 WATCH_URL = os.getenv("WATCH_URL", "http://watch.watch.svc.cluster.local")
+# Song lyric timing: stt-api (whisper) in-cluster, authenticated with X-Stt-Service-Key.
+# No key = songs complete without timed lyrics (lyrics.source "none").
+STT_URL = os.getenv("STT_URL", "http://stt-api.stt-api.svc.cluster.local:8000").rstrip("/")
+STT_SERVICE_KEY = os.getenv("STT_SERVICE_KEY", "")
+STT_TIMEOUT_SECONDS = float(os.getenv("STT_TIMEOUT_SECONDS", "600"))
 WATCH_SERVICE_KEY = os.getenv("WATCH_SERVICE_KEY", "")
 WATCH_SYNC_SECONDS = max(15, int(os.getenv("WATCH_SYNC_SECONDS", "60")))
 # Days to keep a History MP4 in MinIO after watch confirmed its copy; 0 keeps it.
@@ -1351,7 +1357,8 @@ def estimate_job_seconds(job: Job) -> float:
         return float(est.estimate_music(audio_calibration, float(job.request.get("durationSeconds") or 30),
                                         int(job.request.get("variants") or 1),
                                         loopable=bool(job.request.get("loopable")),
-                                        model=job.request.get("model") or aw.DEFAULT_MUSIC_MODEL)["seconds"])
+                                        model=job.request.get("model") or aw.DEFAULT_MUSIC_MODEL,
+                                        song=job.request.get("instrumental") is False)["seconds"])
     if job.kind == "finish":
         return float((job.request.get("estimate") or {}).get("seconds") or 60.0)
     if job.kind != "video":
@@ -2284,7 +2291,8 @@ class MusicRequest(BaseModel):
     bpm: int | None = Field(default=None, ge=40, le=220)
     keyscale: str | None = Field(default=None, max_length=12)
     timeSignature: Literal["2", "3", "4", "6"] = "4"
-    durationSeconds: float = Field(default=30.0, ge=aw.MIN_SECONDS, le=aw.MAX_SECONDS)
+    # Instrumental default 30 s (max 240); a song may omit it and get a length from its lyrics (max 360).
+    durationSeconds: float | None = Field(default=None, ge=aw.MIN_SECONDS, le=aw.SONG_MAX_SECONDS)
     instrumental: bool = True
     lyrics: str | None = Field(default=None, max_length=4000)
     language: str = Field(default="en", max_length=8)
@@ -2301,11 +2309,15 @@ class MusicRequest(BaseModel):
 
 
 class MusicEstimateRequest(BaseModel):
-    durationSeconds: float = Field(default=30.0, gt=0, le=600)
+    durationSeconds: float | None = Field(default=None, gt=0, le=600)
     variants: int = Field(default=1, ge=1, le=4)
     instrumental: bool = True
     loopable: bool = False
     model: aw.MusicModelAlias | None = None
+    # A song without durationSeconds: the length is estimated from these.
+    lyrics: str | None = Field(default=None, max_length=4000)
+    bpm: int | None = Field(default=None, ge=40, le=220)
+    timeSignature: Literal["2", "3", "4", "6"] = "4"
 
 
 class TakeRef(BaseModel):
@@ -2392,6 +2404,8 @@ async def audio_capabilities() -> dict:
                               "workflowVersion": model.workflow_version, "steps": model.steps,
                               "default": model.alias == aw.DEFAULT_MUSIC_MODEL} for model in aw.MUSIC_MODELS.values()],
                   "minSeconds": aw.MIN_SECONDS, "maxSeconds": aw.MAX_SECONDS,
+                  "songMaxSeconds": aw.SONG_MAX_SECONDS, "songLengthFromLyrics": True,
+                  "endingTailSeconds": aw.ENDING_TAIL_SECONDS, "timedLyrics": bool(STT_SERVICE_KEY),
                   "maxVariants": 4, "languages": list(aw.LANGUAGES), "timeSignatures": list(aw.TIME_SIGNATURES),
                   "keyscales": list(aw.KEYSCALES), "loopCrossfadeSeconds": aw.LOOP_CROSSFADE_SECONDS},
         "sfx": {"available": False, "reason": aw.SFX_UNAVAILABLE_REASON},
@@ -2406,7 +2420,8 @@ async def audio_capabilities() -> dict:
 def music_plan_from(request: dict, variant: int) -> aw.MusicPlan:
     return aw.plan_music(
         prompt=request["prompt"], seed=int(request["seed"]) + variant * 1000,
-        duration_seconds=float(request["durationSeconds"]), instrumental=bool(request["instrumental"]),
+        duration_seconds=None if request.get("durationSeconds") is None else float(request["durationSeconds"]),
+        instrumental=bool(request["instrumental"]),
         lyrics=request.get("lyrics"), genre=request.get("genre"), mood=request.get("mood"), bpm=request.get("bpm"),
         keyscale=request.get("keyscale"), time_signature=request.get("timeSignature") or "4",
         language=request.get("language") or "en", loopable=bool(request.get("loopable")),
@@ -2438,7 +2453,9 @@ def create_music_job(request: MusicRequest, owner: str, *, idempotency_key: str 
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     payload["plan"] = plan.describe()
+    payload["durationSeconds"] = plan.duration_seconds
     payload["estimate"] = est.estimate_music(audio_calibration, plan.duration_seconds, request.variants, model=plan.model,
+                                             song=not plan.instrumental,
                                              loopable=plan.loopable)
     if origin:
         payload["origin"] = origin
@@ -2452,13 +2469,26 @@ def create_music_job(request: MusicRequest, owner: str, *, idempotency_key: str 
 
 @app.post("/api/audio/estimate")
 async def estimate_audio(request: MusicEstimateRequest) -> dict:
-    if not (aw.MIN_SECONDS <= request.durationSeconds <= aw.MAX_SECONDS):
-        return {"valid": False, "error": f"duration must be {aw.MIN_SECONDS:g}-{aw.MAX_SECONDS:g} s"}
-    if request.loopable and request.durationSeconds < aw.LOOP_CROSSFADE_SECONDS * 3:
-        return {"valid": False, "error": f"a loopable track must be at least {aw.LOOP_CROSSFADE_SECONDS * 3:g} s"}
-    return {"valid": True, **est.estimate_music(audio_calibration, request.durationSeconds, request.variants,
-                                                model=request.model or aw.DEFAULT_MUSIC_MODEL,
-                                                loopable=request.loopable)}
+    song = not request.instrumental
+    limit = aw.SONG_MAX_SECONDS if song else aw.MAX_SECONDS
+    duration = request.durationSeconds
+    derived = False
+    if duration is None:
+        if song and (request.lyrics or "").strip():
+            duration = lyr.estimate_song_seconds(lyr.ensure_outro(request.lyrics), request.bpm or aw.DEFAULT_BPM_SONG,
+                                                 request.timeSignature, max_seconds=limit)
+            derived = True
+        else:
+            duration = aw.DEFAULT_INSTRUMENTAL_SECONDS
+    if not (aw.MIN_SECONDS <= duration <= limit):
+        return {"valid": False, "error": f"duration must be {aw.MIN_SECONDS:g}-{limit:g} s"}
+    if request.loopable and (song or duration < aw.LOOP_CROSSFADE_SECONDS * 3):
+        return {"valid": False, "error": "a song cannot loop" if song
+                else f"a loopable track must be at least {aw.LOOP_CROSSFADE_SECONDS * 3:g} s"}
+    return {"valid": True, "durationDerived": derived,
+            **est.estimate_music(audio_calibration, duration, request.variants,
+                                 model=request.model or aw.DEFAULT_MUSIC_MODEL,
+                                 loopable=request.loopable, song=song)}
 
 
 MUSIC_SILENT_RETRIES = 2
@@ -2516,15 +2546,32 @@ async def execute_music(job: Job) -> None:
             if failed:
                 break
             number = variant + 1
+            song_lyrics = None
+            if not plan.instrumental:
+                job.progress = {**(job.progress or {}), "stage": "timing_lyrics"}
+                song_lyrics = await time_lyrics(mastered["mp3Bytes"], plan, request.get("language") or "en")
             keys = [f"{prefix}/audio-{number:02d}.wav", f"{prefix}/audio-{number:02d}.mp3", f"{prefix}/wave-{number:02d}.jpg"]
+            bodies = [(mastered["wavBytes"], "audio/wav"), (mastered["mp3Bytes"], "audio/mpeg"),
+                      (mastered["waveBytes"], "image/jpeg")]
+            if song_lyrics and song_lyrics.get("lines"):
+                keys.append(f"{prefix}/lyrics-{number:02d}.lrc")
+                bodies.append((lyr.to_lrc(song_lyrics["lines"], title=request.get("title")).encode(),
+                               "text/plain; charset=utf-8"))
             job.progress = {**(job.progress or {}), "stage": "uploading"}
-            for key, body, content_type in zip(keys, (mastered["wavBytes"], mastered["mp3Bytes"], mastered["waveBytes"]),
-                                               ("audio/wav", "audio/mpeg", "image/jpeg")):
+            for key, (body, content_type) in zip(keys, bodies):
                 await asyncio.to_thread(upload, key, body, content_type, expires_at)
+            base = len(job.assetKeys)
             job.assetKeys.extend(keys)
             record_music_timing(plan, take_started, job.samplingStartedAt, first=variant == 0)
-            base = len(job.assetKeys) - 3
+            extra_fields: dict[str, Any] = {}
+            if song_lyrics is not None:
+                extra_fields["lyrics"] = song_lyrics
+                if len(keys) > 3:
+                    extra_fields["lrcUrl"] = f"/image/jobs/{job.id}/assets/{base + 3}"
+            if mastered.get("naturalEnding") is not None:
+                extra_fields["naturalEnding"] = mastered["naturalEnding"]
             job.audios.append({
+                **extra_fields,
                 "url": f"/image/jobs/{job.id}/assets/{base}", "mp3Url": f"/image/jobs/{job.id}/assets/{base + 1}",
                 "waveformUrl": f"/image/jobs/{job.id}/assets/{base + 2}",
                 "variant": number, "seed": plan.seed, "model": plan.model, "mode": "music",
@@ -2545,6 +2592,33 @@ async def execute_music(job: Job) -> None:
     await asyncio.to_thread(upload, f"{prefix}/metadata.json", metadata, "application/json", expires_at)
     job.progress = {**(job.progress or {}), "stage": "completed", "percent": 100}
     job.status = "completed"
+
+
+async def time_lyrics(audio: bytes, plan: aw.MusicPlan, language: str) -> dict:
+    """Timed lyrics for a finished song take, per the studio contract:
+    {"text", "lines": [{"t", "end", "text"}] | None, "source": "aligned" | "none"}.
+    Never raises: without stt-api (or a usable transcript) the lines are None."""
+    result = {"text": plan.lyrics, "lines": None, "source": "none"}
+    lines = lyr.sung_lines(plan.lyrics)
+    if not STT_SERVICE_KEY or not lines:
+        return result
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(STT_TIMEOUT_SECONDS, connect=10)) as client:
+            response = await client.post(
+                f"{STT_URL}/api/transcribe", headers={"X-Stt-Service-Key": STT_SERVICE_KEY},
+                files={"file": ("song.mp3", audio, "audio/mpeg")},
+                data={"word_timestamps": "true", "initial_prompt": "\n".join(lines),
+                      "language": language if language and language != "unknown" else ""})
+        if response.status_code != 200:
+            logger.warning("lyrics: stt-api answered %s", response.status_code)
+            return result
+        timed = lyr.align(lines, lyr.words_from_transcript(response.json()))
+    except Exception as exc:  # timing is a bonus; the song is the result
+        logger.warning("lyrics: timing failed (%s: %s)", type(exc).__name__, str(exc)[:200])
+        return result
+    if timed:
+        result.update(lines=timed, source="aligned")
+    return result
 
 
 async def run_music_prompt(client: httpx.AsyncClient, job: Job, plan: aw.MusicPlan, variant: int) -> bytes:
@@ -2593,7 +2667,8 @@ def master_music_bytes(raw: bytes, plan: aw.MusicPlan) -> dict:
         source = os.path.join(work, "raw.flac")
         with open(source, "wb") as handle:
             handle.write(raw)
-        result = mix.master_music(source, work, duration=plan.duration_seconds, loopable=plan.loopable)
+        result = mix.master_music(source, work, duration=plan.duration_seconds, loopable=plan.loopable,
+                                  ending=plan.ending)
         return read_mastered(result)
 
 

@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from . import lyrics as lyr
+
 TEXT_ENCODER = "qwen_0.6b_ace15.safetensors"
 VAE = "ace_1.5_vae.safetensors"
 MODEL_LICENSE = "MIT"
@@ -72,7 +74,13 @@ def music_model(alias: str | None) -> MusicModel:
 
 
 MIN_SECONDS = 3.0
-MAX_SECONDS = 240.0
+MAX_SECONDS = 240.0          # instrumental tracks (beds, loops, stings)
+SONG_MAX_SECONDS = 360.0     # songs with lyrics (ACE-Step 1.5 handles up to 600 s)
+DEFAULT_INSTRUMENTAL_SECONDS = 30.0
+# Songs render this much past their length so the model can finish; mastering then
+# ends the take at its natural decay (mix.find_ending).
+ENDING_TAIL_SECONDS = 6.0
+ENDING_TAG = "clean full ending"
 # Loopable tracks render this much extra and crossfade the tail into the head.
 LOOP_CROSSFADE_SECONDS = 4.0
 INSTRUMENTAL_LYRICS = "[Instrumental]"
@@ -109,9 +117,12 @@ class MusicPlan:
     time_signature: str
     language: str
     duration_seconds: float   # what the user gets
-    render_seconds: float     # what the model generates (adds the loop overlap)
+    render_seconds: float     # what the model generates (adds the loop overlap / ending tail)
     loopable: bool
     model: str = DEFAULT_MUSIC_MODEL
+    # (earliest, latest) seconds the take may end at; None for loops.
+    ending: tuple[float, float] | None = None
+    duration_derived: bool = False     # durationSeconds came from the lyrics
 
     @property
     def spec(self) -> MusicModel:
@@ -124,6 +135,8 @@ class MusicPlan:
             "timeSignature": self.time_signature, "language": self.language,
             "durationSeconds": self.duration_seconds, "renderSeconds": self.render_seconds,
             "loopable": self.loopable, "steps": self.spec.steps, "cfg": self.spec.cfg,
+            "durationDerived": self.duration_derived,
+            "ending": None if self.ending is None else {"earliest": self.ending[0], "latest": self.ending[1]},
         }
 
 
@@ -144,13 +157,15 @@ def default_keyscale(mood: str | None, prompt: str) -> str:
     return "A minor" if minor else "C major"
 
 
-def plan_music(*, prompt: str, seed: int, duration_seconds: float, instrumental: bool = True,
+def plan_music(*, prompt: str, seed: int, duration_seconds: float | None, instrumental: bool = True,
                lyrics: str | None = None, genre: str | None = None, mood: str | None = None,
                bpm: int | None = None, keyscale: str | None = None, time_signature: str = "4",
                language: str = "en", loopable: bool = False, model: str | None = None) -> MusicPlan:
-    """Validate and resolve one music take. Raises ValueError for impossible requests."""
-    if not (MIN_SECONDS <= duration_seconds <= MAX_SECONDS):
-        raise ValueError(f"durationSeconds must be {MIN_SECONDS:g}-{MAX_SECONDS:g}")
+    """Validate and resolve one music take. Raises ValueError for impossible requests.
+
+    A song (instrumental=False) may omit duration_seconds: it is estimated from the
+    lyrics (lyrics.estimate_song_seconds). Non-loop takes get an ending window and the
+    "clean full ending" caption; songs also get an [Outro] and a rendered tail."""
     if time_signature not in TIME_SIGNATURES:
         raise ValueError("timeSignature must be one of 2, 3, 4, 6")
     if language not in LANGUAGES:
@@ -161,18 +176,43 @@ def plan_music(*, prompt: str, seed: int, duration_seconds: float, instrumental:
     words = (lyrics or "").strip()
     if not instrumental and not words:
         raise ValueError("lyrics are required for a song (or set instrumental)")
+    if not instrumental and loopable:
+        raise ValueError("a song cannot be loopable")
+    limit = MAX_SECONDS if instrumental else SONG_MAX_SECONDS
+    resolved_bpm = bpm or (DEFAULT_BPM_INSTRUMENTAL if instrumental else DEFAULT_BPM_SONG)
+    derived = False
+    if not instrumental:
+        words = lyr.ensure_outro(words)
+    if duration_seconds is None:
+        if instrumental:
+            duration_seconds = DEFAULT_INSTRUMENTAL_SECONDS
+        else:
+            duration_seconds = lyr.estimate_song_seconds(words, resolved_bpm, time_signature, max_seconds=limit)
+            derived = True
+    if not (MIN_SECONDS <= duration_seconds <= limit):
+        raise ValueError(f"durationSeconds must be {MIN_SECONDS:g}-{limit:g}"
+                         + ("" if instrumental else " for a song"))
     if loopable and duration_seconds < LOOP_CROSSFADE_SECONDS * 3:
         raise ValueError(f"a loopable track must be at least {LOOP_CROSSFADE_SECONDS * 3:g} s")
     tags = music_tags(prompt, genre, mood)
     if instrumental and "instrumental" not in tags.lower():
         tags = f"{tags}, instrumental"
-    resolved_bpm = bpm or (DEFAULT_BPM_INSTRUMENTAL if instrumental else DEFAULT_BPM_SONG)
-    render = duration_seconds + (LOOP_CROSSFADE_SECONDS if loopable else 0.0)
+    ending = None
+    if not loopable:
+        if ENDING_TAG not in tags.lower():
+            tags = f"{tags}, {ENDING_TAG}"
+        if instrumental:   # beds keep their length: a natural end in the last few seconds, else a fade
+            ending = (round(max(duration_seconds - 3.0, duration_seconds * 0.9), 2), round(duration_seconds, 2))
+        else:              # songs end where the music ends, within reason
+            ending = (round(duration_seconds * 0.7, 2), round(duration_seconds + ENDING_TAIL_SECONDS, 2))
+    tail = LOOP_CROSSFADE_SECONDS if loopable else (0.0 if instrumental else ENDING_TAIL_SECONDS)
+    render = duration_seconds + tail
     return MusicPlan(
         prompt=prompt, tags=tags, lyrics=INSTRUMENTAL_LYRICS if instrumental else words, instrumental=instrumental,
         seed=int(seed), bpm=int(resolved_bpm), keyscale=keyscale or default_keyscale(mood, prompt),
         time_signature=time_signature, language=language, duration_seconds=round(float(duration_seconds), 2),
         render_seconds=round(float(render), 2), loopable=loopable, model=spec.alias,
+        ending=ending, duration_derived=derived,
     )
 
 

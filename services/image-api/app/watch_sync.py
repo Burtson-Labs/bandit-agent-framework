@@ -162,11 +162,25 @@ def history_metadata(item: dict, output: dict, tag: str) -> dict:
     }
     if is_audio:
         metadata["studio"]["kind"] = "audio"
+        song = song_lyrics(output, request)
+        if song:
+            metadata["lyrics"] = song
     if collection:
         # e.g. the starter set: {"key": "studio:stock-audio", "name": "Burtson Stock Audio"}
         metadata["collection"] = {"key": f"studio:collection:{TAG_PART.sub('-', collection)[:80].lower()}",
                                   "name": short(collection, 120)}
     return metadata
+
+
+def song_lyrics(output: dict, request: dict) -> dict | None:
+    """{"text", "lines"} for a song take: the timed lyrics when image-api aligned them,
+    else the lyrics as sent (lines None). Instrumental takes have none."""
+    timed = output.get("lyrics") or {}
+    if timed.get("text"):
+        return {"text": timed["text"], "lines": timed.get("lines") or None}
+    if request.get("instrumental", True) is False and (request.get("lyrics") or "").strip():
+        return {"text": request["lyrics"], "lines": None}
+    return None
 
 
 def production_title(production: dict | None, episode: dict | None, scene: dict | None, shot: dict | None,

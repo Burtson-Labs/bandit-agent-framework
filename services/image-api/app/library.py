@@ -63,13 +63,13 @@ INPUT_ROLES = {
 LIST_INPUT_ROLES = {"extraReferenceIds": "reference"}
 FILE_NAME = re.compile(
     r"^(?:(?:image|thumb|poster|video)-\d{2}\.(?:png|jpg|mp4)"
-    r"|audio-\d{2}\.(?:wav|mp3)"
+    r"|audio-\d{2}\.(?:wav|mp3)|lyrics-\d{2}\.lrc"
     r"|input-(?:reference[2-9]?|end|source|mask|person-[1-4])\.(?:png|mp4)"
     r"|input-(?:music|logo|narration-\d{2})\.(?:wav|png)"
     r"|metadata\.json)$"
 )
 CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".json": "application/json",
-                 ".wav": "audio/wav", ".mp3": "audio/mpeg"}
+                 ".wav": "audio/wav", ".mp3": "audio/mpeg", ".lrc": "text/plain; charset=utf-8"}
 # metadata.json "kind" -> History kind. A finished (mixed) video is a video take.
 HISTORY_KIND = {"finish": "video"}
 
@@ -518,7 +518,17 @@ class Library:
                     logger.warning("library: audio take %s of %s is gone; skipped", number, job_id)
                     continue
                 asset_files += [f.name for f in files]
+                song = {}
+                if audio.get("lyrics"):
+                    song["lyrics"] = audio["lyrics"]
+                    lrc = TakeFile(f"{tenant_dir}/lyrics-{number:02d}.lrc", f"lyrics-{number:02d}.lrc")
+                    if audio["lyrics"].get("lines") and self._copy_all(owner, job_id, [lrc]):
+                        asset_files.append(lrc.name)
+                        song["lrc"] = lrc.name
+                if audio.get("naturalEnding") is not None:
+                    song["naturalEnding"] = audio["naturalEnding"]
                 takes.append({
+                    **song,
                     "index": position, "variant": number, "kind": "audio",
                     "file": files[0].name, "mp3": files[1].name, "poster": None, "thumb": files[2].name,
                     "seed": audio.get("seed"), "durationSeconds": audio.get("durationSeconds"),

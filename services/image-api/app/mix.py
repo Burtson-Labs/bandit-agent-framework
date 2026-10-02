@@ -432,6 +432,72 @@ def loop_seam_filter(duration: float, crossfade: float) -> str:
             f"[head][tail]amix=inputs=2:duration=first:normalize=0[out]")
 
 
+ENVELOPE_RATE = 8000          # Hz the level envelope is measured at (plenty for an ending)
+ENVELOPE_WINDOW = 0.05        # s per RMS window
+ENDING_DROP_DB = 20.0         # "the music has stopped" = this far under the loud level
+ENDING_RELEASE = 1.5          # s of decay kept after the last loud moment
+ENDING_FADE = 3.0             # s fade when the take is still playing at the cut
+
+
+def level_envelope(samples, rate: int = ENVELOPE_RATE, window: float = ENVELOPE_WINDOW):
+    """RMS level per window in dBFS (numpy array)."""
+    import numpy as np
+    size = max(1, int(rate * window))
+    count = len(samples) // size
+    if count == 0:
+        return np.array([-120.0])
+    frames = np.asarray(samples[:count * size], dtype=np.float64).reshape(count, size)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    return 20.0 * np.log10(np.maximum(rms, 1e-6))
+
+
+def find_ending(levels, *, window: float, earliest: float, latest: float,
+                drop_db: float = ENDING_DROP_DB) -> tuple[float, float, bool]:
+    """(end, fade, natural) for a take's level envelope.
+
+    The loud level is the 95th percentile. If the music decays (stays ``drop_db`` under
+    it) somewhere in [earliest, latest], the take ends ``ENDING_RELEASE`` after its last
+    loud moment, fading over that decay only: a natural ending, never cut mid-phrase.
+    If it is still playing at ``latest`` (or decays before ``earliest``), it ends at
+    ``latest`` (or ``earliest``) with a longer fade."""
+    import numpy as np
+    levels = np.asarray(levels, dtype=np.float64)
+    total = len(levels) * window
+    latest = min(latest, total)
+    earliest = min(max(0.0, earliest), latest)
+    loud = float(np.percentile(levels, 95))
+    active = np.nonzero(levels[: int(round(latest / window))] >= loud - drop_db)[0]
+    if active.size == 0:
+        return latest, ENDING_FADE, False
+    last_loud = (int(active[-1]) + 1) * window
+    if last_loud < latest - window and last_loud + ENDING_RELEASE >= earliest:
+        end = min(latest, last_loud + ENDING_RELEASE)
+        # The fade runs over the decay only (from the last loud moment), so no note is cut.
+        return round(end, 3), max(0.05, end - last_loud), True
+    if last_loud < earliest:
+        return round(earliest, 3), min(ENDING_FADE, earliest), False
+    return round(latest, 3), min(ENDING_FADE, latest), False
+
+
+def take_ending(raw: str, *, earliest: float, latest: float) -> tuple[float, float, bool]:
+    """Decode a take's level envelope with ffmpeg and find its ending."""
+    import numpy as np
+    pcm = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", raw, "-vn", "-ac", "1",
+                          "-ar", str(ENVELOPE_RATE), "-f", "f32le", "-"], capture_output=True, timeout=300)
+    if pcm.returncode != 0 or not pcm.stdout:
+        return latest, ENDING_FADE, False
+    samples = np.frombuffer(pcm.stdout, dtype=np.float32)
+    return find_ending(level_envelope(samples), window=ENVELOPE_WINDOW, earliest=earliest, latest=latest)
+
+
+def ending_filter(end: float, fade: float) -> str:
+    """Cut at ``end`` with a fade of ``fade`` seconds into it (and a click-free start)."""
+    fade = max(0.05, min(fade, end))
+    return (f"[0:a]aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo,"
+            f"atrim=end={num(end)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.01,"
+            f"afade=t=out:st={num(max(0.0, end - fade))}:d={num(fade)}:curve=qsin[out]")
+
+
 def trim_filter(duration: float) -> str:
     """A plain take: cut to length with click-free edges (the model writes its own ending)."""
     return (f"[0:a]aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo,"
@@ -525,15 +591,28 @@ def waveform_command(source: str, output: str, *, width: int = 640, height: int 
 
 
 def master_music(raw: str, work: str, *, duration: float, loopable: bool,
-                 crossfade: float = LOOP_CROSSFADE) -> dict[str, Any]:
+                 crossfade: float = LOOP_CROSSFADE, ending: tuple[float, float] | None = None) -> dict[str, Any]:
     """ACE-Step output -> delivery files: WAV 48 kHz s16 stereo at -16 LUFS / -1.5 dBTP,
-    MP3 (LAME V0) and a waveform JPEG. Returns paths and the measured result."""
+    MP3 (LAME V0) and a waveform JPEG. Returns paths and the measured result.
+
+    ``ending`` = (earliest, latest) seconds: a non-loop take ends at its natural decay
+    inside that window, or fades out at its edge (see find_ending)."""
     shaped = os.path.join(work, "shaped.wav")
-    graph = loop_seam_filter(duration, crossfade) if loopable else trim_filter(duration)
+    natural = None
+    if loopable:
+        graph = loop_seam_filter(duration, crossfade)
+    elif ending is not None:
+        end, fade, natural = take_ending(raw, earliest=ending[0], latest=ending[1])
+        graph = ending_filter(end, fade)
+    else:
+        graph = trim_filter(duration)
     inputs = ["-i", raw, "-i", raw] if loopable else ["-i", raw]
     run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", *inputs,
          "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_f32le", shaped])
-    return master_wav(shaped, work)
+    result = master_wav(shaped, work)
+    if natural is not None:
+        result["naturalEnding"] = natural
+    return result
 
 
 def master_wav(source: str, work: str, *, normalise: bool = True) -> dict[str, Any]:

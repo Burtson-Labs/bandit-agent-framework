@@ -263,8 +263,14 @@ def audio_calibration() -> Calibration:
     return Calibration(AUDIO_SEED_RATES, default_load=MUSIC_LOAD_SECONDS, fallback_rate=1.0)
 
 
-def music_render_seconds(duration: float, loopable: bool) -> float:
-    return duration + (4.0 if loopable else 0.0)
+# Songs render a 6 s tail for their ending, then stt-api (whisper on the CPU) times the
+# lyrics: roughly half real time with word timestamps on son-of-anton's cores.
+SONG_TAIL_SECONDS = 6.0
+LYRICS_SECONDS_PER_SECOND = float(os.getenv("LYRICS_SECONDS_PER_SECOND", "0.5"))
+
+
+def music_render_seconds(duration: float, loopable: bool, song: bool = False) -> float:
+    return duration + (4.0 if loopable else SONG_TAIL_SECONDS if song else 0.0)
 
 
 def music_key(model: str | None) -> str:
@@ -272,16 +278,19 @@ def music_key(model: str | None) -> str:
 
 
 def estimate_music(calibration: Calibration, duration: float, variants: int = 1, *, loopable: bool = False,
-                   model: str | None = None) -> dict[str, Any]:
+                   model: str | None = None, song: bool = False) -> dict[str, Any]:
     key = music_key(model)
     rate, basis, samples = calibration.rate(key)
-    per_take = rate * music_render_seconds(duration, loopable) + 4.0  # + mastering and upload
+    lyrics_seconds = LYRICS_SECONDS_PER_SECOND * duration if song else 0.0
+    # + mastering and upload (+ lyric timing for songs)
+    per_take = rate * music_render_seconds(duration, loopable, song) + 4.0 + lyrics_seconds
     load = calibration.load_seconds()
     total = load + per_take * max(1, variants)
     return {
         "key": key, "basis": basis, "samples": samples, "ratePerSecond": round(rate, 2),
         "perTakeSeconds": round(per_take), "loadSeconds": round(load), "claimSeconds": round(CLAIM_SECONDS),
-        "variants": max(1, variants), "seconds": round(total),
+        "variants": max(1, variants), "seconds": round(total), "durationSeconds": round(duration, 2),
+        **({"lyricsSeconds": round(lyrics_seconds)} if song else {}),
     }
 
 
