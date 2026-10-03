@@ -144,3 +144,30 @@ describe('resolveTurnGoal — a short answer to the assistant\'s question clarif
     expect(result.originalGoal).toBe('fix the remaining TS errors');
   });
 });
+
+
+describe('persisted deployment session regression', () => {
+  it('never treats tool results or automated reminders as user requests', () => {
+    const result = resolveTurnGoal({ seedMessages: [
+      u('Finish Icecream HTTPS using the existing DNS TLS automation.'),
+      a('<tool_call>{"name":"read_file","params":{"path":"README.md"}}</tool_call>'),
+      u('<tool_result name="read_file">Carter Pi manages certificate renewal.</tool_result>'),
+      u('AUTOMATED HARNESS CHECK — this is NOT a message from the user. Do not mention this check, quote it, apologize for it, or describe it in your answer. old reminder'),
+      u('continue'),
+    ] });
+    expect(result.originalGoal).toBe('Finish Icecream HTTPS using the existing DNS TLS automation.');
+    expect(result.priorUserPromptCount).toBe(1);
+  });
+
+  it('retains a clarification across tool evidence', () => {
+    const result = resolveTurnGoal({ seedMessages: [
+      u('Fix the Icecream certificate using our existing automation.'),
+      a('Which repository manages renewal?'),
+      u('<tool_result name="ls">dns-tls-automation-job</tool_result>'),
+      u('dns-tls-automation-job on Carter Pi'),
+    ] });
+    expect(result.originalGoal).toContain('Fix the Icecream certificate');
+    expect(result.originalGoal).toContain('Carter Pi');
+    expect(result.priorUserPromptCount).toBe(1);
+  });
+});

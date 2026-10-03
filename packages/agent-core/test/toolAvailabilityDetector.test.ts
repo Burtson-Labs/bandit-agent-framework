@@ -128,3 +128,35 @@ describe('false-positive guards (2026-06-12 local-repo regression)', () => {
     expect(buildToolAvailabilityNudge(result)).toMatch(/^AUTOMATED HARNESS CHECK/);
   });
 });
+
+
+describe('shell-backed deployment capabilities', () => {
+  it.each([
+    ['I cannot run git commands here.', 'git'],
+    ["I can't execute kubectl in this environment.", 'kubectl'],
+    ["I don't have access to Kubernetes commands.", 'kubectl'],
+    ["I do not have a GitHub CLI tool. Run this yourself.", 'gh'],
+    ['gh is not available here.', 'gh'],
+  ])('probes unsupported absence claim: %s', (text, command) => {
+    const result = detectFalseToolAbsence(text, ['run_command']);
+    expect(result.commandProbes).toContain(command);
+    expect(buildToolAvailabilityNudge(result)).toContain('read-only');
+    expect(buildToolAvailabilityNudge(result)).toContain('Respect permission');
+  });
+
+  it('does not infer shell access when the host has no shell tool', () => {
+    expect(detectFalseToolAbsence('I cannot run kubectl here.', ['read_file']).detected).toBe(false);
+  });
+
+  it('does not repeatedly challenge an actual attempt', () => {
+    expect(detectFalseToolAbsence('I cannot run kubectl: permission denied.', ['run_command'], new Set(['kubectl'])).detected).toBe(false);
+  });
+
+  it('does not confuse separate completion and failure statements', () => {
+    expect(detectFalseToolAbsence('I ran git successfully. I cannot access the billing dashboard.', ['run_command']).detected).toBe(false);
+  });
+
+  it('does not treat quoted code as a capability claim', () => {
+    expect(detectFalseToolAbsence('The test fixture says: ```I cannot run kubectl```', ['run_command']).detected).toBe(false);
+  });
+});

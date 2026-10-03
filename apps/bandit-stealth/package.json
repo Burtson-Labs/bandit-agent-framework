@@ -1,8 +1,8 @@
 {
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
-  "description": "Free, local-first coding agent for VS Code — run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.451",
+  "description": "Free, local-first coding agent for VS Code \u2014 run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
+  "version": "1.7.452",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -98,25 +98,25 @@
       },
       {
         "command": "banditStealth.cyclePermissionMode",
-        "title": "Cycle Permission Mode (ask → auto → plan)",
+        "title": "Cycle Permission Mode (ask \u2192 auto \u2192 plan)",
         "category": "Bandit Stealth",
         "icon": "$(shield)"
       },
       {
         "command": "banditStealth.agent.startGoal",
-        "title": "Agent — Start Goal",
+        "title": "Agent \u2014 Start Goal",
         "category": "Bandit Stealth",
         "icon": "$(play)"
       },
       {
         "command": "banditStealth.agent.cancel",
-        "title": "Agent — Cancel",
+        "title": "Agent \u2014 Cancel",
         "category": "Bandit Stealth",
         "icon": "$(stop)"
       },
       {
         "command": "banditStealth.agent.showReport",
-        "title": "Agent — Show Last Report",
+        "title": "Agent \u2014 Show Last Report",
         "category": "Bandit Stealth"
       },
       {
@@ -147,13 +147,13 @@
       },
       {
         "command": "banditStealth.insights",
-        "title": "Insights — Generate HTML Report",
+        "title": "Insights \u2014 Generate HTML Report",
         "category": "Bandit Stealth",
         "icon": "$(graph)"
       },
       {
         "command": "banditStealth.traceViewer",
-        "title": "Trace Logs — Open Viewer",
+        "title": "Trace Logs \u2014 Open Viewer",
         "category": "Bandit Stealth",
         "icon": "$(list-tree)"
       }
@@ -282,7 +282,7 @@
           "banditStealth.model": {
             "type": "string",
             "default": "bandit-logic",
-            "description": "Model name to request from the Bandit API or Ollama. `bandit-logic` is the recommended default — it's our agent-tuned wrapper around Qwen 3.6 27B, optimized for tool-use loops in the Bandit harness."
+            "description": "Model name to request from the Bandit API or Ollama. `bandit-logic` is the recommended default \u2014 it's our agent-tuned wrapper around Qwen 3.6 27B, optimized for tool-use loops in the Bandit harness."
           },
           "banditStealth.apiUrl": {
             "type": "string",
@@ -327,7 +327,7 @@
               "openai-compatible"
             ],
             "default": "ollama",
-            "description": "LLM provider. ollama (default): local, private, free. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint — LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
+            "description": "LLM provider. ollama (default): local, private, free. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint \u2014 LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
           },
           "banditStealth.openaiBaseUrl": {
             "type": "string",
@@ -337,13 +337,13 @@
           "banditStealth.openaiApiKey": {
             "type": "string",
             "default": "",
-            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates — you don't need to do anything. Set the key from the Bandit panel instead.",
-            "description": "Deprecated — now stored in the OS keychain (VS Code SecretStorage) instead of settings.json. Any value left here is migrated automatically on activation. Local servers (LM Studio, llama.cpp) usually don't need a key at all."
+            "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates \u2014 you don't need to do anything. Set the key from the Bandit panel instead.",
+            "description": "Deprecated \u2014 now stored in the OS keychain (VS Code SecretStorage) instead of settings.json. Any value left here is migrated automatically on activation. Local servers (LM Studio, llama.cpp) usually don't need a key at all."
           },
           "banditStealth.openaiModel": {
             "type": "string",
             "default": "",
-            "description": "Model id sent to the OpenAI-compatible endpoint. Each upstream uses its own naming — e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo on Together, openai/gpt-4o on OpenRouter, your local model name on LM Studio."
+            "description": "Model id sent to the OpenAI-compatible endpoint. Each upstream uses its own naming \u2014 e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo on Together, openai/gpt-4o on OpenRouter, your local model name on LM Studio."
           },
           "banditStealth.openaiHeaders": {
             "type": "object",
@@ -358,7 +358,7 @@
           "banditStealth.ollamaBaseUrl": {
             "type": "string",
             "default": "http://localhost:11434",
-            "description": "Primary local Ollama endpoint (Mac localhost or LAN). Never point this at RunPod — use provider:bandit + model:bandit-core-2 for RunPod."
+            "description": "Primary local Ollama endpoint (Mac localhost or LAN). Never point this at RunPod \u2014 use provider:bandit + model:bandit-core-2 for RunPod."
           },
           "banditStealth.ollamaNodeUrl": {
             "type": "string",
@@ -379,8 +379,8 @@
             ],
             "default": "auto",
             "enumDescriptions": [
-              "Use the runtime default per model — off for reasoning-capable models (Qwen 3.x, DeepSeek R1) so agent tool-use stays fast. Recommended.",
-              "Force chain-of-thought thinking mode ON for every request. Slower first-token latency (8–30s) but may improve quality on hard refactor / planning tasks.",
+              "Use the runtime default per model \u2014 off for reasoning-capable models (Qwen 3.x, DeepSeek R1) so agent tool-use stays fast. Recommended.",
+              "Force chain-of-thought thinking mode ON for every request. Slower first-token latency (8\u201330s) but may improve quality on hard refactor / planning tasks.",
               "Force thinking OFF even for models where the runtime default would enable it."
             ],
             "description": "Chain-of-thought thinking for reasoning-capable models. 'auto' defers to per-model defaults; 'on' / 'off' are session-level overrides."
@@ -394,7 +394,7 @@
           "banditStealth.voice.autoSpeak": {
             "type": "boolean",
             "default": false,
-            "description": "Automatically read short assistant responses aloud using the Bandit cloud TTS endpoint. Only active when provider=bandit with an API key. Long responses (>400 words) and code-only replies are never auto-spoken — a manual speaker button on each message lets you play them on demand."
+            "description": "Automatically read short assistant responses aloud using the Bandit cloud TTS endpoint. Only active when provider=bandit with an API key. Long responses (>400 words) and code-only replies are never auto-spoken \u2014 a manual speaker button on each message lets you play them on demand."
           },
           "banditStealth.voice.maxAutoSpeakWords": {
             "type": "number",
@@ -411,7 +411,7 @@
           "banditStealth.voice.micEnabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the microphone button in the composer for speech-to-text transcription. Provider is configurable independently of the chat provider — see banditStealth.voice.stt.provider."
+            "description": "Enable the microphone button in the composer for speech-to-text transcription. Provider is configurable independently of the chat provider \u2014 see banditStealth.voice.stt.provider."
           },
           "banditStealth.suggestNextPrompt": {
             "type": "boolean",
@@ -421,7 +421,7 @@
           "banditStealth.learnFromRuns": {
             "type": "boolean",
             "default": true,
-            "description": "Learning memory: after each turn, Bandit distills any durable, repo-specific lesson (e.g. 'this project uses pnpm', 'tests for src/api live in test/api') into .bandit/lessons.md and reads it back on future turns. One small extra model call per turn. The file is plain markdown — review, edit, or delete it any time."
+            "description": "Learning memory: after each turn, Bandit distills any durable, repo-specific lesson (e.g. 'this project uses pnpm', 'tests for src/api live in test/api') into .bandit/lessons.md and reads it back on future turns. One small extra model call per turn. The file is plain markdown \u2014 review, edit, or delete it any time."
           },
           "banditStealth.voice.stt.provider": {
             "type": "string",
@@ -485,7 +485,7 @@
           "banditStealth.autoContextEnabled": {
             "type": "boolean",
             "default": false,
-            "description": "Auto-attach relevant workspace files to each prompt. When on, Bandit scans your active editor, recently-opened files, and goal hints to pick up to 5 files likely to be useful. Off by default — auto-context can burn through thousands of tokens per turn before the model even sees your prompt. Prefer explicit @-mentions; turn this on when you want less typing and have headroom to spend."
+            "description": "Auto-attach relevant workspace files to each prompt. When on, Bandit scans your active editor, recently-opened files, and goal hints to pick up to 5 files likely to be useful. Off by default \u2014 auto-context can burn through thousands of tokens per turn before the model even sees your prompt. Prefer explicit @-mentions; turn this on when you want less typing and have headroom to spend."
           },
           "banditStealth.ollamaHeaders": {
             "type": "object",
@@ -503,7 +503,7 @@
           "banditStealth.ollamaCodingModel": {
             "type": "string",
             "default": "",
-            "description": "Preferred Ollama model for coding/text tasks. Leave empty to use ollamaModel — the previous default of qwen2.5-coder:14b silently overrode user selections when auto-routing was enabled, causing hangs for anyone without that model pulled."
+            "description": "Preferred Ollama model for coding/text tasks. Leave empty to use ollamaModel \u2014 the previous default of qwen2.5-coder:14b silently overrode user selections when auto-routing was enabled, causing hangs for anyone without that model pulled."
           },
           "banditStealth.ollamaVisionModel": {
             "type": "string",
@@ -528,7 +528,7 @@
           "banditStealth.enableToolUse": {
             "type": "boolean",
             "default": true,
-            "description": "Enable text-based tool use in ask mode. When true, the model can call read_file, write_file, search_code, git_status, and other tools to resolve your request. Works with all Ollama models — no native function calling required."
+            "description": "Enable text-based tool use in ask mode. When true, the model can call read_file, write_file, search_code, git_status, and other tools to resolve your request. Works with all Ollama models \u2014 no native function calling required."
           },
           "banditStealth.embeddings.provider": {
             "type": "string",
@@ -657,17 +657,17 @@
             ],
             "default": "ask",
             "enumDescriptions": [
-              "Read-only. Bandit reads, searches, and runs read-only shell (git diff, ls, grep), but every edit, write, mutating command, delete, and network-write is blocked — it presents a plan instead of acting.",
+              "Read-only. Bandit reads, searches, and runs read-only shell (git diff, ls, grep), but every edit, write, mutating command, delete, and network-write is blocked \u2014 it presents a plan instead of acting.",
               "Every non-allowlisted tool call shows a permission card.",
               "Routine work runs without a card: reading files, editing files inside the workspace, running builds and tests. Everything else still asks.",
               "No permission cards at all, including for destructive calls. Intended for sandboxes and automation, not everyday use."
             ],
-            "markdownDescription": "How much Bandit may do without asking.\n\n- `plan` — **read-only**: reads, searches, and read-only shell run; every change is blocked until you leave plan mode. Bandit presents a plan.\n- `ask` — every non-allowlisted call shows a card (default).\n- `auto` — routine work runs unprompted; deletes, writes outside the workspace, force-push, global installs, credential files, and anything that sends data out **still ask every time**, even if a saved allow rule covers them.\n- `dangerous` — no cards at all. Sandboxes and automation only.\n\nThe status-bar item cycles ask → auto → plan (`dangerous` stays here in settings only)."
+            "markdownDescription": "How much Bandit may do without asking.\n\n- `plan` \u2014 **read-only**: reads, searches, and read-only shell run; every change is blocked until you leave plan mode. Bandit presents a plan.\n- `ask` \u2014 every non-allowlisted call shows a card (default).\n- `auto` \u2014 routine work runs unprompted; deletes, writes outside the workspace, force-push, global installs, credential files, and anything that sends data out **still ask every time**, even if a saved allow rule covers them.\n- `dangerous` \u2014 no cards at all. Sandboxes and automation only.\n\nThe status-bar item cycles ask \u2192 auto \u2192 plan (`dangerous` stays here in settings only)."
           }
         }
       },
       {
-        "title": "Bandit Stealth › Developer",
+        "title": "Bandit Stealth \u203a Developer",
         "properties": {
           "banditStealth.agent.skipValidationInDev": {
             "type": "boolean",

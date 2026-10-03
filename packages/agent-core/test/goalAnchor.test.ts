@@ -131,7 +131,7 @@ describe('applyGoalAnchorIfNeeded — eligibility floor', () => {
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('tool_loop:goal_anchor');
     expect(messages).toHaveLength(2);
-    expect(messages[1].content).toContain('CURRENT GOAL');
+    expect(messages[1].content).toContain('CURRENT TASK');
     expect(messages[1].content).toContain('fix the bug');
   });
 });
@@ -305,7 +305,8 @@ describe('applyGoalAnchorIfNeeded — multi-turn ignore-earlier suffix', () => {
       emit
     });
     expect(messages[1].content).toContain('are 2 earlier user prompts');
-    expect(messages[1].content).toContain('Do NOT answer them');
+    expect(messages[1].content).toContain('Preserve relevant requirements');
+    expect(messages[1].content).not.toContain('They were settled');
   });
 
   it('singular form when priorUserPromptCount === 1', () => {
@@ -323,7 +324,7 @@ describe('applyGoalAnchorIfNeeded — multi-turn ignore-earlier suffix', () => {
       emit
     });
     expect(messages[1].content).toContain('is 1 earlier user prompt');
-    expect(messages[1].content).toContain('Do NOT answer it');
+    expect(messages[1].content).toContain('Do not assume earlier work is finished');
   });
 
   it('does NOT append the warning when priorUserPromptCount === 0', () => {

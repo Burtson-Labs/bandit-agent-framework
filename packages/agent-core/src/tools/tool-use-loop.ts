@@ -468,6 +468,7 @@ export class ToolUseLoop {
     let parseRetries = 0;
     let fakeToolResultRetries = 0;
     let toolAbsenceCorrectionsFired = 0;
+    const attemptedShellCommands = new Set<string>();
     let toolErrorRecoveryFired = 0;
     let lastIterationHadToolError = false;
     // Set when a tool result carried MCP auth-recovery guidance this turn —
@@ -1239,7 +1240,7 @@ export class ToolUseLoop {
         // Reasoning channels MUST be stripped before prose-matching:
         // reasoning narrates tool usage by name and false-positives the
         // absence phrases (see toolAvailabilityDetector.ts header).
-        const absence = detectFalseToolAbsence(stripReasoningChannels(response), registeredNames);
+        const absence = detectFalseToolAbsence(stripReasoningChannels(response), registeredNames, attemptedShellCommands);
         if (absence.detected) {
           toolAbsenceCorrectionsFired++;
           emit('tool_loop:false_tool_absence', {
@@ -2239,6 +2240,14 @@ export class ToolUseLoop {
       // Track whether ANY tool errored this iteration so the next
       // iteration's no-tool-call branch can fire the recovery nudge if
       // the model abandons the request rather than retrying.
+      for (const call of toolCalls) {
+        if (call.name === 'run_command' || call.name === 'watch_command') {
+          const commandText = `${call.params.cmd ?? ''} ${call.params.args ?? ''}`;
+          for (const command of ['git', 'gh', 'kubectl']) {
+            if (new RegExp(`\\b${command}\\b`).test(commandText)) {attemptedShellCommands.add(command);}
+          }
+        }
+      }
       lastIterationHadToolError = toolResults.some((r) => r.isError === true);
 
       // An auth-recovery guidance result means the correct next move is the
