@@ -410,3 +410,29 @@ describe('auth-recovery — no doubled final answer', () => {
     expect(recorder.callCount).toBe(3);
   });
 });
+
+
+describe('deployment capability recovery across hosts', () => {
+  it.each(['git', 'gh', 'kubectl'])('uses the registered shell after an unsupported %s refusal', async (command) => {
+    const registry = new ToolRegistry();
+    const calls: string[] = [];
+    registry.register({
+      name: 'run_command', description: 'Run a command',
+      parameters: [{ name: 'cmd', description: 'Executable', required: true }],
+      async execute(params) { calls.push(params.cmd); return { output: 'Read-only probe succeeded.' }; },
+    });
+    const { events, emit } = buildEmitRecorder();
+    const { chat } = buildMockChat((turn, recorder) => {
+      if (turn === 1) return `I cannot run ${command} commands here.`;
+      if (turn === 2) {
+        expect(recorder.calls.at(-1)?.messages.at(-1)?.content).toContain('Shell execution is registered');
+        return `<tool_call>{"name":"run_command","params":{"cmd":"${command}"}}</tool_call>`;
+      }
+      return 'The read-only probe succeeded.';
+    });
+    const result = await new ToolUseLoop(registry, testCtx, { emitEvent: emit }).run('Check deployment access.', chat);
+    expect(calls).toEqual([command]);
+    expect(result.finalResponse).toContain('probe succeeded');
+    expect(events.filter((event) => event.type === 'tool_loop:false_tool_absence')).toHaveLength(1);
+  });
+});

@@ -71,6 +71,8 @@ export interface ToolAvailabilityCheckResult {
   matchedToolNames: string[];
   /** Subset of registered tool names relevant to the model's claim, for the nudge body. */
   suggestedTools: string[];
+  /** Shell utilities to probe, not a claim that credentials/access exist. */
+  commandProbes?: string[];
 }
 
 /**
@@ -84,10 +86,26 @@ export interface ToolAvailabilityCheckResult {
  */
 export function detectFalseToolAbsence(
   response: string,
-  registeredTools: string[]
+  registeredTools: string[],
+  attemptedCommands: ReadonlySet<string> = new Set()
 ): ToolAvailabilityCheckResult {
   if (!response || registeredTools.length === 0) {
     return { detected: false, matchedToolNames: [], suggestedTools: [] };
+  }
+  // A shell tool covers git/gh/kubectl even without dedicated tool schemas.
+  // Probe only unattempted utilities; never override real errors or approvals.
+  const shell = registeredTools.find((name) => stripNamespace(name) === 'run_command');
+  const prose = response.replace(/```[\s\S]*?```/g, '');
+  const deniedCommands = shell ? ['git', 'gh', 'kubectl'].filter((command) => {
+    if (attemptedCommands.has(command)) {return false;}
+    const alias = command === 'gh' ? '(?:gh|GitHub(?: CLI| commands?))'
+      : command === 'kubectl' ? '(?:kubectl|Kubernetes(?: commands?)?)' : 'git';
+    return prose.split(/[.\n]/).some((sentence) =>
+      new RegExp(`\\b(?:I|we)\\s+(?:can(?:not|'t)\\s+(?:run|execute|use)|(?:do not|don't)\\s+have)[^.\\n]{0,90}\\b${alias}\\b`, 'i').test(sentence)
+      || new RegExp(`\\b${alias}\\b[^.\\n]{0,45}\\b(?:is not available|is unavailable|isn't available)\\b`, 'i').test(sentence));
+  }) : [];
+  if (shell && deniedCommands.length) {
+    return { detected: true, matchedToolNames: [shell], suggestedTools: [shell], commandProbes: deniedCommands };
   }
   const hasAbsencePhrase = ABSENCE_PHRASES.some((re) => re.test(response));
   if (!hasAbsencePhrase) {
@@ -154,6 +172,14 @@ export function detectFalseToolAbsence(
  */
 export function buildToolAvailabilityNudge(result: ToolAvailabilityCheckResult): string {
   const names = result.suggestedTools.length > 0 ? result.suggestedTools : result.matchedToolNames;
+  if (result.commandProbes?.length) {
+    return AUTOMATED_NUDGE_PREFIX +
+      `Shell execution is registered as ${names.join(', ')}. A dedicated ${result.commandProbes.join('/')} tool is not required. ` +
+      'Use bounded, read-only command checks for the requested task: git status, gh auth status/repo view, or kubectl config current-context and a scoped --request-timeout=10s query. ' +
+      'Inspect existing repository deployment and certificate automation. Do not print credentials or dump kubeconfig/secrets. ' +
+      'Respect permission decisions and user restrictions. Report the actual missing binary, authentication, network, or permission error if a probe fails; do not assume it failed or ask the user to execute unattempted commands. ' +
+      'Use approved existing access paths and verify the requested outcome before claiming completion.';
+  }
   const list = names.map((n) => `  - ${n}`).join('\n');
   return (
     AUTOMATED_NUDGE_PREFIX +

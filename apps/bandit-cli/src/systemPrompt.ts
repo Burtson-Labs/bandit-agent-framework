@@ -40,6 +40,7 @@
 import {
   getModelCapabilities,
   type ModelTier,
+  SHARED_COMMAND_CAPABILITIES,
   buildGitAuthorshipBullet
 } from '@burtson-labs/stealth-core-runtime';
 
@@ -228,7 +229,7 @@ export function buildSystemPrompt(memoryBlock: string, options: BuildSystemPromp
 
   lines.push(...IDENTITY);
   lines.push('');
-  lines.push(...WORKING_STYLE_CORE);
+  lines.push(...WORKING_STYLE_CORE, SHARED_COMMAND_CAPABILITIES);
   if (tier !== 'large') {
     lines.push(...WORKING_STYLE_SMALL_MID);
   }

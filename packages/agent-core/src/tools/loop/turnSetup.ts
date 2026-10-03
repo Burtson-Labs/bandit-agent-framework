@@ -9,6 +9,7 @@
  */
 import type { ToolLoopMessage } from '../tool-types';
 import { isContinuationPrompt } from './loopShared';
+import { AUTOMATED_NUDGE_PREFIX } from '../tool-use-parser';
 
 export interface ResolveTurnGoalArgs {
   seedMessages: ReadonlyArray<ToolLoopMessage>;
@@ -44,7 +45,15 @@ export interface ResolvedTurnGoal {
  * remaining TS errors") and uses THAT as the anchor.
  */
 export function resolveTurnGoal(args: ResolveTurnGoalArgs): ResolvedTurnGoal {
-  const { seedMessages } = args;
+  // Persisted text-protocol results and harness nudges use role=user too.
+  // They are evidence, never new user requests or continuation targets.
+  const seedMessages = args.seedMessages.filter((msg) => {
+    if (msg.role !== 'user') {return true;}
+    const text = msg.content.trimStart();
+    return !text.startsWith(AUTOMATED_NUDGE_PREFIX)
+      && !/^<(?:tool_result|background_task_result)\b/.test(text)
+      && !/^\[Background (?:task|command)\b/i.test(text);
+  });
   let originalGoal = '';
   let priorUserPromptCount = 0;
   for (const msg of seedMessages) {

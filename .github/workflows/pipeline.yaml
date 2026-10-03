@@ -1,12 +1,17 @@
 name: Bandit Agent Framework
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_live_eval:
+        description: Run the production model benchmark explicitly
+        type: boolean
+        default: false
   push:
     branches: ["main"]
     tags: ["v*"]
   # NOTE: Release pipeline — runs only on push-to-main + tags (not PRs): builds,
-  # tests, and publishes the packages on release. Runs on GitHub-hosted
-  # ubuntu-latest (free + unlimited for public repos). Outside-contributor PRs are
+  # tests, and publishes the packages on release. Runs on self-hosted ARC and platform VMs. Outside-contributor PRs are
   # validated by .github/workflows/pr-checks.yaml. This file does not gate PRs.
 
 permissions:
@@ -21,7 +26,7 @@ jobs:
   # ─── Test ────────────────────────────────────────────────────────────────────
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: burtson-labs-runners
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,6 +38,8 @@ jobs:
       - run: pnpm build
       - name: Lint
         run: pnpm lint
+      - name: Test shared agent core
+        run: pnpm --filter @burtson-labs/agent-core test
       - name: Test stealth-core-runtime
         run: pnpm --filter stealth-core-runtime exec vitest run
       - name: Test bandit-stealth extension
@@ -52,7 +59,7 @@ jobs:
   # every push instead.
   security-audit:
     name: Security audit (dependencies)
-    runs-on: ubuntu-latest
+    runs-on: burtson-labs-runners
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -75,8 +82,10 @@ jobs:
   # gracefully instead of blocking releases on a missing secret.
   eval-gate:
     name: Eval gate (BanditBench)
+    # Live inference is opt-in; routine releases must not consume active GPU jobs.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_eval
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: burtson-labs-runners
     # ADVISORY for now (2026-09-22): the gate was never armed before today,
     # and armed it fails on fixtures that have failed every night since the
     # baseline was frozen. Releases must not wait on that; the job still
@@ -158,7 +167,7 @@ jobs:
     # / PRs no longer trigger this job — they rely on the Linux
     # `test` job above to catch most regressions for free on ARC.
     if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/test-')
-    runs-on: windows-latest
+    runs-on: burtson-windows
     # continue-on-error stays — a budget block during a release tag
     # push should still let the rest of the workflow (release/publish
     # on the free self-hosted pool) ship.
@@ -206,7 +215,7 @@ jobs:
     # freshly-rebuilt recorder (which is what release provenance
     # cares about anyway).
     if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/test-')
-    runs-on: macos-latest
+    runs-on: burtson-mac
     # continue-on-error stays so a budget block during a release tag
     # push still lets the rest of the workflow ship.
     continue-on-error: true
@@ -252,7 +261,7 @@ jobs:
     name: Build VSIX (+ release on tag)
     needs: [test, build-recorder-darwin]
     if: always() && needs.test.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: burtson-labs-runners
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -384,7 +393,7 @@ jobs:
       packagePath: packages/core-chat
       packageName: "@burtson-labs/core-chat"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-core:
@@ -396,7 +405,7 @@ jobs:
       packagePath: packages/agent-core
       packageName: "@burtson-labs/agent-core"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
@@ -409,7 +418,7 @@ jobs:
       packagePath: packages/agent-ui
       packageName: "@burtson-labs/agent-ui"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-stealth-core-runtime:
@@ -421,7 +430,7 @@ jobs:
       packagePath: packages/stealth-core-runtime
       packageName: "@burtson-labs/stealth-core-runtime"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-host-kit:
@@ -433,7 +442,7 @@ jobs:
       packagePath: packages/host-kit
       packageName: "@burtson-labs/host-kit"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-adapters-provider:
@@ -445,7 +454,7 @@ jobs:
       packagePath: packages/agent-adapters/provider
       packageName: "@burtson-labs/agent-adapters-provider"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-adapters-node:
@@ -457,7 +466,7 @@ jobs:
       packagePath: packages/agent-adapters/node
       packageName: "@burtson-labs/agent-adapters-node"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-adapters-github:
@@ -469,7 +478,7 @@ jobs:
       packagePath: packages/agent-adapters/github
       packageName: "@burtson-labs/agent-adapters-github"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-adapters-vscode:
@@ -481,7 +490,7 @@ jobs:
       packagePath: packages/agent-adapters/vscode
       packageName: "@burtson-labs/agent-adapters-vscode"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
 
   publish-agent-adapters-web:
@@ -493,5 +502,5 @@ jobs:
       packagePath: packages/agent-adapters/web
       packageName: "@burtson-labs/agent-adapters-web"
       isPublic: true
-      runs_on: '"ubuntu-latest"'
+      runs_on: '"burtson-labs-runners"'
     secrets: inherit
