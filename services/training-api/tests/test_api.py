@@ -331,10 +331,15 @@ class RunTests(Base):
 class JobManifestTests(unittest.TestCase):
     def test_gpu_job_shape(self):
         run = {"_id": "run_20261003_abc", "attempt": 2, "smoke": True}
-        m = jobs.job_manifest(run, "tok", image="img:1", namespace="ai-training", api_url="http://api")
+        with mock.patch.dict(os.environ, {"TRAINING_NODE": "gpu-node-1"}):
+            m = jobs.job_manifest(run, "tok", image="img:1", namespace="ai-training", api_url="http://api")
         spec = m["spec"]["template"]["spec"]
         self.assertEqual(m["metadata"]["name"], "train-run-20261003-abc-a2")
-        self.assertEqual(spec["nodeSelector"], {"kubernetes.io/hostname": "son-of-anton"})
+        self.assertEqual(spec["nodeSelector"], {"kubernetes.io/hostname": "gpu-node-1"})
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TRAINING_NODE", None)
+            unpinned = jobs.job_manifest(run, "tok", image="img:1", namespace="ai-training", api_url="http://api")
+        self.assertEqual(unpinned["spec"]["template"]["spec"]["nodeSelector"], {})
         self.assertEqual(spec["containers"][0]["resources"]["limits"]["nvidia.com/gpu"], "1")
         self.assertEqual(spec["tolerations"][0]["value"], "ai")
         self.assertIn("--smoke", spec["containers"][0]["args"])

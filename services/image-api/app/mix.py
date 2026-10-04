@@ -1,7 +1,6 @@
 """Finishing: music beds, narration and captions mixed onto a Studio take (CPU, ffmpeg).
 
-The recipe is the one proven in the walkthrough pipelines (rwt-load-intake
-web/video/lib/music.mjs and the TrueMarks build.py):
+The recipe is the one proven in earlier product-walkthrough video pipelines:
 
 - Voice first: every narration line is measured (EBU R128) and gained to
   speech at -16 LUFS, mono, centred in stereo, 48 kHz, placed on the timeline.
@@ -58,7 +57,7 @@ class LevelPreset:
 LEVELS: dict[str, LevelPreset] = {
     # Narration first: bed well under, a firm dip while a line plays.
     "voice-forward": LevelPreset(-24.0, Duck(threshold=0.02, ratio=4.0, attack=30, release=600)),
-    # The walkthrough default (TrueMarks ducking, a slightly higher bed).
+    # The walkthrough default (moderate ducking, a slightly higher bed).
     "balanced": LevelPreset(-20.0, Duck(threshold=0.02, ratio=3.0, attack=30, release=700)),
     # Music carries it: bed close under, a gentle dip that breathes back between lines.
     "music-forward": LevelPreset(-15.0, Duck(threshold=0.02, ratio=1.5, attack=40, release=900)),

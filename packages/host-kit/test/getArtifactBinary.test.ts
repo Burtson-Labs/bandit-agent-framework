@@ -7,7 +7,7 @@ import { isBinaryArtifact } from '../src/tools/getArtifactTool';
 describe('isBinaryArtifact', () => {
   it('treats PDFs and images as bytes, by type or by name', () => {
     expect(isBinaryArtifact('application/pdf', 'x')).toBe(true);
-    expect(isBinaryArtifact('application/octet-stream', 'RWT-Proposal-Draft-2026-09-19.pdf')).toBe(true);
+    expect(isBinaryArtifact('application/octet-stream', 'Proposal-Draft-2026-09-19.pdf')).toBe(true);
     expect(isBinaryArtifact(undefined, 'cover.png')).toBe(true);
     expect(isBinaryArtifact('image/svg+xml', 'diagram.svg')).toBe(true);
   });

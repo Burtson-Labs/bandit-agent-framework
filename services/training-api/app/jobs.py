@@ -61,7 +61,8 @@ def job_manifest(run: dict, token: str, *, image: str, namespace: str, api_url: 
                     "serviceAccountName": "training-worker",
                     "automountServiceAccountToken": False,
                     "imagePullSecrets": [{"name": "ghcr-secret"}],
-                    "nodeSelector": {"kubernetes.io/hostname": os.getenv("TRAINING_NODE", "son-of-anton")},
+                    # Pin to the GPU node when TRAINING_NODE is set; otherwise the scheduler picks any GPU node.
+                    "nodeSelector": {"kubernetes.io/hostname": os.environ["TRAINING_NODE"]} if os.getenv("TRAINING_NODE") else {},
                     "tolerations": [{"key": "dedicated", "operator": "Equal", "value": "ai", "effect": "NoSchedule"}],
                     "terminationGracePeriodSeconds": 120,
                     # k3s applies the training-api NetworkPolicy to a new pod's IP a few seconds after it

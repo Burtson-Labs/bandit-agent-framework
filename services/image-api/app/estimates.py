@@ -264,7 +264,7 @@ def audio_calibration() -> Calibration:
 
 
 # Songs render a 6 s tail for their ending, then stt-api (whisper on the CPU) times the
-# lyrics: roughly half real time with word timestamps on son-of-anton's cores.
+# lyrics: roughly half real time with word timestamps on a modern multi-core CPU.
 SONG_TAIL_SECONDS = 6.0
 LYRICS_SECONDS_PER_SECOND = float(os.getenv("LYRICS_SECONDS_PER_SECOND", "0.5"))
 

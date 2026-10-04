@@ -98,7 +98,7 @@ OPT_IN_1080P = ("1080p is an explicit opt-in: it takes about 20-40% longer per t
 
 
 def require_1080p_opt_in(new: str | None, old: str | None, body: dict) -> None:
-    """1080p is never a default and never chosen silently (Mark's rule)."""
+    """1080p is never a default and never chosen silently (product rule)."""
     if new == "1080p" and old != "1080p" and not body.get("confirm1080p"):
         raise ProductionsError(400, OPT_IN_1080P)
 

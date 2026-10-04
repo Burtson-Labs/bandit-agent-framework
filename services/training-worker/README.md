@@ -1,7 +1,7 @@
 # training-worker
 
-One Burtson Training Studio run per Kubernetes Job (namespace `ai-training`, RTX 5090 on
-son-of-anton, launched by training-api once Anton holds the GPU for owner `training`).
+One Burtson Training Studio run per Kubernetes Job (namespace `ai-training`, on the GPU node
+named by `TRAINING_NODE`, launched by training-api once Anton holds the GPU for owner `training`).
 
 Stages: spec from training-api → trainset from MinIO → SFT with LoRA/QLoRA (Unsloth + TRL,
 assistant tokens only via `train_on_responses_only`, Qwen3 chat template with tools) →

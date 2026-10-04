@@ -256,7 +256,7 @@ class VideoEndpointTests(unittest.TestCase):
 
 
 class DefaultResolutionTests(unittest.TestCase):
-    """720p is the default for every mode (Mark, 2026-10-01): best speed/quality mix."""
+    """720p is the default for every mode (product decision, 2026-10-01): best speed/quality mix."""
 
     def test_requests_default_to_720p(self):
         for extra in ({}, {"referenceId": "ref-start-0001"},

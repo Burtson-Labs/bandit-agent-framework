@@ -266,9 +266,9 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
 
 Every route is scoped by `X-Burtson-Owner`, which Anton sets from the JWT.
 
-## watch (every take in watch.burtson.ai)
+## watch (every take in the media library)
 
-Every finished take is imported into watch, Mark's R2-backed library, where he
+Every finished take is imported into watch, the R2-backed media library, where the owner
 renames, deletes, organises and shares them (`app/watch_sync.py`). History video
 takes and images go to watch's "Burtson Video Studio" collection; production
 takes to one collection per production (`studio:production:{id}`), titled
@@ -281,7 +281,7 @@ takes to one collection per production (`studio:production:{id}`), titled
   `POST http://watch.watch.svc.cluster.local/api/internal/studio/imports`
   (header `X-Watch-Service-Key` from the `watch-studio-import` secret), backs off
   1/5/15/30/60 min on errors, and refreshes imported takes: the current title
-  in watch, or `deleted` when Mark deleted it there. Deleted takes are never
+  in watch, or `deleted` when the owner deleted it there. Deleted takes are never
   imported again. Hidden History takes wait until un-hidden.
 - State is on the take: `outputs[n].watch` in History (`state` present /
   deleted / pending / refused, `videoId`, `url`, `title`, `collectionName`,

@@ -74,7 +74,7 @@ export function resolveTurnGoal(args: ResolveTurnGoalArgs): ResolvedTurnGoal {
       }
     }
   } else if (originalGoal) {
-    // A short reply to a question the assistant just asked ("its the rwt
+    // A short reply to a question the assistant just asked ("its the q3
     // proposal" after "which artifact?") is a CLARIFICATION of the previous
     // request, not a new goal. Anchoring on the four-word answer alone told
     // the model to "answer THIS, nothing else" — and it did, abandoning

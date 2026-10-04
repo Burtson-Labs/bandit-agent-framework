@@ -261,7 +261,7 @@ export const ChatComposer = ({
   // the last `@` in the string is preceded by a whitespace char (or
   // is at position 0) and has no whitespace after it yet. Keeps the
   // popover tight to real mention intent; prevents spurious activation
-  // on email addresses mid-prose (e.g. "mark@burtson.ai") because
+  // on email addresses mid-prose (e.g. "name@example.com") because
   // those have no leading-whitespace anchor.
   const mentionMatch = (() => {
     const lastAt = value.lastIndexOf('@');

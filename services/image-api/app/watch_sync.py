@@ -1,4 +1,4 @@
-"""Every Studio take lands in watch (watch.burtson.ai), Mark's R2-backed library.
+"""Every Studio take lands in watch, the R2-backed media library (WATCH_URL).
 
 History takes (videos and images) and Productions takes are imported through
 watch's server-to-server endpoint, ``POST /api/internal/studio/imports``, on the
@@ -22,7 +22,7 @@ a job is recorded):
 2. imports what is still missing; network errors and 5xx back off
    1/5/15/30/60 min, a refusal (400/403/413) is recorded and not retried;
 3. refreshes the state of imported takes: the current title in watch, or
-   ``deleted`` when Mark deleted it there (deleted takes are never re-imported);
+   ``deleted`` when the owner deleted it there (deleted takes are never re-imported);
 4. drops the local History MP4 once the watch copy has been confirmed for
    ``WATCH_DROP_LOCAL_MP4_DAYS`` days (0 keeps it). Thumbnails, posters, inputs
    and metadata stay in MinIO (Remix needs them); playback of a dropped take is

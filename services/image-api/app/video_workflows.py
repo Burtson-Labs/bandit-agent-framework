@@ -617,7 +617,7 @@ def sampler_nodes(plan: VideoPlan) -> list[tuple[str, int]]:
 
 
 # Pinned digests recorded in every job's provenance (see the model manifest
-# at /mnt/ai-models/comfyui/manifests/MODELS-wan22.md on son-of-anton).
+# at <models volume>/comfyui/manifests/MODELS-wan22.md on the GPU node).
 CHECKPOINT_SHA256: dict[str, str] = {
     "wan2.2_ti2v_5B_fp16.safetensors": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
     "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors": "6122e79d55e0f235698d11d657f3b196c5273c830da00b2b013c5a048d5e6a42",

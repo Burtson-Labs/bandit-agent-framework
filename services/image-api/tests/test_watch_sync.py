@@ -160,11 +160,11 @@ class WatchSyncTests(unittest.TestCase):
 
     def test_rename_and_delete_in_watch_flow_back(self):
         self.sync.run_once()
-        self.watch.items["studio:job0001video:take1"]["title"] = "Renamed by Mark"
+        self.watch.items["studio:job0001video:take1"]["title"] = "Renamed by the owner"
         self.watch.delete("studio:job0001video:take2")
         stats = self.sync.run_once()
         self.assertEqual(stats["deleted"], 1)
-        self.assertEqual(self.outputs()[0]["watch"]["title"], "Renamed by Mark")
+        self.assertEqual(self.outputs()[0]["watch"]["title"], "Renamed by the owner")
         self.assertEqual(self.outputs()[1]["watch"]["state"], "deleted")
         # A deleted take is never imported again.
         self.clock.now += timedelta(days=1)
