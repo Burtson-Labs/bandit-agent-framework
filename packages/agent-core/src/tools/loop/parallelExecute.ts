@@ -24,6 +24,16 @@
  * parallel/serial distinction with one call, and the gate's purpose
  * is preventing a *batch* from overrunning the assistant turn.
  *
+ * Same-file writes never race. In parallel mode, mutating file tools
+ * (write_file, apply_edit, replace_range, apply_patch, delete_file) are
+ * chained per resolved path, in call order: two apply_edit calls on one
+ * file used to run concurrently, both read the original, both reported
+ * "File saved", and only the last write survived (a lost update the model
+ * then reported as success). Calls on different files, and every read-only
+ * call, still run concurrently. An apply_patch locks every path it names;
+ * a mutating call whose paths can't be determined waits for, and blocks,
+ * every other mutating call in the batch.
+ *
  * Token estimate is intentionally coarse (heavy payload fields × ¼).
  * Reads and small calls never trip the gate; only writes/edits whose
  * `content`/`replace`/`find`/`text` fields dominate the output budget.
@@ -42,6 +52,67 @@ export interface ExecuteParallelBatchArgs {
   emit: BatchEmit;
   iteration: number;
   signal?: AbortSignal;
+  /**
+   * Workspace root used to resolve relative tool paths into one lock key
+   * per file (so `src/a.ts` and `<root>/src/a.ts` serialize together).
+   */
+  workspaceRoot?: string;
+}
+
+/** Tools that write files; same-file calls among these are serialized. */
+export const MUTATING_FILE_TOOLS: ReadonlySet<string> = new Set([
+  'write_file', 'apply_edit', 'replace_range', 'apply_patch', 'delete_file'
+]);
+
+/** Wildcard key: a mutating call whose target paths are unknown. */
+const ANY_PATH = '*';
+
+function normalizeKey(raw: string, workspaceRoot?: string): string {
+  let p = raw.trim().replace(/\\/g, '/');
+  if (p.startsWith('a/') || p.startsWith('b/')) {p = p.slice(2);} // unified-diff prefixes
+  const isAbs = p.startsWith('/') || p.startsWith('~') || /^[A-Za-z]:\//.test(p);
+  if (!isAbs && workspaceRoot) {p = `${workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')}/${p}`;}
+  const out: string[] = [];
+  for (const seg of p.split('/')) {
+    if (seg === '' || seg === '.') {continue;}
+    if (seg === '..') {out.pop(); continue;}
+    out.push(seg);
+  }
+  const lead = p.startsWith('/') ? '/' : '';
+  // Lower-cased: on case-insensitive filesystems two spellings are one file;
+  // on case-sensitive ones this only ever serializes a little more.
+  return (lead + out.join('/')).toLowerCase();
+}
+
+/** Paths an apply_patch touches: envelope headers, then unified-diff headers. */
+export function patchPaths(patch: string): string[] {
+  const paths = new Set<string>();
+  for (const line of patch.split(/\r?\n/)) {
+    const env = /^\*\*\* (?:Update File|Add File|Delete File|Move to):\s*(.+?)\s*$/.exec(line);
+    if (env) {paths.add(env[1]); continue;}
+    const uni = /^(?:\+\+\+|---) (.+?)(?:\t.*)?\s*$/.exec(line);
+    if (uni && uni[1] !== '/dev/null') {paths.add(uni[1]);}
+  }
+  return [...paths];
+}
+
+/**
+ * Lock keys for one call: [] for calls that never write files, the resolved
+ * target path(s) for file writers, or the wildcard when a writer's target
+ * can't be determined.
+ */
+export function mutationKeys(tc: { name: string; params: Record<string, string> }, workspaceRoot?: string): string[] {
+  if (!MUTATING_FILE_TOOLS.has(tc.name)) {return [];}
+  const params = tc.params ?? {};
+  const raw: string[] = [];
+  const explicit = params.path ?? params.file ?? params.filepath ?? params.file_path;
+  if (typeof explicit === 'string' && explicit.trim()) {raw.push(explicit);}
+  if (tc.name === 'apply_patch') {
+    const body = params.patch ?? params.input ?? '';
+    if (typeof body === 'string') {raw.push(...patchPaths(body));}
+  }
+  if (raw.length === 0) {return [ANY_PATH];}
+  return [...new Set(raw.map((r) => normalizeKey(r, workspaceRoot)))].sort();
 }
 
 /**
@@ -94,5 +165,35 @@ export async function executeParallelBatch(args: ExecuteParallelBatchArgs): Prom
     return results;
   }
 
-  return Promise.all(toolCalls.map(dispatchOne));
+  // Parallel, except same-file writes chain in call order. Each mutating call
+  // waits for the previous call on every key it holds (a wildcard waits for
+  // every earlier writer, and every later writer waits for it). Dependencies
+  // only ever point at earlier calls, so the chains can't deadlock.
+  const tails = new Map<string, Promise<unknown>>();
+  let wildcardTail: Promise<unknown> | undefined;
+  const settle = (p: Promise<unknown>): Promise<void> => p.then(() => undefined, () => undefined);
+  const runs = toolCalls.map((tc) => {
+    const keys = mutationKeys(tc, args.workspaceRoot);
+    if (keys.length === 0) {return dispatchOne(tc);}
+    const deps: Promise<unknown>[] = [];
+    if (wildcardTail) {deps.push(wildcardTail);}
+    if (keys.includes(ANY_PATH)) {
+      deps.push(...tails.values());
+    } else {
+      for (const k of keys) {
+        const prev = tails.get(k);
+        if (prev) {deps.push(prev);}
+      }
+    }
+    const run = deps.length === 0
+      ? dispatchOne(tc)
+      : Promise.all(deps.map(settle)).then(() => dispatchOne(tc));
+    if (keys.includes(ANY_PATH)) {
+      wildcardTail = run;
+    } else {
+      for (const k of keys) {tails.set(k, run);}
+    }
+    return run;
+  });
+  return Promise.all(runs);
 }

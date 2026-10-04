@@ -2234,7 +2234,8 @@ export class ToolUseLoop {
         outputBudgetRatio,
         emit,
         iteration: iterations,
-        signal
+        signal,
+        workspaceRoot: this.ctx.workspaceRoot
       });
 
       // Track whether ANY tool errored this iteration so the next
