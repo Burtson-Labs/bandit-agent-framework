@@ -1,12 +1,18 @@
 name: Bandit Agent Framework
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_live_eval:
+        description: Run the production model benchmark explicitly
+        type: boolean
+        default: false
   push:
     branches: ["main"]
     tags: ["v*"]
   # NOTE: Release pipeline — runs only on push-to-main + tags (not PRs): builds,
-  # tests, and publishes the packages on release. Runs on GitHub-hosted
-  # ubuntu-latest (free + unlimited for public repos). Outside-contributor PRs are
+  # tests, and publishes the packages on release. Uses standard GitHub-hosted
+  # runners for this public repository. Outside-contributor PRs are
   # validated by .github/workflows/pr-checks.yaml. This file does not gate PRs.
 
 permissions:
@@ -33,6 +39,8 @@ jobs:
       - run: pnpm build
       - name: Lint
         run: pnpm lint
+      - name: Test shared agent core
+        run: pnpm --filter @burtson-labs/agent-core test
       - name: Test stealth-core-runtime
         run: pnpm --filter stealth-core-runtime exec vitest run
       - name: Test bandit-stealth extension
@@ -75,6 +83,8 @@ jobs:
   # gracefully instead of blocking releases on a missing secret.
   eval-gate:
     name: Eval gate (BanditBench)
+    # Live inference is opt-in; routine releases must not consume active GPU jobs.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_eval
     needs: test
     runs-on: ubuntu-latest
     # ADVISORY for now (2026-09-22): the gate was never armed before today,

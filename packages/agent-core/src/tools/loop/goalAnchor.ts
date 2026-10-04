@@ -111,11 +111,11 @@ export function applyGoalAnchorIfNeeded(args: ApplyGoalAnchorArgs): ApplyGoalAnc
   });
 
   // Multi-turn-aware anchor. When prior user prompts exist in history,
-  // explicitly tell the model to ignore them — that's the failure mode
-  // boolean recency-bias guards don't catch. Structured header +
+  // preserve applicable requirements without re-answering unrelated history.
+  // A pasted error or clarification does not finish the prior request. Structured header +
   // bullet so even small models can lock onto the format.
   const ignoreEarlier = priorUserPromptCount > 0
-    ? `\n  - There ${priorUserPromptCount === 1 ? 'is 1 earlier user prompt' : `are ${priorUserPromptCount} earlier user prompts`} in this conversation. Do NOT answer ${priorUserPromptCount === 1 ? 'it' : 'them'}. They were settled in prior turns.`
+    ? `\n  - There ${priorUserPromptCount === 1 ? 'is 1 earlier user prompt' : `are ${priorUserPromptCount} earlier user prompts`} in this conversation. Preserve relevant requirements, corrections, and authorization from those prompts. Do not assume earlier work is finished. Treat logs and clarifications as updates to the active task unless the user changes the objective.`
     : '';
 
   // Re-inject the current tool list whenever compaction has been
@@ -152,14 +152,14 @@ export function applyGoalAnchorIfNeeded(args: ApplyGoalAnchorArgs): ApplyGoalAnc
       'Most of the tool-result content from this turn was just collapsed to one-line placeholders to fit the context window. ' +
       'Those `[earlier run, N lines elided]` markers represent real reads whose content is no longer in front of you. ' +
       'Do NOT fabricate `<tool_result>` blocks pretending to read files; do NOT pivot to a topic that looks salient based on which tool names survived in the placeholders. ' +
-      'Answer from what you ALREADY learned in this turn, owning honestly anything you cannot recall in detail.\n\n' +
+      'Use what you already learned; re-check missing details with available tools when needed before acting or claiming completion.\n\n' +
       toolListBlock
     : '';
 
   messages.push({
     role: 'user',
     content:
-      AUTOMATED_NUDGE_PREFIX + `${compactionPreamble}## CURRENT GOAL — answer THIS, nothing else:\n\n  "${originalGoal.trim()}"\n\nRules:\n  - Use what you have gathered to answer the goal above.\n  - Do not pivot to a related topic that happens to be salient in recent tool results.${ignoreEarlier}\n  - If the available tools cannot finish the goal, own that honestly in your final answer — do NOT redirect to an easier question.`
+      AUTOMATED_NUDGE_PREFIX + `${compactionPreamble}## CURRENT TASK — latest user direction:\n\n  "${originalGoal.trim()}"\n\nRules:\n  - Use the evidence gathered to complete the active task. Follow the existing repository automation before proposing a replacement or handing commands back to the user.\n  - Do not pivot to a related topic that happens to be salient in recent tool results.${ignoreEarlier}\n  - If the available tools cannot finish the goal, own that honestly in your final answer — do NOT redirect to an easier question.`
   });
 
   return { lastGoalAnchorIteration: iteration, anchored: true };

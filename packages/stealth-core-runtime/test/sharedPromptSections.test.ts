@@ -59,3 +59,11 @@ describe('shared prompt sections — git authorship', () => {
     expect(SHARED_GIT_AUTHORSHIP_ENABLED_BODY).toContain('&lt;');
   });
 });
+
+
+it('shares command capability guidance with the extension and desktop prompt', async () => {
+  const { buildExtensionSystemPrompt, SHARED_COMMAND_CAPABILITIES } = await import('../src');
+  const prompt = buildExtensionSystemPrompt({ providerKind: 'bandit', modelId: 'bandit-logic' });
+  expect(prompt).toContain(SHARED_COMMAND_CAPABILITIES);
+  expect(SHARED_COMMAND_CAPABILITIES).toContain('git, gh, and kubectl');
+});

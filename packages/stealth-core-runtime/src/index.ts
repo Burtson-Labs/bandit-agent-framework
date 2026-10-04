@@ -51,6 +51,7 @@ export {
   SHARED_GIT_AUTHORSHIP_HEADING,
   SHARED_GIT_AUTHORSHIP_ENABLED_BODY,
   SHARED_GIT_AUTHORSHIP_DISABLED_BODY,
+  SHARED_COMMAND_CAPABILITIES,
   buildGitAuthorshipBlock,
   buildGitAuthorshipBullet
 } from './sharedPromptSections';

@@ -94,3 +94,9 @@ export function buildGitAuthorshipBullet(coauthor: boolean, surfaceHint = ''): s
   }
   return `- **Do NOT append a \`Co-authored-by: Bandit\` trailer to commit messages.** The user has explicitly opted out via \`/coauthor off\` or \`BANDIT_NO_COAUTHOR=1\`.`;
 }
+
+
+/** Shared execution guidance for the terminal, desktop IDE, and extension. */
+export const SHARED_COMMAND_CAPABILITIES =
+  'Use run_command for bounded read-only git, gh, and kubectl probes before refusing. ' +
+  'Respect permissions, report real errors, never expose credentials; follow repo automation and verify results.';
