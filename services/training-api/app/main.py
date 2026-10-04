@@ -14,9 +14,9 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import auth, catalog, datasets as ds, ollama, storage, trainsets as ts
+from . import artifacts as art, auth, catalog, datasets as ds, ollama, storage, trainsets as ts
 from .runs import RunError, Runs, Window, public as public_run, utcnow
 
 logger = logging.getLogger("training.api")
@@ -286,6 +286,33 @@ async def reregister(run_id: str, quant: str = Query("q4_k_m", pattern="^(q4_k_m
         raise HTTPException(400, f"run has no gguf-{quant} export")
     state.db.runs.update_one({"_id": run_id}, {"$set": {"ollama": {"status": "pending", "quant": quant}}})
     return {"runId": run_id, "ollama": {"status": "pending", "quant": quant}, "model": ollama.model_name(run_id)}
+
+
+@app.get("/api/models/{run_id}/artifacts/{name}")
+async def download_artifact(run_id: str, name: str, _: auth.Caller = Depends(auth.admin)):
+    """Stream one export (e.g. ``gguf-q4_k_m``) from the NAS share, or MinIO for older runs."""
+    runs = ready()
+    run = runs.get(run_id)
+    artifact = (run.get("artifacts") or {}).get(name)
+    if not isinstance(artifact, dict):
+        raise HTTPException(404, f"run has no {name} artifact")
+    try:
+        stream, size = await asyncio.to_thread(art.open_artifact, state.store, artifact)
+    except art.ArtifactError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+    def chunks():
+        try:
+            while chunk := stream.read(8 * 1024 * 1024):
+                yield chunk
+        finally:
+            stream.close()
+
+    filename = f"{ollama.model_name(run_id).replace(':', '-')}-{art.filename(artifact)}"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if size:
+        headers["Content-Length"] = str(size)
+    return StreamingResponse(chunks(), media_type="application/octet-stream", headers=headers)
 
 
 # --- internal: Anton GPU intent ----------------------------------------------------------------

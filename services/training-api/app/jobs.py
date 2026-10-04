@@ -37,6 +37,8 @@ def job_manifest(run: dict, token: str, *, image: str, namespace: str, api_url: 
         {"name": "HF_HOME", "value": "/models/hf"},
         {"name": "HF_HUB_ENABLE_HF_TRANSFER", "value": "1"},
         {"name": "RUNS_DIR", "value": "/models/runs"},
+        # Bulky exports (GGUF, merged weights) go to the NAS share; /models is scratch.
+        {"name": "NAS_RUNS_DIR", "value": os.getenv("TRAINING_NAS_RUNS_DIR", "/nas/training/runs")},
         {"name": "BANDITBENCH_REPO", "value": os.getenv("BANDITBENCH_REPO", "")},
         {"name": "BANDITBENCH_TOKEN", "valueFrom": {"secretKeyRef": {"name": "training-worker-secrets", "key": "github-token", "optional": True}}},
     ]
@@ -80,9 +82,11 @@ def job_manifest(run: dict, token: str, *, image: str, namespace: str, api_url: 
                             "limits": {"memory": os.getenv("TRAINING_MEMORY_LIMIT", "96Gi"), "nvidia.com/gpu": "1"},
                         },
                         "volumeMounts": [{"name": "models", "mountPath": "/models"},
+                                         {"name": "nas", "mountPath": "/nas/training"},
                                          {"name": "shm", "mountPath": "/dev/shm"}],
                     }],
                     "volumes": [{"name": "models", "persistentVolumeClaim": {"claimName": "training-models"}},
+                                {"name": "nas", "persistentVolumeClaim": {"claimName": os.getenv("TRAINING_NAS_CLAIM", "training-nas")}},
                                 {"name": "shm", "emptyDir": {"medium": "Memory", "sizeLimit": "16Gi"}}],
                 },
             },

@@ -3,14 +3,17 @@ worker callbacks → Ollama registration. Mongo is mongomock, storage is in memo
 injected, the Job launcher and Ollama are fakes."""
 import gzip
 import json
+import os
+import tempfile
 import unittest
+from unittest import mock
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import mongomock
 from fastapi.testclient import TestClient
 
-from app import datasets as ds, jobs, main, ollama, storage
+from app import artifacts, datasets as ds, jobs, main, ollama, storage
 from app.runs import Window
 from tests.support import FakeLauncher, bearer, example, gz
 
@@ -397,6 +400,93 @@ class UnitTests(unittest.TestCase):
         self.assertFalse(w.is_open(NOON_CHICAGO))
         self.assertTrue(w.is_open(datetime(2026, 10, 3, 11, 30, tzinfo=UTC)))   # 06:30 CDT
         self.assertFalse(w.is_open(datetime(2026, 10, 3, 12, 30, tzinfo=UTC)))  # 07:30 CDT
+
+
+class NasArtifactTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.nas = tempfile.TemporaryDirectory()
+        self.addCleanup(self.nas.cleanup)
+        patcher = mock.patch.object(artifacts, "NAS_ROOT", self.nas.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.makedirs(os.path.join(self.nas.name, "runs", "run_1"))
+        with open(os.path.join(self.nas.name, "runs", "run_1", "model.q4_k_m.gguf"), "wb") as handle:
+            handle.write(b"GGUF-ON-NAS")
+        self.store.put_bytes("runs/run_old/model.q8_0.gguf", b"GGUF-IN-MINIO")
+        self.db.runs.insert_one({"_id": "run_1", "status": "completed", "baseModel": "qwen3-8b", "method": "lora",
+                                 "artifacts": {
+                                     "gguf-q4_k_m": {"location": "nas", "path": "runs/run_1/model.q4_k_m.gguf", "size": 11},
+                                     "gguf-q8_0": {"key": "runs/run_old/model.q8_0.gguf", "size": 13},
+                                     "adapter": {"location": "minio", "prefix": "runs/run_1/adapter", "files": ["a"]},
+                                     "evil": {"location": "nas", "path": "../../etc/passwd"},
+                                     "gone": {"location": "nas", "path": "runs/run_1/missing.gguf"}}})
+
+    def test_downloads_stream_from_the_nas_and_from_minio(self):
+        res = self.client.get("/api/models/run_1/artifacts/gguf-q4_k_m", headers=self.admin)
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.content, b"GGUF-ON-NAS")
+        self.assertIn('attachment; filename="bandit-local-run_1-model.q4_k_m.gguf"', res.headers["content-disposition"])
+        self.assertEqual(res.headers["content-length"], "11")
+        old = self.client.get("/api/models/run_1/artifacts/gguf-q8_0", headers=self.admin)
+        self.assertEqual(old.content, b"GGUF-IN-MINIO")
+
+    def test_download_refusals(self):
+        self.assertEqual(self.client.get("/api/models/run_1/artifacts/evil", headers=self.admin).status_code, 400)
+        self.assertEqual(self.client.get("/api/models/run_1/artifacts/gone", headers=self.admin).status_code, 404)
+        self.assertEqual(self.client.get("/api/models/run_1/artifacts/adapter", headers=self.admin).status_code, 400)
+        self.assertEqual(self.client.get("/api/models/run_1/artifacts/nope", headers=self.admin).status_code, 404)
+        self.assertEqual(self.client.get("/api/models/run_1/artifacts/gguf-q4_k_m",
+                                         headers=bearer(roles=("training",))).status_code, 403)
+
+    def test_registration_reads_the_nas_copy(self):
+        sent = []
+
+        def handler(request: httpx.Request):
+            if request.url.path == "/api/version":
+                return httpx.Response(200, json={"version": "0.12.0"})
+            if request.method == "HEAD":
+                return httpx.Response(404)
+            if request.url.path.startswith("/api/blobs/"):
+                sent.append(request.read())
+                return httpx.Response(201)
+            return httpx.Response(200, json={"status": "success"})
+
+        registrar = ollama.Registrar(self.store, "http://ollama", httpx.Client(transport=httpx.MockTransport(handler)))
+        run = self.db.runs.find_one({"_id": "run_1"})
+        run["artifacts"]["gguf-q4_k_m"]["sha256"] = "c" * 64
+        self.assertEqual(registrar.register(run, "q4_k_m")["status"], "registered")
+        self.assertEqual(sent, [b"GGUF-ON-NAS"])
+
+    def test_collector_scrub_report_and_dataset_name(self):
+        res = self.upload([example(i) for i in range(3)], snake=True,
+                          manifest={"datasetId": "ds_20261004_abcd", "scrubVersion": "scrub-v1"},
+                          report={"redactions": {"secret": 2, "email": 5}, "dropCounts": {"cli-session:duplicate": 4, "x": 1}})
+        self.assertEqual(res.status_code, 201, res.text)
+        doc = self.client.get(f"/api/datasets/{res.json()['id']}", headers=self.admin).json()
+        self.assertEqual(doc["name"], "ds_20261004_abcd")
+        self.assertEqual(doc["scrubTotals"]["secret"], 2)
+        self.assertEqual(doc["scrubTotals"]["dropped"], 5)
+        self.assertEqual(doc["scrubTotals"]["droppedByReason"]["cli-session:duplicate"], 4)
+
+
+class NasJobTests(unittest.TestCase):
+    def test_worker_mounts_the_nas_share(self):
+        m = jobs.job_manifest({"_id": "run_x", "attempt": 1}, "tok", image="img:1", namespace="ai-training", api_url="http://api")
+        spec = m["spec"]["template"]["spec"]
+        vols = {v["name"]: v for v in spec["volumes"]}
+        self.assertEqual(vols["nas"]["persistentVolumeClaim"]["claimName"], "training-nas")
+        mounts = {v["name"]: v["mountPath"] for v in spec["containers"][0]["volumeMounts"]}
+        self.assertEqual(mounts["nas"], "/nas/training")
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        self.assertEqual(env["NAS_RUNS_DIR"], "/nas/training/runs")
+
+    def test_nas_paths_cannot_escape(self):
+        with self.assertRaises(artifacts.ArtifactError):
+            artifacts.nas_path({"path": "/etc/passwd"}, "/nas/training")
+        with self.assertRaises(artifacts.ArtifactError):
+            artifacts.nas_path({"path": "runs/../../x"}, "/nas/training")
+        self.assertEqual(artifacts.location({"key": "runs/a"}), "minio")
 
 
 if __name__ == "__main__":

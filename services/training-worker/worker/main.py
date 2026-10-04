@@ -16,7 +16,7 @@ import sys
 import tempfile
 import traceback
 
-from . import data
+from . import data, nas
 from .client import Api, Bucket, Cancelled
 
 SMOKE_SPEC = {"runId": "local-smoke", "baseModel": "qwen3-0.6b", "hf": "Qwen/Qwen3-0.6B", "family": "qwen3",
@@ -101,13 +101,17 @@ def main(argv: list[str] | None = None) -> int:
 
         artifacts: dict = {}
         prefix = f"runs/{run_id}"
+        nas_runs = nas.runs_dir() if bucket else None
         if bucket:
             api.progress(status="exporting", stage="uploading")
-            artifacts["adapter"] = bucket.upload_dir(adapter, f"{prefix}/adapter")
+            # Small and irreplaceable → MinIO (backed up nightly); bulky and rebuildable → NAS.
+            artifacts["adapter"] = {"location": "minio", **bucket.upload_dir(adapter, f"{prefix}/adapter")}
             for name, path in ggufs.items():
-                artifacts[name] = bucket.upload(path, f"{prefix}/{os.path.basename(path)}")
+                artifacts[name] = (nas.copy_file(path, nas_runs, run_id) if nas_runs
+                                   else {"location": "minio", **bucket.upload(path, f"{prefix}/{os.path.basename(path)}")})
             if "safetensors" in spec["exports"]:
-                artifacts["safetensors"] = bucket.upload_dir(merged, f"{prefix}/hf")
+                artifacts["safetensors"] = (nas.copy_dir(merged, nas_runs, run_id, "merged") if nas_runs
+                                            else {"location": "minio", **bucket.upload_dir(merged, f"{prefix}/hf")})
         else:
             artifacts = {name: {"path": path} for name, path in ggufs.items()} | {"adapter": {"path": adapter},
                                                                                    "merged": {"path": merged}}
@@ -117,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
             api.progress(status="evaluating", stage="banditbench" if not smoke else "ollama probe")
             eval_result.update(evaluate.evaluate(eval_gguf, spec["ollama"], smoke=smoke))
         api.complete(artifacts, eval_result)
+        if nas_runs:
+            # Everything worth keeping is on the NAS or in MinIO now; free son-of-anton's disk.
+            nas.clean_scratch(out_dir)
         return 0
     except Cancelled:
         print("run was cancelled in training-api; stopping", flush=True)

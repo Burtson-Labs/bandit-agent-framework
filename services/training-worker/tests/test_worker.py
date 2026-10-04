@@ -8,7 +8,7 @@ from unittest import mock
 
 import httpx
 
-from worker import data, main as worker_main, train
+from worker import data, main as worker_main, nas, train
 from worker.client import Api, Cancelled
 
 
@@ -114,6 +114,86 @@ class OrchestrationTests(unittest.TestCase):
                 mock.patch.object(train, "run_sft", side_effect=RuntimeError("CUDA out of memory")):
             self.assertEqual(worker_main.main(["--local", "--smoke"]), 1)
         self.assertIn("CUDA out of memory", failures[0])
+
+
+class NasExportTests(unittest.TestCase):
+    def test_copy_file_verifies_and_records_a_share_relative_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "model.q8_0.gguf")
+            with open(src, "wb") as handle:
+                handle.write(b"x" * 1000)
+            runs = os.path.join(d, "share", "runs")
+            os.makedirs(os.path.dirname(runs))
+            with mock.patch.dict(os.environ, {"NAS_RUNS_DIR": runs}):
+                self.assertEqual(nas.runs_dir(), runs)
+            art = nas.copy_file(src, runs, "run_1")
+            self.assertEqual(art["location"], "nas")
+            self.assertEqual(art["path"], "runs/run_1/model.q8_0.gguf")
+            self.assertEqual(art["size"], 1000)
+            self.assertTrue(os.path.isfile(os.path.join(runs, "run_1", "model.q8_0.gguf")))
+            self.assertFalse(os.path.exists(os.path.join(runs, "run_1", "model.q8_0.gguf.partial")))
+
+    def test_no_share_mounted_means_no_nas(self):
+        with mock.patch.dict(os.environ, {"NAS_RUNS_DIR": "/definitely/not/mounted/runs"}):
+            self.assertIsNone(nas.runs_dir())
+
+    def test_cluster_run_puts_ggufs_on_the_nas_adapter_in_minio_and_cleans_scratch(self):
+        completed = {}
+
+        class FakeApi:
+            def __init__(self, *a):
+                pass
+
+            def spec(self):
+                return {**worker_main.SMOKE_SPEC, "runId": "run_n", "exports": ["gguf-q4_k_m"], "smoke": False,
+                        "trainKeys": {"train": "t", "eval": "e"}, "evalBanditBench": False}
+
+            def progress(self, **f):
+                pass
+
+            def complete(self, artifacts, eval_result):
+                completed.update(artifacts)
+
+            def fail(self, error):
+                raise AssertionError(error)
+
+        class FakeBucket:
+            def download(self, key, path):
+                with open(path, "w") as handle:
+                    handle.write("")
+
+            def upload(self, path, key, content_type=None):
+                raise AssertionError("GGUF must not go to MinIO when the NAS is mounted")
+
+            def upload_dir(self, directory, prefix):
+                return {"prefix": prefix, "files": ["adapter_model.safetensors"]}
+
+        with tempfile.TemporaryDirectory() as d:
+            scratch, runs = os.path.join(d, "scratch"), os.path.join(d, "share", "runs")
+            os.makedirs(os.path.dirname(runs))
+            out_dir = os.path.join(scratch, "run_n")
+
+            def fake_gguf(merged, out, wanted):
+                path = os.path.join(out, "model.q4_k_m.gguf")
+                with open(path, "wb") as handle:
+                    handle.write(b"gguf")
+                return {"gguf-q4_k_m": path}
+
+            env = {"RUNS_DIR": scratch, "NAS_RUNS_DIR": runs, "TRAINING_API_URL": "http://api", "RUN_TOKEN": "t"}
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(worker_main, "Api", FakeApi), \
+                    mock.patch.object(worker_main, "Bucket", FakeBucket), \
+                    mock.patch.object(worker_main.data, "load_jsonl", return_value=[]), \
+                    mock.patch.object(train, "run_sft", return_value=(object(), object(), {"train_loss": 0.5})), \
+                    mock.patch("worker.export.save_adapter", return_value=f"{out_dir}/adapter"), \
+                    mock.patch("worker.export.merge", return_value=f"{out_dir}/merged"), \
+                    mock.patch("worker.export.gguf", side_effect=fake_gguf):
+                self.assertEqual(worker_main.main(["--run", "run_n"]), 0)
+            self.assertEqual(completed["gguf-q4_k_m"]["location"], "nas")
+            self.assertEqual(completed["gguf-q4_k_m"]["path"], "runs/run_n/model.q4_k_m.gguf")
+            self.assertEqual(completed["adapter"]["location"], "minio")
+            self.assertTrue(os.path.isfile(os.path.join(runs, "run_n", "model.q4_k_m.gguf")))
+            self.assertFalse(os.path.exists(out_dir), "scratch should be cleaned after a verified export")
 
 
 if __name__ == "__main__":

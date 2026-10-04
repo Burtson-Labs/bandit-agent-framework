@@ -1,8 +1,8 @@
 """Register a finished run's GGUF with the cluster Ollama as ``bandit-local:<runId>``.
 
 Ollama is parked while a run holds the GPU, so registration is a pending task that waits until
-Ollama answers again. The GGUF streams from MinIO straight into Ollama's blob store (no local
-copy): ``HEAD/POST /api/blobs/sha256:<digest>`` then ``POST /api/create`` with the Qwen3 chat
+Ollama answers again. The GGUF streams from the NAS share (or MinIO for older runs) straight into
+Ollama's blob store (no local copy): ``HEAD/POST /api/blobs/sha256:<digest>`` then ``POST /api/create`` with the Qwen3 chat
 template (tools + thinking) and sampling defaults.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Iterator
 
 import httpx
 
-from . import storage
+from . import artifacts, storage
 
 logger = logging.getLogger("training.ollama")
 
@@ -112,14 +112,17 @@ class Registrar:
         digest = artifact["sha256"]
         exists = self.client.head(f"{self.base_url}/api/blobs/sha256:{digest}")
         if exists.status_code != 200:
-            stream = self.store.open_stream(artifact["key"])
+            stream, size = artifacts.open_artifact(self.store, artifact)
 
             def chunks() -> Iterator[bytes]:
                 while chunk := stream.read(8 * 1024 * 1024):
                     yield chunk
 
-            res = self.client.post(f"{self.base_url}/api/blobs/sha256:{digest}", content=chunks(),
-                                   headers={"Content-Length": str(artifact["size"])})
+            try:
+                res = self.client.post(f"{self.base_url}/api/blobs/sha256:{digest}", content=chunks(),
+                                       headers={"Content-Length": str(artifact.get("size") or size)})
+            finally:
+                stream.close()
             if res.status_code not in (200, 201):
                 raise RuntimeError(f"blob upload answered {res.status_code}: {res.text[:200]}")
         res = self.client.post(f"{self.base_url}/api/create", json=create_body(run, digest, quant))

@@ -241,12 +241,13 @@ def ingest(store: storage.Store, db, *, owner: str, manifest_raw: bytes, example
 
     doc = {
         "_id": dataset_id,
-        "name": str(manifest.get("name") or dataset_id)[:120],
+        "name": str(manifest.get("name") or manifest.get("datasetId") or dataset_id)[:120],
+        "sourceDatasetId": manifest.get("datasetId"),
         "owner": owner,
         "createdAt": now(),
         "manifest": manifest,
         "scrubVersion": manifest.get("scrubVersion") or (report or {}).get("version"),
-        "scrubTotals": (report or {}).get("totals"),
+        "scrubTotals": scrub_totals(report),
         "rejected": errors[:50],
         "rejectedCount": len(errors),
         "stats": compute_stats(summaries),
@@ -256,6 +257,23 @@ def ingest(store: storage.Store, db, *, owner: str, manifest_raw: bytes, example
         db.examples.insert_many(summaries, ordered=False)
     db.datasets.insert_one(doc)
     return doc
+
+
+def scrub_totals(report: dict | None) -> dict | None:
+    """Redaction counts by kind plus drops by reason. The collector (``bandit train collect``) writes
+    ``redactions`` and ``dropCounts``; older/other clients may send ``totals``."""
+    if not isinstance(report, dict):
+        return None
+    totals = report.get("totals")
+    if isinstance(totals, dict):
+        return totals
+    redactions = report.get("redactions") if isinstance(report.get("redactions"), dict) else {}
+    drops = report.get("dropCounts") if isinstance(report.get("dropCounts"), dict) else {}
+    if not redactions and not drops:
+        return None
+    return {**{k: v for k, v in redactions.items() if isinstance(v, (int, float))},
+            "dropped": sum(v for v in drops.values() if isinstance(v, (int, float))),
+            "droppedByReason": drops}
 
 
 def public_dataset(doc: dict) -> dict:
