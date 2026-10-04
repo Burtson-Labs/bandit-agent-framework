@@ -1,4 +1,4 @@
-import { useMemo, type JSX } from "react";
+import { memo, useCallback, useMemo, useRef, type JSX } from "react";
 import type { ChatMessage, ChatMessageContextFile } from "../types/ui-schema.js";
 import { ChatMessageBubble } from "./ChatMessage.js";
 import { renderMarkdownToHtml, type MarkdownRenderOptions } from "./MarkdownMessage.js";
@@ -50,8 +50,12 @@ const getMessageTimestamp = (message: ChatMessage): number | null => {
   return normalizeTimestamp(raw);
 };
 
+// One formatter for every label. toLocaleTimeString(…, options) constructs an
+// Intl.DateTimeFormat per call, and every group header formats its time on
+// every state post while a turn streams.
+let timeFormat: Intl.DateTimeFormat | null = null;
 const formatTimestampLabel = (timestampMs: number): string =>
-  new Date(timestampMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  (timeFormat ??= new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" })).format(timestampMs);
 
 export interface ChatConversationProps extends MarkdownRenderOptions {
   messages: ChatMessage[];
@@ -96,6 +100,14 @@ export const ChatConversation = ({
   streamingMessageId
 }: ChatConversationProps): JSX.Element => {
   const renderContent = renderMarkdown ?? renderMarkdownToHtml;
+  // Bubbles are memoized; hosts pass inline lambdas, so hand the bubbles
+  // stable functions that always call the latest prop.
+  const feedback = useLatest(onFeedback);
+  const dismissFeedback = useLatest(onDismissFeedback);
+  const contextFileClick = useLatest(onContextFileClick);
+  const fileReferenceClick = useLatest(onFileReferenceClick);
+  const permissionChoice = useLatest(onPermissionChoice);
+  const speak = useLatest(onSpeak);
   const groupedMessages = useMemo(() => {
     const groups: MessageGroup[] = [];
     messages.forEach((message, index) => {
@@ -146,18 +158,18 @@ export const ChatConversation = ({
             ) : null}
             <div className="chat-message-group__messages">
               {group.messages.map((message, index) => (
-                <ChatMessageBubble
+                <MemoChatMessageBubble
                   key={message.id ?? `${group.id}-message-${index}`}
                   message={message}
                   renderMarkdown={renderContent}
-                  onFeedback={onFeedback}
-                  onDismissFeedback={onDismissFeedback}
-                  onContextFileClick={onContextFileClick}
+                  onFeedback={feedback}
+                  onDismissFeedback={dismissFeedback}
+                  onContextFileClick={contextFileClick}
                   resolveFileHref={resolveFileHref}
-                  onFileReferenceClick={onFileReferenceClick}
+                  onFileReferenceClick={fileReferenceClick}
                   showTimestamp={!timestampLabel}
-                  onPermissionChoice={onPermissionChoice}
-                  onSpeak={onSpeak}
+                  onPermissionChoice={permissionChoice}
+                  onSpeak={speak}
                   speakingMessageId={speakingMessageId}
                   speakPaused={speakPaused}
                   streamingMessageId={streamingMessageId}
@@ -170,3 +182,40 @@ export const ChatConversation = ({
     </div>
   );
 };
+
+/** A stable function calling the latest `fn`; undefined when `fn` is (an
+ *  absent callback hides its affordance, so presence must be preserved). */
+function useLatest<F extends (...args: never[]) => unknown>(fn: F | undefined): F | undefined {
+  const ref = useRef(fn);
+  ref.current = fn;
+  const stable = useCallback(((...args: Parameters<F>) => ref.current?.(...args)) as F, []);
+  return fn ? stable : undefined;
+}
+
+/** Same message by value. The extension re-posts its whole state every frame
+ *  while a turn streams and the webview maps it to fresh objects, so identity
+ *  alone would re-render every settled bubble on every post. */
+function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
+  if (a === b) {return true;}
+  const keys = Object.keys(a) as (keyof ChatMessage)[];
+  if (keys.length !== Object.keys(b).length) {return false;}
+  for (const key of keys) {
+    const x = a[key];
+    const y = b[key];
+    if (x === y) {continue;}
+    if (x === null || y === null || typeof x !== "object" || typeof y !== "object") {return false;}
+    if (JSON.stringify(x) !== JSON.stringify(y)) {return false;}
+  }
+  return true;
+}
+
+const MemoChatMessageBubble = memo(ChatMessageBubble, (prev, next) => {
+  for (const key of Object.keys(next) as (keyof typeof next)[]) {
+    if (key === "message") {
+      if (!sameMessage(prev.message, next.message)) {return false;}
+    } else if (prev[key] !== next[key]) {
+      return false;
+    }
+  }
+  return Object.keys(prev).length === Object.keys(next).length;
+});
