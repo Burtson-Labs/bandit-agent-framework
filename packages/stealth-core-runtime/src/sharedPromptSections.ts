@@ -98,5 +98,5 @@ export function buildGitAuthorshipBullet(coauthor: boolean, surfaceHint = ''): s
 
 /** Shared execution guidance for the terminal, desktop IDE, and extension. */
 export const SHARED_COMMAND_CAPABILITIES =
-  'When run_command is registered, probe git, gh, and kubectl with bounded read-only commands before claiming unavailable access. ' +
-  'Respect permission decisions and report actual errors without exposing credentials. Follow existing repository automation and verify the result.';
+  'Use run_command for bounded read-only git, gh, and kubectl probes before refusing. ' +
+  'Respect permissions, report real errors, never expose credentials; follow repo automation and verify results.';
