@@ -23,8 +23,7 @@ env:
 jobs:
   pr-checks:
     name: Build + Test
-    # Untrusted public forks never enter the private runner network.
-    runs-on: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && 'burtson-labs-runners' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -73,8 +72,7 @@ jobs:
   # in .github/audit-allowlist.json.
   security-audit:
     name: Security audit (dependencies)
-    # Untrusted public forks never enter the private runner network.
-    runs-on: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && 'burtson-labs-runners' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
