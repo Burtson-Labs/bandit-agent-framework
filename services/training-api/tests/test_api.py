@@ -213,7 +213,7 @@ class RunTests(Base):
 
     def test_validation_and_defaults(self):
         run = self.new_run(schedule="now")
-        self.assertEqual((run["baseModel"], run["method"]), ("qwen3-8b", "lora"))
+        self.assertEqual((run["baseModel"], run["method"]), ("qwen3-8b", "qlora"))
         self.assertEqual(run["hyper"]["rank"], 32)
         self.assertNotIn("tokenHash", run)
         for body, fragment in (({"baseModel": "llama3-70b"}, "baseModel"), ({"method": "full"}, "method"),

@@ -10,8 +10,10 @@ from typing import Any
 BASE_MODELS: dict[str, dict[str, Any]] = {
     "qwen3-8b": {
         "hf": "Qwen/Qwen3-8B", "family": "qwen3", "licence": "Apache-2.0", "label": "Qwen3 8B",
-        "defaultMethod": "lora", "minVramGb": {"lora": 28, "qlora": 14},
-        "hyper": {"rank": 32, "alpha": 64, "lr": 2e-4, "epochs": 2, "maxSeqLen": 8192, "batch": 1, "gradAccum": 16},
+        # Measured on the 32 GB RTX 5090 (2026-10-03/04): bf16 LoRA and QLoRA rank 32 at 8192 tokens
+        # both ran out of memory; QLoRA rank 16 at 6144 fits (collector v2 windows to <= 5.9k tokens).
+        "defaultMethod": "qlora", "minVramGb": {"lora": 40, "qlora": 14},
+        "hyper": {"rank": 16, "alpha": 32, "lr": 2e-4, "epochs": 2, "maxSeqLen": 6144, "batch": 1, "gradAccum": 16},
         "default": True,
     },
     "qwen3-14b": {
