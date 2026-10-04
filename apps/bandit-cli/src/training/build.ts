@@ -83,7 +83,7 @@ export function schemasFor(messages: CanonicalMessage[]): NativeToolSchema[] {
 
 let cachedSystemPrompt: string | null = null;
 
-/** Examples in the shipped prompt that name a real-looking checkout location become repo-relative. */
+/** Safety net: a shipped-prompt example naming a real-looking checkout location becomes repo-relative. */
 export function neutralSystemPrompt(prompt: string): string {
   return prompt.replace(/~\/Documents\/github\/([A-Za-z0-9._-]+)/gi, '../$1');
 }
@@ -590,7 +590,9 @@ export function addBanditBenchTrace(acc: BuildAccumulator, trace: TrainingExampl
     return;
   }
   const status: ExampleStatus = trace.labels?.passed === false ? 'failed' : trace.status ?? 'unknown';
-  emitTrajectory(acc, { ...trace, status, source: 'banditbench', sourceRef: ref, tools: benchToolSchemas(trace) }, scrubber, options, {
+  // Traces recorded before the shipped prompt was neutralized still carry its old examples.
+  const messages = trace.messages.map(m => (m.role === 'system' ? { ...m, content: neutralSystemPrompt(m.content) } : m));
+  emitTrajectory(acc, { ...trace, messages, status, source: 'banditbench', sourceRef: ref, tools: benchToolSchemas(trace) }, scrubber, options, {
     turnStart: trace.messages[0]?.role === 'system' ? 1 : 0
   });
 }

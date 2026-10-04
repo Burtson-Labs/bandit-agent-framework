@@ -8,7 +8,7 @@
  * runs with that directory as its cwd instead of the workspace root —
  * essential when the user starts `bandit` from one directory but asks the
  * agent to operate on a repo elsewhere on disk (e.g. launching from `~` and
- * inspecting `~/Documents/github/some-repo`). Without this, git_* tools
+ * inspecting `../some-repo`). Without this, git_* tools
  * fail with "not a git repository" even though the path the conversation
  * is working against is a valid repo.
  */
@@ -37,7 +37,7 @@ function resolveRepoPath(ctx: ToolExecutionContext, repoPath?: string): string {
 
 const REPO_PATH_PARAM = {
   name: 'repo_path',
-  description: 'Absolute or workspace-relative path to the git repository. Defaults to the workspace root. Use this when the user points at a repo outside the current workspace (e.g. "~/Documents/github/my-project").'
+  description: 'Absolute or workspace-relative path to the git repository. Defaults to the workspace root. Use this when the user points at a repo outside the current workspace (e.g. "../my-project").'
 };
 
 // ── git_status ──────────────────────────────────────────────────────────────

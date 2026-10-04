@@ -122,7 +122,7 @@ const readFileTool: AgentTool = {
   name: 'read_file',
   description: 'Read the text content of a file with line numbers and a shown_hash for the displayed range. For files larger than ~600 lines, paginate with `offset` (1-based start line) and `limit` (number of lines). Common pattern: read_file(path) first, then if the result is truncated or oversized, follow up with read_file(path, offset=N, limit=120) for the next chunk. When replacing a large displayed block, pass the shown_hash to replace_range.expected_hash. For PDFs use `read_pdf` instead — this tool cannot decode binary formats.',
   parameters: [
-    { name: 'path', description: 'File path. Relative paths resolve against the workspace root (e.g. "src/index.ts"). Absolute paths are also accepted (e.g. "/Users/name/Desktop/notes.md", "/etc/hosts").', required: true },
+    { name: 'path', description: 'File path. Relative paths resolve against the workspace root (e.g. "src/index.ts"). Absolute and home paths are also accepted (e.g. "~/Desktop/notes.md", "/etc/hosts").', required: true },
     { name: 'offset', description: 'Optional 1-based start line. When set, only lines from this position onward are returned. Use for paginating large files (e.g. offset=200 to start at line 200).' },
     { name: 'limit', description: 'Optional max number of lines to return starting at `offset` (or line 1 when offset is omitted). Default is "all remaining lines, capped by the global byte budget".' }
   ],
@@ -1491,7 +1491,7 @@ const listFilesTool: AgentTool = {
   description: 'List files matching a glob pattern. Searches the workspace root by default; pass an absolute `cwd` to list anywhere else on disk (user home, /tmp, etc). Returns a newline-separated list of file paths. NOTE: glob is matched relative to `cwd`. To find a repo or directory anywhere on the user\'s machine when you don\'t know the path, prefer `run_command` with `find ~ -type d -name "<name>" 2>/dev/null` — list_files alone won\'t walk the whole home tree.',
   parameters: [
     { name: 'pattern', description: 'Glob pattern (e.g. "*.json", "src/**/*.ts", "**/*.md"). Use "*" to match everything in the target directory. Use "**/X" to recursively find X under cwd.', required: true },
-    { name: 'cwd', description: 'Directory to search in. Defaults to the workspace root. Accepts absolute paths like "/Users/name/Desktop" or "~" for the user home (optional)' }
+    { name: 'cwd', description: 'Directory to search in. Defaults to the workspace root. Accepts absolute or home paths like "~/Desktop" or "~" for the user home (optional)' }
   ],
   async execute(params, ctx: ToolExecutionContext): Promise<ToolResult> {
     const pattern = params.pattern?.trim();
@@ -1523,7 +1523,7 @@ const lsTool: AgentTool = {
   name: 'ls',
   description: 'List immediate files and folders inside a directory. Non-recursive. Use this for "what is in folder X" style questions — especially for directories outside the workspace like "~/Desktop", "~/Downloads", "/tmp". For recursive globs use list_files instead.',
   parameters: [
-    { name: 'path', description: 'Directory path. Absolute ("/Users/name/Desktop"), tilde-prefixed ("~/Desktop"), or relative to the workspace root (".", "src").', required: true }
+    { name: 'path', description: 'Directory path. Absolute ("/opt/data"), tilde-prefixed ("~/Desktop"), or relative to the workspace root (".", "src").', required: true }
   ],
   async execute(params, ctx: ToolExecutionContext): Promise<ToolResult> {
     const raw = params.path?.trim();

@@ -45,13 +45,15 @@ const HOME_NON_REPOS = new Set([
 ]);
 /** Generic user dirs that may stay as `~/<dir>/…` (taught by the system prompt; not identifying). */
 const HOME_KEEP = new Set(['Desktop', 'Downloads']);
+const GENERIC_VOLUMES = new Set(['bootfs', 'boot', 'Public', 'Untitled', 'EFI', 'Macintosh HD', 'Recovery']);
 const SANDBOX_RE = /^(?:\/private)?\/var\/folders\/[^/]+\/[^/]+\/T\/(bandit-eval-[^/]+)|^\/(?:private\/)?tmp\/(bandit-eval-[^/]+)|^~\/projects\/app(?=\/|$)/;
 
 /**
- * Absolute-path runs inside free text or argument strings: `~`, `/Users/<n>`, `/home/<n>`,
- * macOS temp dirs and `/tmp`. Stops at whitespace, quotes and common delimiters.
+ * Absolute-path runs inside free text or argument strings: `~`, `/Users/<n>`, `/home/<n>`, `/Volumes/<v>`,
+ * macOS temp dirs and `/tmp`. Stops at whitespace, quotes, backslashes and common delimiters;
+ * an escaped `\n`/`\t` (text that was JSON-encoded twice) counts as a boundary.
  */
-const PATH_RUN_RE = /(?<![\w.~/-])(~(?=\/|(?![\w-]))|\/Users\/[^/\s'"`<>|;,)\]}]+|\/home\/[^/\s'"`<>|;,)\]}]+|\/private\/var\/folders|\/var\/folders|\/private\/tmp|\/tmp)((?:\/[^\s'"`<>|;,)\]}:*?]*)*)/g;
+const PATH_RUN_RE = /(?:(?<![\w.~/-])|(?<=\\[nrt]))(~(?=\/|(?![\w-]))|\/Users\/[^/\s'"`<>|;,)\]}\\]+|\/home\/[^/\s'"`<>|;,)\]}\\]+|\/Volumes\/[^/\s'"`<>|;,)\]}\\*:]+|\/private\/var\/folders|\/var\/folders|\/private\/tmp|\/tmp)((?:\/[^\s'"`<>|;,)\]}:*?\\]*)*)/g;
 
 function trimTrailing(p: string): { path: string; tail: string } {
   const m = p.match(/[.,:;!?)]+$/);
@@ -177,6 +179,14 @@ export function relativizeExample(example: TrainingExample, options: RelativizeO
       return `~/${p.slice(2).split('/').slice(-1)[0] || 'file'}`;
     }
     if (p === '~') return '~';
+    // mounted volumes: generic names stay, anything else (often a user-named share) is neutral
+    const vol = p.match(/^\/Volumes\/([^/]+)(.*)$/);
+    if (vol) {
+      if (GENERIC_VOLUMES.has(vol[1])) return p;
+      result.external++;
+      if (options.externalPaths === 'drop') result.dropReason ??= 'external-path';
+      return `/Volumes/drive${vol[2]}`;
+    }
     // temp dirs: keep only the tail so no machine-specific prefix survives
     if (/^\/(?:private\/)?(?:var\/folders|tmp)/.test(p)) {
       result.external++;
@@ -187,13 +197,19 @@ export function relativizeExample(example: TrainingExample, options: RelativizeO
     return p;
   };
 
-  const rewriteText = (text: string): string => {
+  /**
+   * `productText`: the system prompt is product text whose generic examples (`~/Desktop`,
+   * `/tmp/something`) must match what the model sees at inference; only the workspace
+   * itself (or an eval sandbox) is rewritten there.
+   */
+  const rewriteText = (text: string, productText = false): string => {
     if (!text) return text;
     PATH_RUN_RE.lastIndex = 0;
     return text.replace(PATH_RUN_RE, (match: string, head: string, rest: string) => {
       const { path: p, tail } = trimTrailing(canonical(head, rest ?? '', home));
       // a bare `~` in prose ("~ 5 minutes") is not a path
       if (head === '~' && !rest) return match;
+      if (productText && !(root && (p === root || p.startsWith(`${root}/`))) && !SANDBOX_RE.test(p)) return match;
       return rewritePath(p) + tail;
     });
   };
@@ -221,11 +237,11 @@ export function relativizeExample(example: TrainingExample, options: RelativizeO
       }
       return next;
     }
-    return { ...m, content: rewriteText(m.content) } as CanonicalMessage;
+    return { ...m, content: rewriteText(m.content, m.role === 'system') } as CanonicalMessage;
   });
   result.example = { ...example, sourceRef: rewriteText(example.sourceRef), messages };
   return result;
 }
 
 /** Leftover machine-specific paths the self-check refuses. */
-export const ABSOLUTE_PATH_LEFTOVER_RE = /~\/Documents\b|\/Users\/[A-Za-z0-9._-]+|~\/projects\/app\b|\/var\/folders\/|\/private\/var\/|\bbandit-eval-[A-Za-z0-9._-]+-[A-Za-z0-9]{4,}/;
+export const ABSOLUTE_PATH_LEFTOVER_RE = /~\/Documents\b|\/Volumes\/(?!(?:drive|bootfs|boot|Public|Untitled|EFI|Recovery)\b)[A-Za-z0-9._-]+|\/Users\/[A-Za-z0-9._-]+|~\/projects\/app\b|\/var\/folders\/|\/private\/var\/|\bbandit-eval-[A-Za-z0-9._-]+-[A-Za-z0-9]{4,}/;

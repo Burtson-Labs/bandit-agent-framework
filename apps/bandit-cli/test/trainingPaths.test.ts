@@ -176,3 +176,30 @@ describe('eval runner: never hangs', () => {
     expect(fs.existsSync(path.join(os.homedir(), 'Documents/GitHub/bandit-agent-framework/sample.ts'))).toBe(false);
   });
 });
+
+describe('training paths: escaped text', () => {
+  it('rewrites paths inside double-encoded output (literal \\n before the path)', () => {
+    const r = relativizeExample(example([{ role: 'user', content: 'Token match:\\n~/Documents/GitHub/other-lib\\n' }]), { workspaceRoot: REPO, home: HOME });
+    expect(r.example.messages[0].content).toBe('Token match:\\n../other-lib\\n');
+    expect(selfCheckExample(r.example)).toEqual([]);
+  });
+});
+
+describe('training paths: system prompt is product text', () => {
+  it('rewrites only the workspace/sandbox in the system message, not its generic examples', () => {
+    const r = relativizeExample(example([
+      { role: 'system', content: 'Workspace: ~/projects/app. Use cwd="~/Desktop", ~/proj, /tmp/something and ~/.bandit/sessions/.' },
+      { role: 'user', content: 'x' }
+    ]), { workspaceRoot: '~/projects/app', home: HOME });
+    expect(r.example.messages[0].content).toBe('Workspace: .. Use cwd="~/Desktop", ~/proj, /tmp/something and ~/.bandit/sessions/.');
+  });
+});
+
+describe('training paths: mounted volumes', () => {
+  it('keeps generic volume names and neutralizes the rest', () => {
+    const r = relativizeExample(example([{ role: 'user', content: 'see /Volumes/devshare/x.txt and /Volumes/bootfs/config.txt' }]), { workspaceRoot: REPO, home: HOME });
+    expect(r.example.messages[0].content).toBe('see /Volumes/drive/x.txt and /Volumes/bootfs/config.txt');
+    expect(selfCheckExample(r.example)).toEqual([]);
+    expect(selfCheckExample(example([{ role: 'user', content: 'cd /Volumes/devshare' }])).length).toBeGreaterThan(0);
+  });
+});
