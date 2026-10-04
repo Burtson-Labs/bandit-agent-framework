@@ -58,7 +58,11 @@ export interface RiskContext {
 
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'list_files', 'ls', 'search_code', 'find_directory',
-  'read_memory', 'todo_write', 'check_task', 'list_tasks', 'ask_user'
+  'read_memory', 'todo_write', 'check_task', 'list_tasks', 'ask_user',
+  // Built-in git readers. `git status|log|diff` via run_command is already
+  // routine (ROUTINE_GIT); the dedicated tools fell through to unknown-tool and
+  // were sent to the auto-mode reviewer or the permission prompt.
+  'git_status', 'git_log', 'git_diff'
 ]);
 
 const EDIT_TOOLS = new Set(['apply_edit', 'replace_range']);

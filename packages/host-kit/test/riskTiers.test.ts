@@ -38,6 +38,16 @@ describe('routine — what auto mode may run unattended', () => {
       expect(tierOf(cmd(line)), line).toBe('routine');
     }
   });
+
+  it('treats the built-in git reader tools like their shell equivalents', () => {
+    for (const name of ['git_status', 'git_log', 'git_diff']) {
+      expect(tierOf({ name, params: {} }), name).toBe('routine');
+    }
+    // Writers stay reviewed.
+    for (const name of ['git_commit', 'git_push', 'git_checkout', 'git_stash', 'git_pull']) {
+      expect(tierOf({ name, params: {} }), name).not.toBe('routine');
+    }
+  });
 });
 
 describe('elevated — real consequences, still recoverable', () => {
