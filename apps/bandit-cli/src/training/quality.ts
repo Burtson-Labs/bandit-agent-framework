@@ -65,7 +65,10 @@ export function detectHandBack(turn: CanonicalMessage[]): HandBackReason | null 
 function commandOf(args: string): string {
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
-    return String(parsed.command ?? parsed.cmd ?? parsed.script ?? '');
+    // run_command may carry the program and its arguments separately (cmd: "npm", args: "test").
+    const head = String(parsed.command ?? parsed.cmd ?? parsed.script ?? '');
+    const rest = Array.isArray(parsed.args) ? parsed.args.join(' ') : String(parsed.args ?? '');
+    return rest ? `${head} ${rest}` : head;
   } catch {
     return args;
   }

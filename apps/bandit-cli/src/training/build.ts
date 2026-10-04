@@ -532,6 +532,22 @@ export function addStealthWebTurn(acc: BuildAccumulator, turn: StealthWebTurn, s
   }), scrubber, options, { turnStart: 1 });
 }
 
+/** Core tools always offered in bench examples, so the model sees the edit/read alternatives
+ *  it chose between (apply_edit vs replace_range vs write_file) and not only the one it used. */
+const BENCH_CORE_TOOLS = new Set(['read_file', 'search_code', 'list_files', 'apply_edit', 'replace_range', 'write_file', 'run_command']);
+
+/** A bench trace records the whole registry (~5k tokens of schemas), which alone overflows a
+ *  training window. Keep what the run used plus the core set, like session examples
+ *  (schemasFor) keep only the tools used. */
+function benchToolSchemas(trace: TrainingExample): NativeToolSchema[] {
+  const used = schemasFor(trace.messages);
+  if (!trace.tools?.length) return used;
+  const names = new Set([...used.map(t => t.function.name), ...BENCH_CORE_TOOLS]);
+  const kept = trace.tools.filter(t => names.has(t.function.name));
+  for (const t of used) if (!kept.some(k => k.function.name === t.function.name)) kept.push(t);
+  return kept;
+}
+
 /** BanditBench traces are already canonical (written by `eval --trace-out`); they still get scrubbed. */
 export function addBanditBenchTrace(acc: BuildAccumulator, trace: TrainingExample, ref: string, scrubber: Scrubber, options: BuildOptions): void {
   if (!Array.isArray(trace.messages)) {
@@ -539,7 +555,7 @@ export function addBanditBenchTrace(acc: BuildAccumulator, trace: TrainingExampl
     return;
   }
   const status: ExampleStatus = trace.labels?.passed === false ? 'failed' : trace.status ?? 'unknown';
-  emitTrajectory(acc, { ...trace, status, source: 'banditbench', sourceRef: ref, tools: trace.tools?.length ? trace.tools : schemasFor(trace.messages) }, scrubber, options, {
+  emitTrajectory(acc, { ...trace, status, source: 'banditbench', sourceRef: ref, tools: benchToolSchemas(trace) }, scrubber, options, {
     turnStart: trace.messages[0]?.role === 'system' ? 1 : 0
   });
 }

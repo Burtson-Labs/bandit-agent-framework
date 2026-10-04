@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateRun } from '../src/__eval__/assertions';
 import { buildRunTrace, TRACE_WORKSPACE } from '../src/__eval__/traceOut';
+import { editVerifyLabels } from '../src/training/quality';
 import type { ToolCallTrace } from '../src/__eval__/types';
 
 const call = (name: string, params: Record<string, string>): ToolCallTrace => ({ name, params, order: 0, iteration: 1 });
@@ -43,5 +44,16 @@ describe('eval harness: trace-out', () => {
     expect(text).toContain(`${TRACE_WORKSPACE}/src/a.ts`);
     expect(text).toContain(`${TRACE_WORKSPACE}/src/b.ts`);
     expect(trace.labels.passed).toBe(true);
+  });
+});
+
+describe('training quality: verified label', () => {
+  it('sees a test run whose arguments are split from the command', () => {
+    const turn = [
+      { role: 'assistant' as const, content: '', tool_calls: [{ id: 'a', type: 'function' as const, function: { name: 'apply_edit', arguments: '{"path":"src/x.js","find":"1","replace":"2"}' } }] },
+      { role: 'tool' as const, tool_call_id: 'a', name: 'apply_edit', content: 'ok' },
+      { role: 'assistant' as const, content: '', tool_calls: [{ id: 'b', type: 'function' as const, function: { name: 'run_command', arguments: '{"cmd":"npm","args":"test"}' } }] }
+    ];
+    expect(editVerifyLabels(turn as never)).toEqual({ edited: true, verified: true });
   });
 });

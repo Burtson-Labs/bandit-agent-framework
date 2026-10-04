@@ -57,7 +57,7 @@ const LANGS = {
   js: { ext: 'js', constDef: (n, v) => `export const ${n} = ${v};`, constImport: (n, from) => `import { ${n} } from './${from}.js';`, fn: (name, body) => `export function ${name}(value) {\n  ${body}\n}`, comment: t => `/** ${t} */` },
   py: { ext: 'py', constDef: (n, v) => `${n} = ${v}`, constImport: (n, from) => `from .${from} import ${n}`, fn: (name, body) => `def ${name}(value):\n    ${body.replace(/;$/, '')}`, comment: t => `# ${t}` },
   go: { ext: 'go', constDef: (n, v) => `const ${n} = ${v}`, constImport: () => '', fn: (name, body) => `func ${name}(value int) int {\n\t${body.replace(/;$/, '')}\n}`, comment: t => `// ${t}` },
-  cs: { ext: 'cs', constDef: (n, v) => `public static class Limits { public const int ${n} = ${v}; }`, constImport: () => 'using App.Config;', fn: (name, body) => `public static int ${name}(int value)\n{\n    ${body}\n}`, comment: t => `/// <summary>${t}</summary>` }
+  cs: { ext: 'cs', constDef: (n, v) => `    public const int ${n} = ${v};`, constImport: () => 'using App.Config;', fn: (name, body) => `public static int ${name}(int value)\n{\n    ${body}\n}`, comment: t => `/// <summary>${t}</summary>` }
 };
 
 const EDIT_TOOLS = /^(apply_edit|replace_range)$/;
@@ -72,7 +72,8 @@ const FAMILIES = {
     const from = int(2, 40) * 5; let to = int(2, 80) * 10; if (to === from) to += 7;
     const dir = pick(['src/core', 'lib', 'pkg/tuning', 'app/shared', 'internal/limits']);
     const defFile = `${dir}/${pick(NOUNS)}_limits.${L.ext}`;
-    const files = { [defFile]: `${L.constDef(name, from)}\n${L.constDef(decoy, from)}\n` };
+    const defBody = `${L.constDef(name, from)}\n${L.constDef(decoy, from)}\n`;
+    const files = { [defFile]: lang === 'cs' ? `namespace App.Config;\n\npublic static class Limits\n{\n${defBody}}\n` : defBody };
     const users = int(1, 3);
     for (let i = 0; i < users; i++) {
       const f = `${dir}/${pick(VERBS)}_${pick(NOUNS)}${i}.${L.ext}`;
@@ -130,7 +131,8 @@ const FAMILIES = {
     const body = lang === 'py' || lang === 'go' ? 'return value * 2' : 'return value * 2;';
     const content = fns.map(f => L.fn(f, body)).join('\n\n') + '\n';
     const notes = Object.fromEntries(targets.map(t => [t, `${cap(t.replace(/[A-Z]/g, c => ' ' + c.toLowerCase()))} for the ${pick(DOMAINS)} desk.`]));
-    const finalRe = new RegExp(targets.map(t => `(?=[\\s\\S]*${reEsc(L.comment(notes[t]).split(notes[t])[0].trim())}[^\\n]*${reEsc(notes[t].slice(0, 24))}[^\\n]*\\n${lang === 'cs' ? '' : '[^\\n]*'}${reEsc(t)})`).join(''));
+    const marker = lang === 'py' ? '#' : '(?:\\/\\/|\\/\\*\\*?|\\*)';
+    const finalRe = new RegExp(targets.map(t => `(?=[\\s\\S]*${marker}[^\\n]*${reEsc(notes[t].slice(0, 24))}[^\\n]*\\n(?:[^\\n]*\\*\\/[^\\n]*\\n)?[^\\n]*${reEsc(t)})`).join(''));
     return {
       prompt: `In ${file}, add a one-line doc comment directly above ${targets.map(t => `${t} reading "${notes[t]}"`).join(' and above ')}. Don't change any code.`,
       files: { [file]: content, 'NOTES.md': '# notes\n' },
@@ -262,7 +264,7 @@ const FAMILIES = {
     return {
       prompt: `Run node ${script} and tell me if it succeeds.`,
       files: { [script]: `console.error('inspect: ${word}');\nprocess.exit(${code});\n`, 'package.json': `{ "name": "${pick(DOMAINS)}-tools", "private": true }\n` },
-      assertions: { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: new RegExp(reEsc(path.basename(script))) } }], mustNotCall: ['write_file', 'apply_edit', 'replace_range', ...NO_PATCH], finalResponseMatches: new RegExp(`(?=[\\s\\S]*(fail|did not pass|didn['’]t pass|error|exit(ed)? (with )?(code )?${code}))(?=[\\s\\S]*${reEsc(word.split(' ')[0])})`, 'i'), maxIterations: 4 },
+      assertions: { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: new RegExp(reEsc(path.basename(script))) } }], mustNotCall: ['write_file', 'apply_edit', 'replace_range', ...NO_PATCH], finalResponseMatches: new RegExp(`(?=[\\s\\S]*(fail|did not (pass|succeed)|didn['’]t (pass|succeed)|not succeed|cannot|can['’]t|error|exit(ed)?[^\\n]{0,20}${code}))(?=[\\s\\S]*${reEsc(word.split(' ')[0])})`, 'i'), maxIterations: 4 },
       maxIterations: 5
     };
   },
