@@ -214,7 +214,7 @@ class RunTests(Base):
     def test_validation_and_defaults(self):
         run = self.new_run(schedule="now")
         self.assertEqual((run["baseModel"], run["method"]), ("qwen3-8b", "qlora"))
-        self.assertEqual(run["hyper"]["rank"], 32)
+        self.assertEqual((run["hyper"]["rank"], run["hyper"]["maxSeqLen"]), (16, 6144))
         self.assertNotIn("tokenHash", run)
         for body, fragment in (({"baseModel": "llama3-70b"}, "baseModel"), ({"method": "full"}, "method"),
                                ({"baseModel": "qwen3-32b", "method": "lora"}, "VRAM"), ({"hyper": {"lr": 5}}, "hyper.lr"),
