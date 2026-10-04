@@ -19,7 +19,8 @@ export function evaluateRun(
   toolCalls: ToolCallTrace[],
   iterations: number,
   finalResponse: string,
-  assertions: FixtureAssertions
+  assertions: FixtureAssertions,
+  finalFiles?: Record<string, string | null>
 ): EvaluationResult {
   const reasons: string[] = [];
 
@@ -68,6 +69,25 @@ export function evaluateRun(
     reasons.push(`final response did not match ${assertions.finalResponseMatches} — got "${preview}${finalResponse.length > 120 ? '…' : ''}"`);
   }
 
+  if (assertions.finalFiles) {
+    for (const [file, expected] of Object.entries(assertions.finalFiles)) {
+      const actual = finalFiles?.[file] ?? null;
+      if (expected === null) {
+        if (actual !== null) reasons.push(`file ${file} should not exist after the run`);
+        continue;
+      }
+      if (actual === null) {
+        reasons.push(`file ${file} missing after the run`);
+        continue;
+      }
+      const ok = expected instanceof RegExp ? expected.test(actual) : actual.trimEnd() === expected.trimEnd();
+      if (!ok) {
+        const preview = actual.slice(0, 120).replace(/\s+/g, ' ');
+        reasons.push(`file ${file} content did not match ${expected instanceof RegExp ? expected : 'the expected text'} — got "${preview}${actual.length > 120 ? '…' : ''}"`);
+      }
+    }
+  }
+
   return { passed: reasons.length === 0, reasons };
 }
 
@@ -82,7 +102,11 @@ function matchesSpec(call: ToolCallTrace, spec: string | ToolCallAssertion): boo
   }
   if (!spec.params) return true;
   for (const [key, matcher] of Object.entries(spec.params)) {
-    const value = call.params[key];
+    // `commandLine` is virtual: run_command's cmd plus its separate args, so a fixture can
+    // match "npm test" whether the model sent cmd="npm test" or cmd="npm", args="test".
+    const value = key === 'commandLine'
+      ? [call.params.cmd, call.params.args].filter(Boolean).join(' ')
+      : call.params[key];
     if (value === undefined || value === null) return false;
     if (typeof matcher === 'string') {
       if (value !== matcher) return false;

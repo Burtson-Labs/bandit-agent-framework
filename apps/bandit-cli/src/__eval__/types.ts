@@ -33,7 +33,8 @@ export interface ToolCallAssertion {
    *  targeted edits of multi-line files → apply_edit). */
   name: string | RegExp;
   /** Optional predicate on the params of that call. All provided keys must
-   *  match their expected value (exact string match or a test function). */
+   *  match their expected value (exact string match or a test function).
+   *  `commandLine` matches run_command's cmd + args joined with a space. */
   params?: Record<string, string | RegExp | ((value: string) => boolean)>;
 }
 
@@ -59,6 +60,11 @@ export interface FixtureAssertions {
   /** Optional assertion on the final text response (after tool calls
    *  complete). Regex match; pass if any trace matches. */
   finalResponseMatches?: RegExp;
+  /** Workspace state after the run, by relative path. A string must equal the
+   *  file's content exactly (trailing whitespace ignored), a RegExp must match it,
+   *  and null means the file must NOT exist. Grades the outcome, not just the
+   *  tool choice — an apply_edit that lands the wrong text still fails. */
+  finalFiles?: Record<string, string | RegExp | null>;
 }
 
 export interface Fixture {
@@ -82,6 +88,9 @@ export interface Fixture {
   /** Seed messages before the user prompt — useful for multi-turn setups
    *  (e.g. "user asked to read a file earlier, now asks to edit it"). */
   priorMessages?: ToolLoopMessage[];
+  /** Tools removed from the registry for this fixture (e.g. ['apply_patch'] when
+   *  generating teacher data that must use apply_edit/replace_range). */
+  excludeTools?: string[];
 }
 
 export interface ToolCallTrace {

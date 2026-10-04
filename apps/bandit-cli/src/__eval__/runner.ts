@@ -23,6 +23,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   ToolUseLoop,
+  ToolRegistry,
   createDefaultSkillRegistry,
   createDefaultLanguageAdapters,
   registerWorkspaceSkills,
@@ -53,6 +54,8 @@ export interface RunnerProvider {
   variant?: 'cli' | 'extension';
   /** When set, each run's full transcript is written here as a canonical training example. */
   traceOut?: string;
+  /** Tools removed from every fixture's registry (eval --exclude-tools). */
+  excludeTools?: string[];
 }
 
 /**
@@ -108,7 +111,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     ).catch(() => 0);
 
     const activeSkills = skillRegistry.resolveActiveSkills(fixture.prompt);
-    const { registry } = skillRegistry.buildToolRegistryWithMap(activeSkills);
+    let { registry } = skillRegistry.buildToolRegistryWithMap(activeSkills);
 
     // Sanity check: the registry produced by the skill path MUST include
     // the tools the system prompt tells the model to use. If this ever
@@ -126,6 +129,12 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
         `This means a skill manifest dropped a tool the system prompt still references. ` +
         `Fix the skill manifest (likely packages/agent-core/src/tools/skills/core-skill.ts).`
       );
+    }
+
+    const excluded = new Set([...(fixture.excludeTools ?? []), ...(provider.excludeTools ?? [])]);
+    if (excluded.size > 0) {
+      const kept = registry.getAll().filter(tool => !excluded.has(tool.name));
+      registry = new ToolRegistry().registerAll(kept);
     }
 
     const memory = fixture.setup?.memory ?? '';
@@ -214,7 +223,11 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
 
     const result = await loop.runWithMessages(seedMessages, chat, systemPrompt, { emitEvent });
 
-    const evalResult = evaluateRun(toolCalls, result.iterations, result.finalResponse, fixture.assertions);
+    const finalFiles: Record<string, string | null> = {};
+    for (const rel of Object.keys(fixture.assertions.finalFiles ?? {})) {
+      finalFiles[rel] = await fs.promises.readFile(path.join(sandbox, rel), 'utf8').catch(() => null);
+    }
+    const evalResult = evaluateRun(toolCalls, result.iterations, result.finalResponse, fixture.assertions, finalFiles);
 
     if (provider.traceOut) {
       await writeRunTrace(provider.traceOut, {
@@ -226,7 +239,8 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
         messages: result.messages,
         hitLimit: result.hitLimit,
         passed: evalResult.passed,
-        failureReasons: evalResult.reasons
+        failureReasons: evalResult.reasons,
+        workspaceRoot: sandbox
       }).catch(err => process.stderr.write(`bandit eval: trace-out failed: ${err instanceof Error ? err.message : String(err)}\n`));
     }
 
@@ -375,6 +389,8 @@ export interface RunFixturesOptions {
    *  the prior "render everything at the end" behaviour meant 6 minutes
    *  of silence. */
   onFixtureComplete?: (result: FixtureResult, progress: { done: number; total: number }) => void;
+  /** Fixtures run in parallel up to this many at once (default 1). Runs of one fixture stay sequential. */
+  concurrency?: number;
   /** Fires once at the start, before any fixture runs. Intended for a
    *  banner ("Running N fixtures…"). */
   onStart?: (info: { total: number; provider: RunnerProvider }) => void;
@@ -389,12 +405,19 @@ export async function runFixtures(
   const startedAt = new Date().toISOString();
   const started = Date.now();
   options.onStart?.({ total: fixtures.length, provider });
-  const results: FixtureResult[] = [];
-  for (const fixture of fixtures) {
-    const result = await runFixture(fixture, provider);
-    results.push(result);
-    options.onFixtureComplete?.(result, { done: results.length, total: fixtures.length });
-  }
+  const results: FixtureResult[] = new Array(fixtures.length);
+  let done = 0;
+  let next = 0;
+  const workers = Math.max(1, Math.min(options.concurrency ?? 1, fixtures.length));
+  await Promise.all(Array.from({ length: workers }, async () => {
+    while (next < fixtures.length) {
+      const index = next++;
+      const result = await runFixture(fixtures[index], provider);
+      results[index] = result;
+      done++;
+      options.onFixtureComplete?.(result, { done, total: fixtures.length });
+    }
+  }));
   return {
     provider: provider.kind,
     model: provider.model,

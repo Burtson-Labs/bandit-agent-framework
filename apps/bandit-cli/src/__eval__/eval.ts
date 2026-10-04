@@ -46,6 +46,8 @@ interface EvalArgs {
   apiKey?: string;
   /** Directory for full per-run transcripts in the Training Studio canonical format. */
   traceOut?: string;
+  concurrency?: number;
+  excludeTools?: string[];
   runs?: number;
   out: string;
   /** Optional machine-readable report path. Absent = not written. */
@@ -76,6 +78,8 @@ function parseArgs(argv: string[]): EvalArgs {
     else if (a === '--base-url') args.baseUrl = argv[++i];
     else if (a === '--api-key') args.apiKey = argv[++i];
     else if (a === '--trace-out') args.traceOut = argv[++i];
+    else if (a === '--concurrency') args.concurrency = parseInt(argv[++i], 10);
+    else if (a === '--exclude-tools') args.excludeTools = argv[++i].split(',').map(t => t.trim()).filter(Boolean);
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
     else if (a === '--out') args.out = argv[++i];
@@ -155,7 +159,8 @@ async function main(): Promise<void> {
     model: resolved.model,
     settings,
     variant: args.variant ?? 'cli',
-    traceOut: args.traceOut
+    traceOut: args.traceOut,
+    excludeTools: args.excludeTools
   };
 
   // Discover workspace fixtures alongside the built-in set unless the caller
@@ -206,7 +211,8 @@ async function main(): Promise<void> {
 
   process.stdout.write(`\nRunning ${adjusted.length} fixture(s) against ${provider.kind}/${provider.model} [variant=${provider.variant}]…\n\n`);
   const report = await runFixtures(adjusted, provider, {
-    onFixtureComplete: renderFixtureProgress
+    onFixtureComplete: renderFixtureProgress,
+    concurrency: args.concurrency
   });
   renderLive(report);
 

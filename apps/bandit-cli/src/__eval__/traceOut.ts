@@ -22,10 +22,23 @@ export interface RunTraceInput {
   hitLimit: boolean;
   passed: boolean;
   failureReasons: string[];
+  /** The run's sandbox directory. Replaced by a stable project path in the trace so the
+   *  training data doesn't teach the model throwaway temp-dir names. */
+  workspaceRoot?: string;
+}
+
+/** Stable stand-in for the eval sandbox in training traces. */
+export const TRACE_WORKSPACE = '~/projects/app';
+
+function normalizeWorkspace<T>(value: T, root: string | undefined): T {
+  if (!root) return value;
+  const variants = [root, root.replace(/^\/private(?=\/)/, ''), `/private${root}`];
+  const swap = (text: string): string => variants.reduce((acc, v) => acc.split(v).join(TRACE_WORKSPACE), text);
+  return JSON.parse(swap(JSON.stringify(value))) as T;
 }
 
 export function buildRunTrace(input: RunTraceInput, now = new Date()): TrainingExample {
-  const { messages, stats } = convertTranscript(input.messages.filter(m => m.role !== 'system'));
+  const { messages, stats } = convertTranscript(normalizeWorkspace(input.messages.filter(m => m.role !== 'system'), input.workspaceRoot));
   const labels = emptyLabels();
   labels.hitLimit = input.hitLimit;
   labels.toolCalls = stats.toolCalls;
@@ -33,7 +46,7 @@ export function buildRunTrace(input: RunTraceInput, now = new Date()): TrainingE
   labels.passed = input.passed;
   labels.failureReasons = input.failureReasons;
   labels.fixtureId = input.fixtureId;
-  const canonical = [{ role: 'system' as const, content: input.systemPrompt }, ...messages];
+  const canonical = [{ role: 'system' as const, content: normalizeWorkspace(input.systemPrompt, input.workspaceRoot) }, ...messages];
   return {
     id: exampleId(canonical),
     source: 'banditbench',
