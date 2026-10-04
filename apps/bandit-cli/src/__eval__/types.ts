@@ -91,6 +91,9 @@ export interface Fixture {
   /** Tools removed from the registry for this fixture (e.g. ['apply_patch'] when
    *  generating teacher data that must use apply_edit/replace_range). */
   excludeTools?: string[];
+  /** Replay a task against a real repository: the sandbox starts as a local clone of this
+   *  directory's git repo at HEAD, with every remote removed. */
+  sourceDir?: string;
 }
 
 export interface ToolCallTrace {

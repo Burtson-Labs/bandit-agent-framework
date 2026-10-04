@@ -52,6 +52,7 @@ interface EvalArgs {
   excludeTools?: string[];
   /** Per-run wall-clock cap in seconds (default 300). */
   runTimeoutSec?: number;
+  commandDeny?: string;
   runs?: number;
   out: string;
   /** Optional machine-readable report path. Absent = not written. */
@@ -84,6 +85,7 @@ function parseArgs(argv: string[]): EvalArgs {
     else if (a === '--trace-out') args.traceOut = argv[++i];
     else if (a === '--concurrency') args.concurrency = parseInt(argv[++i], 10);
     else if (a === '--run-timeout') args.runTimeoutSec = Number(argv[++i]);
+    else if (a === '--command-deny') args.commandDeny = argv[++i];
     else if (a === '--exclude-tools') args.excludeTools = argv[++i].split(',').map(t => t.trim()).filter(Boolean);
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
@@ -166,6 +168,7 @@ async function main(): Promise<void> {
     variant: args.variant ?? 'cli',
     traceOut: args.traceOut,
     excludeTools: args.excludeTools,
+    commandDeny: args.commandDeny ? new RegExp(args.commandDeny, 'i') : undefined,
     runTimeoutMs: args.runTimeoutSec && args.runTimeoutSec > 0 ? args.runTimeoutSec * 1000 : undefined
   };
 

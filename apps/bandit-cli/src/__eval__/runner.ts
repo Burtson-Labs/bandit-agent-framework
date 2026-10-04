@@ -19,6 +19,7 @@
  *     those are well-covered by the smoke test at the mechanical level.
  */
 
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -59,6 +60,8 @@ export interface RunnerProvider {
   excludeTools?: string[];
   /** Wall-clock cap per run in ms (eval --run-timeout); default 300 s. Nothing may hang an eval. */
   runTimeoutMs?: number;
+  /** run_command / watch_command calls whose command line matches are refused (eval --command-deny). */
+  commandDeny?: RegExp;
   /** Test seam: use this chat function instead of building one from `settings`. */
   chat?: ChatFn;
 }
@@ -66,6 +69,26 @@ export interface RunnerProvider {
 export const DEFAULT_RUN_TIMEOUT_MS = 300_000;
 /** A single model call that streams more than this is degenerate (repetition); stop it. */
 const MAX_CHARS_PER_CALL = 60_000;
+
+const COMMAND_TOOLS = new Set(['run_command', 'watch_command']);
+
+/** Wrap command tools so denied command lines return an error instead of running. */
+export function withCommandDeny(registry: ToolRegistry, deny: RegExp): ToolRegistry {
+  const wrapped = registry.getAll().map(tool => {
+    if (!COMMAND_TOOLS.has(tool.name)) return tool;
+    const guarded = Object.create(tool) as typeof tool;
+    guarded.execute = async (params, ctx) => {
+      const line = [params.cmd, params.command, params.args].filter(Boolean).join(' ');
+      deny.lastIndex = 0;
+      if (deny.test(line)) {
+        return { output: 'ERROR: blocked in this sandbox: remote, deploy, publish, global-install and network-mutating commands are not allowed here.', isError: true };
+      }
+      return tool.execute(params, ctx);
+    };
+    return guarded;
+  });
+  return new ToolRegistry().registerAll(wrapped);
+}
 
 /**
  * Run a single fixture N times and report pass/fail.
@@ -110,6 +133,12 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
   let denials: string[] = [];
 
   try {
+    if (fixture.sourceDir) {
+      execFileSync('git', ['clone', '--quiet', '--no-hardlinks', fixture.sourceDir, sandbox], { stdio: 'ignore' });
+      for (const remote of execFileSync('git', ['-C', sandbox, 'remote'], { encoding: 'utf8' }).split('\n').filter(Boolean)) {
+        execFileSync('git', ['-C', sandbox, 'remote', 'remove', remote], { stdio: 'ignore' });
+      }
+    }
     await applySetup(sandbox, fixture);
 
     const skillRegistry = createDefaultSkillRegistry();
@@ -146,6 +175,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       const kept = registry.getAll().filter(tool => !excluded.has(tool.name));
       registry = new ToolRegistry().registerAll(kept);
     }
+    if (provider.commandDeny) registry = withCommandDeny(registry, provider.commandDeny);
 
     const memory = fixture.setup?.memory ?? '';
     const skillInstructions = activeSkills
