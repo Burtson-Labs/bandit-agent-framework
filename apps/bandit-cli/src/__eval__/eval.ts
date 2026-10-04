@@ -18,6 +18,8 @@
  *                       canonical format (passed/failureReasons in labels) —
  *                       verifiable-reward data and the worker's eval capture
  *   --runs <N>          override the per-fixture run count (default 3)
+ *   --run-timeout <s>   wall-clock cap per run in seconds (default 300); out-of-
+ *                       workspace access is always auto-denied, never awaited
  *   --out <path>        markdown output path (default .bandit/eval-report.md)
  *   --json-out <path>   ALSO write a machine-readable JSON report (off by
  *                       default). Unlike the markdown, this carries per-fixture
@@ -48,6 +50,8 @@ interface EvalArgs {
   traceOut?: string;
   concurrency?: number;
   excludeTools?: string[];
+  /** Per-run wall-clock cap in seconds (default 300). */
+  runTimeoutSec?: number;
   runs?: number;
   out: string;
   /** Optional machine-readable report path. Absent = not written. */
@@ -79,6 +83,7 @@ function parseArgs(argv: string[]): EvalArgs {
     else if (a === '--api-key') args.apiKey = argv[++i];
     else if (a === '--trace-out') args.traceOut = argv[++i];
     else if (a === '--concurrency') args.concurrency = parseInt(argv[++i], 10);
+    else if (a === '--run-timeout') args.runTimeoutSec = Number(argv[++i]);
     else if (a === '--exclude-tools') args.excludeTools = argv[++i].split(',').map(t => t.trim()).filter(Boolean);
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--runs') args.runs = parseInt(argv[++i], 10);
@@ -160,7 +165,8 @@ async function main(): Promise<void> {
     settings,
     variant: args.variant ?? 'cli',
     traceOut: args.traceOut,
-    excludeTools: args.excludeTools
+    excludeTools: args.excludeTools,
+    runTimeoutMs: args.runTimeoutSec && args.runTimeoutSec > 0 ? args.runTimeoutSec * 1000 : undefined
   };
 
   // Discover workspace fixtures alongside the built-in set unless the caller

@@ -9,6 +9,7 @@
 import { redactSecrets } from '@burtson-labs/agent-core';
 import type { CanonicalMessage, RedactionKind, TrainingExample } from './types';
 import { emptyRedactions } from './types';
+import { ABSOLUTE_PATH_LEFTOVER_RE } from './paths';
 
 export const SECRET = '[SECRET]';
 export const REDACTED_FILE = '[redacted file]';
@@ -172,7 +173,8 @@ export function createScrubber(denylist: DenyTerm[] = []): Scrubber {
   };
 
   const scrubExample = (example: TrainingExample): TrainingExample => {
-    const counts = emptyRedactions();
+    // path_absolute is counted earlier, by the relativizer (paths.ts); carry it through.
+    const counts = { ...emptyRedactions(), path_absolute: example.scrub?.redactions?.path_absolute ?? 0 };
     // Which tool calls touched a sensitive file? Their results are replaced whole.
     const sensitiveCalls = new Set<string>();
     for (const m of example.messages) {
@@ -249,7 +251,8 @@ const LEFTOVER_RES: Array<[string, RegExp]> = [
   ['burtson-key', /\bbai_[A-Za-z0-9]{16,}/],
   ['slack-token', /\bxox[abprs]-[A-Za-z0-9-]{10,}/],
   ['url-credentials', /\b[a-z][a-z0-9+.-]*:\/\/(?!\[SECRET\])[^\s/@'"`<>:]+:[^\s/@'"`<>]+@/i],
-  ['home-path', /\/Users\/[A-Za-z0-9._-]+\//]
+  ['home-path', /\/Users\/[A-Za-z0-9._-]+\//],
+  ['absolute-path', ABSOLUTE_PATH_LEFTOVER_RE]
 ];
 
 export interface SelfCheckHit {

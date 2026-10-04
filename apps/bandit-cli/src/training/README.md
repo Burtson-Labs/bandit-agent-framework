@@ -24,3 +24,11 @@ patterns, high-entropy tokens, emails, phones, home paths, and the local denylis
 `appsettings*.json`, keys and credential files are replaced whole. Mail/calendar tool
 use, client-document reads and secret-heavy turns drop the turn and the rest of its
 session. Every run ends with a self-check over the raw strings that fails loudly.
+
+Paths (`paths.ts`), before the scrub: everything under a trajectory's workspace root becomes
+repo-relative (`src/a.ts`, `.`), another repo becomes `../<repo>/…`, eval sandboxes collapse
+to their root, and other personal/temp paths become neutral placeholders (`~/files/…`,
+`/tmp/<name>`; counted as `scrub.redactions.path_absolute`, or dropped with
+`--external-paths drop`). `GitHub-<org>` checkouts are client work and drop the example. The
+self-check fails on any leftover `~/Documents`, `/Users/<n>`, `~/projects/app` or temp-dir path —
+a model trained on absolute paths writes to the collector's machine instead of its workspace.

@@ -7,10 +7,13 @@
  * compaction does at runtime) followed by the full tool loop of its own turn.
  */
 import * as crypto from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
 import { createDefaultSkillRegistry } from '@burtson-labs/agent-core';
 import { buildSystemPrompt } from '../systemPrompt';
 import { convertTranscript, parseToolResults, isNudge } from './protocol';
 import { totalSecrets, type Scrubber } from './scrub';
+import { relativizeExample, type ExternalPathPolicy } from './paths';
 import type { CliSession, HostTurn, StealthWebTurn } from './sources';
 import {
   detectHandBack,
@@ -79,9 +82,14 @@ export function schemasFor(messages: CanonicalMessage[]): NativeToolSchema[] {
 }
 
 let cachedSystemPrompt: string | null = null;
+
+/** Examples in the shipped prompt that name a real-looking checkout location become repo-relative. */
+export function neutralSystemPrompt(prompt: string): string {
+  return prompt.replace(/~\/Documents\/github\/([A-Za-z0-9._-]+)/gi, '../$1');
+}
 /** The CLI's system prompt without the memory block (memory is personal; never exported). */
 export function rebuiltSystemPrompt(): string {
-  cachedSystemPrompt ??= buildSystemPrompt('');
+  cachedSystemPrompt ??= neutralSystemPrompt(buildSystemPrompt(''));
   return cachedSystemPrompt;
 }
 
@@ -188,6 +196,8 @@ export interface BuildOptions {
   /** Keep hand-back replies as SFT examples (default: excluded, written to negatives only). */
   includeHandbacks?: boolean;
   minQuality?: MinQuality;
+  /** Personal paths outside any repo: neutral placeholders (default) or drop the example. */
+  externalPaths?: ExternalPathPolicy;
 }
 
 export const DEFAULT_WINDOW_TOKENS = 7600;
@@ -226,6 +236,7 @@ export interface BuildAccumulator {
   };
   windowing: WindowStats;
   handBacks: Record<string, number>;
+  paths: { relative: number; crossRepo: number; external: number; inferredRoot: number; noRoot: number };
 }
 
 export function newAccumulator(): BuildAccumulator {
@@ -237,7 +248,8 @@ export function newAccumulator(): BuildAccumulator {
     seenNormalized: new Set(),
     stats: { sessions: 0, sessionTurns: 0, joinedByPrompt: 0, joinedByOrder: 0, unjoinedTurns: 0, nudgesDropped: 0, malformedToolCalls: 0, unmatchedToolResults: 0 },
     windowing: { trajectories: 0, overBudget: 0, overBudgetUsable: 0, over4096Before: 0, windowsEmitted: 0, chunkWindows: 0, clippedToolOutputs: 0, oversizedAssistant: 0 },
-    handBacks: {}
+    handBacks: {},
+    paths: { relative: 0, crossRepo: 0, external: 0, inferredRoot: 0, noRoot: 0 }
   };
 }
 
@@ -293,8 +305,25 @@ export function emitTrajectory(
   draft: TrainingExample,
   scrubber: Scrubber,
   options: BuildOptions,
-  ctx: { firstTask?: CanonicalMessage | null; turnStart?: number } = {}
+  ctx: { firstTask?: CanonicalMessage | null; turnStart?: number; workspaceRoot?: string | null } = {}
 ): DroppedExample['reason'] | null {
+  // Workspace-relative paths before anything else, so windows, negatives and dedupe all see
+  // the same neutral form (a model must never learn the collecting machine's layout).
+  const rel = relativizeExample(draft, { workspaceRoot: ctx.workspaceRoot, externalPaths: options.externalPaths });
+  if (rel.dropReason) {
+    acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: rel.dropReason });
+    return rel.dropReason;
+  }
+  acc.paths.relative += rel.relative;
+  acc.paths.crossRepo += rel.crossRepo;
+  acc.paths.external += rel.external;
+  if (rel.root && !ctx.workspaceRoot) acc.paths.inferredRoot++;
+  if (!rel.root) acc.paths.noRoot++;
+  draft = {
+    ...rel.example,
+    scrub: { ...rel.example.scrub, redactions: { ...rel.example.scrub.redactions, path_absolute: rel.external } }
+  };
+  if (ctx.firstTask) ctx = { ...ctx, firstTask: relativizeExample({ ...draft, messages: [ctx.firstTask] }, { workspaceRoot: rel.root }).example.messages[0] };
   const toolDrop = dropReasonForTools(draft.messages);
   if (toolDrop) {
     acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: toolDrop });
@@ -379,7 +408,7 @@ export function emitTrajectory(
  * Secrets do not taint whole sessions any more: every window is scrubbed and counted on
  * its own, so only windows that still carry the secret-heavy content are dropped.
  */
-const SESSION_TAINT = new Set<DroppedExample['reason']>(['email-or-calendar-tools', 'client-document-tools']);
+const SESSION_TAINT = new Set<DroppedExample['reason']>(['email-or-calendar-tools', 'client-document-tools', 'client-workspace']);
 
 function draftExample(partial: Omit<TrainingExample, 'id' | 'tools' | 'scrub' | 'split'>): TrainingExample {
   return {
@@ -405,6 +434,12 @@ export function splitTurns(messages: CliSession['messages']): Array<CliSession['
     }
   }
   return turns;
+}
+
+/** `<root>/.bandit/turns/<file>` → `<root>`; the global `~/.bandit/turns` (CLI run from home) gives no hint. */
+export function workspaceRootOfTurnFile(file: string): string | null {
+  const root = path.dirname(path.dirname(path.dirname(file)));
+  return root === os.homedir() || root === '/' ? null : root;
 }
 
 export function addCliSession(
@@ -452,7 +487,7 @@ export function addCliSession(
       labels,
       messages: [...prefix, ...messages]
     });
-    const taint = emitTrajectory(acc, draft, scrubber, options, { firstTask, turnStart: prefix.length });
+    const taint = emitTrajectory(acc, draft, scrubber, options, { firstTask, turnStart: prefix.length, workspaceRoot: host ? workspaceRootOfTurnFile(host.path) : null });
     if (taint && SESSION_TAINT.has(taint)) {
       tainted = taint;
       return;
@@ -529,7 +564,7 @@ export function addStealthWebTurn(acc: BuildAccumulator, turn: StealthWebTurn, s
     status,
     labels,
     messages: [{ role: 'system', content: rebuiltSystemPrompt() }, ...messages]
-  }), scrubber, options, { turnStart: 1 });
+  }), scrubber, options, { turnStart: 1, workspaceRoot: workspaceRootOfTurnFile(turn.path) });
 }
 
 /** Core tools always offered in bench examples, so the model sees the edit/read alternatives

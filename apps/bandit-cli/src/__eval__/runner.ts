@@ -12,7 +12,8 @@
  *   - Same language adapters the CLI ships with
  *
  * What's deliberately different:
- *   - No permission gate (eval runs auto-allow)
+ *   - No interactive permission gate: tools are confined to the sandbox and anything outside
+ *     it is auto-denied with a tool error (never awaited); each run has a wall-clock cap
  *   - No hooks (they're per-workspace and out of scope for behavioural evals)
  *   - No mention expansion, no semantic context, no session persistence —
  *     those are well-covered by the smoke test at the mechanical level.
@@ -31,7 +32,7 @@ import {
   type ToolLoopMessage
 } from '@burtson-labs/agent-core';
 import { createProvider, getModelCapabilities, type ProviderSettings, buildExtensionSystemPrompt } from '@burtson-labs/stealth-core-runtime';
-import { CliToolExecutionContext } from '../cliToolContext';
+import { EvalSandboxContext } from './sandboxContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
 import { writeRunTrace } from './traceOut';
@@ -56,7 +57,15 @@ export interface RunnerProvider {
   traceOut?: string;
   /** Tools removed from every fixture's registry (eval --exclude-tools). */
   excludeTools?: string[];
+  /** Wall-clock cap per run in ms (eval --run-timeout); default 300 s. Nothing may hang an eval. */
+  runTimeoutMs?: number;
+  /** Test seam: use this chat function instead of building one from `settings`. */
+  chat?: ChatFn;
 }
+
+export const DEFAULT_RUN_TIMEOUT_MS = 300_000;
+/** A single model call that streams more than this is degenerate (repetition); stop it. */
+const MAX_CHARS_PER_CALL = 60_000;
 
 /**
  * Run a single fixture N times and report pass/fail.
@@ -98,6 +107,7 @@ export async function runFixture(fixture: Fixture, provider: RunnerProvider): Pr
 async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: number): Promise<RunResult> {
   const started = Date.now();
   const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), `bandit-eval-${fixture.id}-`));
+  let denials: string[] = [];
 
   try {
     await applySetup(sandbox, fixture);
@@ -162,15 +172,27 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       ? `${corePrompt}\n\n## Skill Instructions\n\n${skillInstructions}`
       : corePrompt;
 
-    const toolCtx = new CliToolExecutionContext(sandbox, createDefaultLanguageAdapters());
-    const rawChat = await buildChat(provider);
+    const toolCtx = new EvalSandboxContext(sandbox, createDefaultLanguageAdapters());
+    denials = toolCtx.denials;
+    const rawChat = provider.chat ?? await buildChat(provider);
+    const abort = new AbortController();
+    const timeoutMs = provider.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
+    let timedOut = false;
+    let degenerate = false;
     // Count every streamed char so the run carries an approx output-token
     // figure (chars/4, tool markup included — it's real generated cost).
     let chunkChars = 0;
     const chat: typeof rawChat = async function* (messages, tools, options) {
+      let callChars = 0;
       for await (const chunk of rawChat(messages, tools, options)) {
+        if (abort.signal.aborted) return;
         chunkChars += chunk.length;
+        callChars += chunk.length;
         yield chunk;
+        if (callChars > MAX_CHARS_PER_CALL) {
+          degenerate = true;
+          return;
+        }
       }
     };
 
@@ -221,13 +243,38 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       { role: 'user', content: fixture.prompt }
     ];
 
-    const result = await loop.runWithMessages(seedMessages, chat, systemPrompt, { emitEvent });
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        abort.abort();
+        reject(new Error(`run exceeded the ${Math.round(timeoutMs / 1000)} s wall-clock cap`));
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    const result = await Promise.race([
+      loop.runWithMessages(seedMessages, chat, systemPrompt, { emitEvent, signal: abort.signal }),
+      deadline
+    ]).finally(() => clearTimeout(timer));
 
     const finalFiles: Record<string, string | null> = {};
     for (const rel of Object.keys(fixture.assertions.finalFiles ?? {})) {
       finalFiles[rel] = await fs.promises.readFile(path.join(sandbox, rel), 'utf8').catch(() => null);
     }
     const evalResult = evaluateRun(toolCalls, result.iterations, result.finalResponse, fixture.assertions, finalFiles);
+    // Auto-denied out-of-workspace access and runaway generations fail the run, visibly.
+    for (const d of toolCtx.denials) {
+      evalResult.passed = false;
+      evalResult.reasons.push(`permission auto-denied (non-interactive): ${d} is outside the workspace`);
+    }
+    if (degenerate) {
+      evalResult.passed = false;
+      evalResult.reasons.push(`a single model call streamed over ${MAX_CHARS_PER_CALL} chars (degenerate output); cut off`);
+    }
+    if (timedOut) {
+      evalResult.passed = false;
+      evalResult.reasons.push(`run exceeded the ${Math.round(timeoutMs / 1000)} s wall-clock cap`);
+    }
 
     if (provider.traceOut) {
       await writeRunTrace(provider.traceOut, {
@@ -259,7 +306,10 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     return {
       runNumber,
       passed: false,
-      failureReasons: [`runner error: ${err instanceof Error ? err.message : String(err)}`],
+      failureReasons: [
+        `runner error: ${err instanceof Error ? err.message : String(err)}`,
+        ...denials.map(d => `permission auto-denied (non-interactive): ${d} is outside the workspace`)
+      ],
       toolCalls: [],
       iterations: 0,
       hitLimit: false,

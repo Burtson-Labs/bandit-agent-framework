@@ -5,7 +5,7 @@
  *                        [--keep-nudges] [--max-secrets N] [--workspaces a,b,c] [--banditbench dir]
  *                        [--history N] [--window-tokens N] [--window-mode chunks|tail]
  *                        [--min-quality none|completed|edited|completed-or-unknown-with-tools]
- *                        [--include-handbacks] [--dry-run]
+ *                        [--include-handbacks] [--external-paths placeholder|drop] [--dry-run]
  *   bandit train inspect <dir> [--grep text] [--sample N]
  *   bandit train upload  <dir> [--api https://training.burtson.ai]
  *
@@ -70,6 +70,7 @@ interface CollectArgs {
   windowMode: WindowMode;
   minQuality: MinQuality;
   includeHandbacks: boolean;
+  externalPaths: 'placeholder' | 'drop';
   dryRun: boolean;
 }
 
@@ -89,6 +90,7 @@ function parseCollectArgs(argv: string[]): CollectArgs {
     windowMode: 'chunks',
     minQuality: 'completed-or-unknown-with-tools',
     includeHandbacks: false,
+    externalPaths: 'placeholder',
     dryRun: false
   };
   for (let i = 0; i < argv.length; i++) {
@@ -116,6 +118,11 @@ function parseCollectArgs(argv: string[]): CollectArgs {
       if (!MIN_QUALITY_VALUES.includes(v)) throw new Error(`--min-quality: one of ${MIN_QUALITY_VALUES.join(', ')}`);
       args.minQuality = v;
     } else if (a === '--include-handbacks') args.includeHandbacks = true;
+    else if (a === '--external-paths') {
+      const v = argv[++i];
+      if (v !== 'placeholder' && v !== 'drop') throw new Error('--external-paths: placeholder or drop');
+      args.externalPaths = v;
+    }
     else if (a === '--dry-run') args.dryRun = true;
     else throw new Error(`unknown option ${a}`);
   }
@@ -140,6 +147,7 @@ export interface CollectResult {
   negatives: NegativeExample[];
   windowing: WindowStats;
   handBacks: Record<string, number>;
+  paths: Record<string, number>;
   dropped: DroppedExample[];
   selfCheck: SelfCheckHit[];
   discovery: Record<string, number>;
@@ -158,7 +166,8 @@ export async function collect(args: CollectArgs, version: string): Promise<Colle
     windowTokens: args.windowTokens,
     windowMode: args.windowMode,
     minQuality: args.minQuality,
-    includeHandbacks: args.includeHandbacks
+    includeHandbacks: args.includeHandbacks,
+    externalPaths: args.externalPaths
   };
   const acc = newAccumulator();
   const discovery: Record<string, number> = {};
@@ -238,6 +247,8 @@ export async function collect(args: CollectArgs, version: string): Promise<Colle
       windowMode: args.windowMode,
       minQuality: args.minQuality,
       includeHandbacks: args.includeHandbacks,
+      externalPaths: args.externalPaths,
+      paths: acc.paths,
       negatives: acc.negatives.length,
       denylistTerms: denylist.length
     },
@@ -249,6 +260,7 @@ export async function collect(args: CollectArgs, version: string): Promise<Colle
     negatives: acc.negatives,
     windowing: acc.windowing,
     handBacks: acc.handBacks,
+    paths: acc.paths,
     dropped: acc.dropped,
     selfCheck,
     discovery,
@@ -275,6 +287,7 @@ function printStats(r: CollectResult): void {
   w(`by model    ${JSON.stringify(m.byModel)}\n`);
   w(`drops       ${JSON.stringify(dropCounts(r.dropped))}\n`);
   w(`windowing   ${JSON.stringify(r.windowing)}\n`);
+  w(`paths       ${JSON.stringify(r.paths)}\n`);
   w(`quality     ${JSON.stringify(m.byQuality)}\n`);
   w(`hand-backs  ${JSON.stringify(r.handBacks)} → ${r.negatives.length} negative(s) for preference training\n`);
   w(`redactions  ${JSON.stringify(m.redactions)}\n`);

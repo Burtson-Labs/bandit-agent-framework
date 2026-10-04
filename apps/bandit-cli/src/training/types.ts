@@ -55,7 +55,7 @@ export interface ExampleLabels {
   window?: { index: number; of: number; droppedBefore: number };
 }
 
-export type RedactionKind = 'secret' | 'email' | 'phone' | 'path' | 'client' | 'person' | 'entropy' | 'file';
+export type RedactionKind = 'secret' | 'email' | 'phone' | 'path' | 'path_absolute' | 'client' | 'person' | 'entropy' | 'file';
 
 export interface ScrubInfo {
   version: 'scrub-v1';
@@ -88,7 +88,9 @@ export type DropReason =
   | 'near-duplicate'
   | 'below-min-quality'
   | 'hand-back'
-  | 'window-too-long';
+  | 'window-too-long'
+  | 'client-workspace'
+  | 'external-path';
 
 export interface DroppedExample {
   ref: string;
@@ -103,7 +105,7 @@ export interface NegativeExample extends TrainingExample {
 }
 
 export function emptyRedactions(): Record<RedactionKind, number> {
-  return { secret: 0, email: 0, phone: 0, path: 0, client: 0, person: 0, entropy: 0, file: 0 };
+  return { secret: 0, email: 0, phone: 0, path: 0, path_absolute: 0, client: 0, person: 0, entropy: 0, file: 0 };
 }
 
 export function emptyLabels(): ExampleLabels {
