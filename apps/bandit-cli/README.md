@@ -1,3 +1,9 @@
+> **Not the published CLI.** `@burtson-labs/bandit-stealth-cli` is built and published from
+> [Burtson-Labs/bandit-stealth](https://github.com/Burtson-Labs/bandit-stealth) (`apps/bandit-cli`).
+> This copy is kept for the framework's own CI (smoke, BanditBench, integration) and is marked
+> `private` so it can never be published under the same npm name. Port changes to the
+> bandit-stealth copy; whether to remove this one is an open maintainer decision.
+
 <a href="https://burtson.ai">
   <picture>
     <img src="https://cdn.burtson.ai/logos/bandit-stealth.png" alt="Bandit Stealth" width="140" style="width: 140px !important; max-width: 140px !important; height: auto; display: inline-block;" />

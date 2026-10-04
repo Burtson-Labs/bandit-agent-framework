@@ -1,7 +1,8 @@
 {
   "name": "@burtson-labs/bandit-stealth-cli",
   "version": "1.7.449",
-  "description": "Bandit — a local-first AI coding agent for your terminal. Same runtime as the Bandit Stealth VS Code / Cursor extension.",
+  "private": true,
+  "description": "Bandit \u2014 a local-first AI coding agent for your terminal. Same runtime as the Bandit Stealth VS Code / Cursor extension.",
   "keywords": [
     "ai",
     "agent",
@@ -45,9 +46,6 @@
   ],
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "test": "vitest run",
