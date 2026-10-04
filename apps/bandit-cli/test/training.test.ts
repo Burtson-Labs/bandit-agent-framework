@@ -331,7 +331,8 @@ describe('session ↔ turn-log join', () => {
   it('labels examples from the joined turn and carries compact history', () => {
     const t1 = turn('turn-a.jsonl', new Date(2026, 6, 1, 10, 1, 0), 'first question about the build', [{ type: 'permission-denied' }]);
     const acc = newAccumulator();
-    addCliSession(acc, session, [t1], new Set(), createScrubber(), {});
+    // minQuality none: the second turn is a tool-less chat answer with unknown status.
+    addCliSession(acc, session, [t1], new Set(), createScrubber(), { minQuality: 'none' });
     expect(splitTurns(session.messages)).toHaveLength(2);
     expect(acc.examples).toHaveLength(2);
     expect(acc.examples[0].model).toBe('bandit-core-2');

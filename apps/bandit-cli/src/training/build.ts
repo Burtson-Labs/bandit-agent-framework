@@ -12,12 +12,23 @@ import { buildSystemPrompt } from '../systemPrompt';
 import { convertTranscript, parseToolResults, isNudge } from './protocol';
 import { totalSecrets, type Scrubber } from './scrub';
 import type { CliSession, HostTurn, StealthWebTurn } from './sources';
+import {
+  detectHandBack,
+  editVerifyLabels,
+  lastTurn,
+  normalizedHash,
+  passesMinQuality,
+  qualityWeight,
+  type MinQuality
+} from './quality';
+import { exampleTokens, windowExample, type WindowMode } from './window';
 import type {
   CanonicalMessage,
   DroppedExample,
   ExampleLabels,
   ExampleStatus,
   NativeToolSchema,
+  NegativeExample,
   TrainingExample
 } from './types';
 import { emptyLabels, emptyRedactions } from './types';
@@ -167,15 +178,42 @@ function labelsFromTurn(turn: HostTurn | undefined, toolCalls: number, toolError
 export interface BuildOptions {
   keepNudges?: boolean;
   maxSecrets?: number;
-  /** Prior turns kept as history in each example. */
+  /** Prior turns kept as compact history in each example (the window trims further). */
   maxHistoryTurns?: number;
   since?: Date;
+  /** Token budget per example (system + tools + messages). Default 7,600 (fits an 8k sequence). */
+  windowTokens?: number;
+  /** `chunks` (default): long trajectories become several windows; `tail`: only the last window. */
+  windowMode?: WindowMode;
+  /** Keep hand-back replies as SFT examples (default: excluded, written to negatives only). */
+  includeHandbacks?: boolean;
+  minQuality?: MinQuality;
+}
+
+export const DEFAULT_WINDOW_TOKENS = 7600;
+/** The first fine-tune ran at maxSeqLen 4096 and skipped everything longer. */
+const LEGACY_SEQ_LEN = 4096;
+
+export interface WindowStats {
+  trajectories: number;
+  /** Trajectories longer than the window budget before windowing. */
+  overBudget: number;
+  /** …of which at least one window was kept (previously skipped by the trainer, now usable). */
+  overBudgetUsable: number;
+  /** Trajectories longer than 4,096 tokens (what the first run skipped). */
+  over4096Before: number;
+  windowsEmitted: number;
+  chunkWindows: number;
+  clippedToolOutputs: number;
+  oversizedAssistant: number;
 }
 
 export interface BuildAccumulator {
   examples: TrainingExample[];
+  negatives: NegativeExample[];
   dropped: DroppedExample[];
   seenIds: Set<string>;
+  seenNormalized: Set<string>;
   stats: {
     sessions: number;
     sessionTurns: number;
@@ -186,14 +224,20 @@ export interface BuildAccumulator {
     malformedToolCalls: number;
     unmatchedToolResults: number;
   };
+  windowing: WindowStats;
+  handBacks: Record<string, number>;
 }
 
 export function newAccumulator(): BuildAccumulator {
   return {
     examples: [],
+    negatives: [],
     dropped: [],
     seenIds: new Set(),
-    stats: { sessions: 0, sessionTurns: 0, joinedByPrompt: 0, joinedByOrder: 0, unjoinedTurns: 0, nudgesDropped: 0, malformedToolCalls: 0, unmatchedToolResults: 0 }
+    seenNormalized: new Set(),
+    stats: { sessions: 0, sessionTurns: 0, joinedByPrompt: 0, joinedByOrder: 0, unjoinedTurns: 0, nudgesDropped: 0, malformedToolCalls: 0, unmatchedToolResults: 0 },
+    windowing: { trajectories: 0, overBudget: 0, overBudgetUsable: 0, over4096Before: 0, windowsEmitted: 0, chunkWindows: 0, clippedToolOutputs: 0, oversizedAssistant: 0 },
+    handBacks: {}
   };
 }
 
@@ -201,7 +245,11 @@ export function exampleId(messages: CanonicalMessage[]): string {
   return `ex_${crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex').slice(0, 12)}`;
 }
 
-/** Scrub, apply drop rules, dedupe, then keep or record the drop. Returns the drop reason, if any. */
+/**
+ * Scrub, apply drop rules, dedupe, then keep or record the drop. Returns the drop reason,
+ * if any. Called once per window, so a secret-heavy stretch of a session only drops the
+ * windows that still contain it.
+ */
 export function finalizeExample(acc: BuildAccumulator, draft: TrainingExample, scrubber: Scrubber, options: BuildOptions): DroppedExample['reason'] | null {
   const toolDrop = dropReasonForTools(draft.messages);
   if (toolDrop) {
@@ -224,13 +272,114 @@ export function finalizeExample(acc: BuildAccumulator, draft: TrainingExample, s
     acc.dropped.push({ ref: scrubbed.sourceRef, source: draft.source, reason: 'duplicate' });
     return 'duplicate';
   }
+  const norm = normalizedHash(scrubbed.messages);
+  if (acc.seenNormalized.has(norm)) {
+    acc.dropped.push({ ref: scrubbed.sourceRef, source: draft.source, reason: 'near-duplicate' });
+    return 'near-duplicate';
+  }
   acc.seenIds.add(scrubbed.id);
+  acc.seenNormalized.add(norm);
   acc.examples.push(scrubbed);
   return null;
 }
 
-/** Drops that taint the rest of a session: later turns may quote the mail or document. */
-const SESSION_TAINT = new Set<DroppedExample['reason']>(['email-or-calendar-tools', 'client-document-tools', 'too-many-secrets']);
+/**
+ * One trajectory (system + optional history + its own turn) → labelled, gated, windowed,
+ * scrubbed examples. Returns a drop reason that should taint the rest of the session
+ * (mail or client-document tools), else null.
+ */
+export function emitTrajectory(
+  acc: BuildAccumulator,
+  draft: TrainingExample,
+  scrubber: Scrubber,
+  options: BuildOptions,
+  ctx: { firstTask?: CanonicalMessage | null; turnStart?: number } = {}
+): DroppedExample['reason'] | null {
+  const toolDrop = dropReasonForTools(draft.messages);
+  if (toolDrop) {
+    acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: toolDrop });
+    return toolDrop;
+  }
+  if (!draft.messages.some(m => m.role === 'assistant')) {
+    acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: 'no-assistant-output' });
+    return null;
+  }
+  const turn = ctx.turnStart !== undefined ? draft.messages.slice(ctx.turnStart) : lastTurn(draft.messages);
+  const { edited, verified } = editVerifyLabels(turn);
+  const labels: ExampleLabels = { ...draft.labels, edited, verified };
+  labels.weight = qualityWeight(draft.status, labels);
+  const handBack = detectHandBack(turn);
+  if (handBack) {
+    labels.handBack = true;
+    labels.handBackReason = handBack;
+  }
+  const labelled: TrainingExample = { ...draft, labels };
+  const budget = options.windowTokens ?? DEFAULT_WINDOW_TOKENS;
+
+  if (handBack) {
+    acc.handBacks[handBack] = (acc.handBacks[handBack] ?? 0) + 1;
+    // The rejected reply is the tail of the trajectory: keep that window as a negative.
+    const tail = windowExample(labelled.messages, labelled.tools, { budgetTokens: budget, mode: 'tail', firstTask: ctx.firstTask }).windows.at(-1);
+    if (tail) {
+      const negative = scrubber.scrubExample({ ...labelled, messages: tail.messages, tools: schemasFor(tail.messages) });
+      negative.id = exampleId(negative.messages);
+      acc.negatives.push({ ...negative, rejectedReason: handBack });
+    }
+    if (!options.includeHandbacks) {
+      acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: 'hand-back', detail: handBack });
+      return null;
+    }
+  }
+  if (!passesMinQuality(options.minQuality ?? 'completed-or-unknown-with-tools', draft.status, labels)) {
+    acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: 'below-min-quality', detail: draft.status });
+    return null;
+  }
+
+  const w = acc.windowing;
+  const result = windowExample(labelled.messages, labelled.tools, {
+    budgetTokens: budget,
+    mode: options.windowMode ?? 'chunks',
+    firstTask: ctx.firstTask,
+    targetFrom: ctx.turnStart
+  });
+  w.trajectories++;
+  w.clippedToolOutputs += result.clippedToolOutputs;
+  w.oversizedAssistant += result.oversized;
+  const over = result.rawTokens > budget;
+  if (over) w.overBudget++;
+  if (exampleTokens(draft.messages, draft.tools) > LEGACY_SEQ_LEN) w.over4096Before++;
+  if (!result.windows.length) {
+    acc.dropped.push({ ref: draft.sourceRef, source: draft.source, reason: 'window-too-long' });
+    return null;
+  }
+  let kept = 0;
+  for (const win of result.windows) {
+    const ref = result.windows.length > 1 ? `${draft.sourceRef}~w${win.index}` : draft.sourceRef;
+    const ex: TrainingExample = {
+      ...labelled,
+      sourceRef: ref,
+      messages: win.messages,
+      tools: schemasFor(win.messages),
+      labels: result.windows.length > 1 || win.droppedBefore > 0
+        ? { ...labels, window: { index: win.index, of: win.of, droppedBefore: win.droppedBefore } }
+        : labels
+    };
+    if (!finalizeExample(acc, ex, scrubber, options)) {
+      kept++;
+      w.windowsEmitted++;
+      if (result.windows.length > 1) w.chunkWindows++;
+    }
+  }
+  if (over && kept) w.overBudgetUsable++;
+  return null;
+}
+
+/**
+ * Drops that taint the rest of a session: later turns may quote the mail or document.
+ * Secrets do not taint whole sessions any more: every window is scrubbed and counted on
+ * its own, so only windows that still carry the secret-heavy content are dropped.
+ */
+const SESSION_TAINT = new Set<DroppedExample['reason']>(['email-or-calendar-tools', 'client-document-tools']);
 
 function draftExample(partial: Omit<TrainingExample, 'id' | 'tools' | 'scrub' | 'split'>): TrainingExample {
   return {
@@ -274,9 +423,10 @@ export function addCliSession(
   const sessionTurns = splitTurns(session.messages);
   acc.stats.sessionTurns += sessionTurns.length;
   const history: CanonicalMessage[] = [];
-  const maxHistory = options.maxHistoryTurns ?? 3;
+  const maxHistory = options.maxHistoryTurns ?? 8;
   let historyTurns = 0;
   let tainted: DroppedExample['reason'] | null = null;
+  let firstTask: CanonicalMessage | null = null;
 
   sessionTurns.forEach((turnMessages, i) => {
     if (tainted) {
@@ -290,6 +440,9 @@ export function addCliSession(
     const host = join.matches.get(i);
     const { labels, status, model } = labelsFromTurn(host, stats.toolCalls, stats.toolErrors);
     labels.historyTurns = historyTurns;
+    const prompt = messages.find(m => m.role === 'user');
+    firstTask ??= prompt ?? null;
+    const prefix: CanonicalMessage[] = [{ role: 'system', content: rebuiltSystemPrompt() }, ...history];
     const draft = draftExample({
       source: 'cli-session',
       sourceRef: `sessions/${session.id}#${i + 1}`,
@@ -297,18 +450,18 @@ export function addCliSession(
       model,
       status,
       labels,
-      messages: [{ role: 'system', content: rebuiltSystemPrompt() }, ...history, ...messages]
+      messages: [...prefix, ...messages]
     });
-    const dropped = finalizeExample(acc, draft, scrubber, options);
-    if (dropped && SESSION_TAINT.has(dropped)) {
-      tainted = dropped;
+    const taint = emitTrajectory(acc, draft, scrubber, options, { firstTask, turnStart: prefix.length });
+    if (taint && SESSION_TAINT.has(taint)) {
+      tainted = taint;
       return;
     }
 
-    // Compact history for later turns: prompt + final answer only.
-    const prompt = messages.find(m => m.role === 'user');
+    // Compact history for later turns: prompt + final answer only. A hand-back answer is
+    // left out: as history it would still be trained on as an assistant message.
     const final = [...messages].reverse().find(m => m.role === 'assistant' && !m.tool_calls?.length && m.content);
-    if (prompt && final) {
+    if (prompt && final && !detectHandBack(messages)) {
       history.push(prompt, { role: 'assistant', content: final.content });
       historyTurns++;
       while (historyTurns > maxHistory) {
@@ -368,7 +521,7 @@ export function addStealthWebTurn(acc: BuildAccumulator, turn: StealthWebTurn, s
   labels.toolErrors = stats.toolErrors;
   labels.hitLimit = !!turn.end?.hitLimit;
   const status: ExampleStatus = !turn.end ? 'unknown' : turn.end.cancelled ? 'cancelled' : turn.end.hitLimit ? 'failed' : 'completed';
-  finalizeExample(acc, draftExample({
+  emitTrajectory(acc, draftExample({
     source: 'stealth-web',
     sourceRef: ref,
     createdAt: (turn.startedAt ?? new Date(0)).toISOString(),
@@ -376,7 +529,7 @@ export function addStealthWebTurn(acc: BuildAccumulator, turn: StealthWebTurn, s
     status,
     labels,
     messages: [{ role: 'system', content: rebuiltSystemPrompt() }, ...messages]
-  }), scrubber, options);
+  }), scrubber, options, { turnStart: 1 });
 }
 
 /** BanditBench traces are already canonical (written by `eval --trace-out`); they still get scrubbed. */
@@ -385,13 +538,17 @@ export function addBanditBenchTrace(acc: BuildAccumulator, trace: TrainingExampl
     acc.dropped.push({ ref, source: 'banditbench', reason: 'unparseable' });
     return;
   }
-  finalizeExample(acc, { ...trace, source: 'banditbench', sourceRef: ref, tools: trace.tools?.length ? trace.tools : schemasFor(trace.messages) }, scrubber, options);
+  const status: ExampleStatus = trace.labels?.passed === false ? 'failed' : trace.status ?? 'unknown';
+  emitTrajectory(acc, { ...trace, status, source: 'banditbench', sourceRef: ref, tools: trace.tools?.length ? trace.tools : schemasFor(trace.messages) }, scrubber, options, {
+    turnStart: trace.messages[0]?.role === 'system' ? 1 : 0
+  });
 }
 
 // ---- manifest ----------------------------------------------------------------------------
 
+/** char/4 estimate of what the trainer sees: messages plus the tool schemas it renders. */
 export function estimateTokens(example: TrainingExample): number {
-  return Math.ceil(JSON.stringify(example.messages).length / 4);
+  return exampleTokens(example.messages, example.tools);
 }
 
 export interface Manifest {
@@ -405,6 +562,7 @@ export interface Manifest {
   byStatus: Record<string, number>;
   byModel: Record<string, number>;
   byTool: Record<string, number>;
+  byQuality: { edited: number; verified: number; windowed: number; meanWeight: number };
   tokens: { total: number; mean: number; p50: number; p95: number; max: number; histogram: Record<string, number> };
   redactions: Record<string, number>;
   collector: { host: 'bandit-cli'; version: string; options: Record<string, unknown> };
@@ -422,7 +580,13 @@ export function buildManifest(examples: TrainingExample[], dropped: DroppedExamp
   const byTool: Record<string, number> = {};
   const redactions: Record<string, number> = {};
   const tokens: number[] = [];
+  const byQuality = { edited: 0, verified: 0, windowed: 0, meanWeight: 0 };
+  let weightSum = 0;
   for (const ex of examples) {
+    if (ex.labels.edited) byQuality.edited++;
+    if (ex.labels.verified) byQuality.verified++;
+    if (ex.labels.window) byQuality.windowed++;
+    weightSum += ex.labels.weight ?? 1;
     bump(bySource, ex.source);
     bump(byStatus, ex.status);
     bump(byModel, ex.model ?? 'unknown');
@@ -432,6 +596,7 @@ export function buildManifest(examples: TrainingExample[], dropped: DroppedExamp
     for (const [k, v] of Object.entries(ex.scrub.redactions)) bump(redactions, k, v);
     tokens.push(estimateTokens(ex));
   }
+  byQuality.meanWeight = examples.length ? Math.round((weightSum / examples.length) * 100) / 100 : 0;
   tokens.sort((a, b) => a - b);
   const pct = (p: number): number => (tokens.length ? tokens[Math.min(tokens.length - 1, Math.floor(p * tokens.length))] : 0);
   const histogram: Record<string, number> = {};
@@ -453,6 +618,7 @@ export function buildManifest(examples: TrainingExample[], dropped: DroppedExamp
     byStatus,
     byModel,
     byTool,
+    byQuality,
     tokens: { total, mean: tokens.length ? Math.round(total / tokens.length) : 0, p50: pct(0.5), p95: pct(0.95), max: tokens[tokens.length - 1] ?? 0, histogram },
     redactions,
     collector: { host: 'bandit-cli', version: extra.version, options: extra.options },

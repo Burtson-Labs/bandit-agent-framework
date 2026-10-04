@@ -3,7 +3,9 @@
  *
  *   bandit train collect [--out dir] [--since YYYY-MM-DD] [--sources cli-session,stealth-web,banditbench]
  *                        [--keep-nudges] [--max-secrets N] [--workspaces a,b,c] [--banditbench dir]
- *                        [--history N] [--dry-run]
+ *                        [--history N] [--window-tokens N] [--window-mode chunks|tail]
+ *                        [--min-quality none|completed|edited|completed-or-unknown-with-tools]
+ *                        [--include-handbacks] [--dry-run]
  *   bandit train inspect <dir> [--grep text] [--sample N]
  *   bandit train upload  <dir> [--api https://training.burtson.ai]
  *
@@ -21,10 +23,14 @@ import {
   addCliSession,
   addStealthWebTurn,
   buildManifest,
+  DEFAULT_WINDOW_TOKENS,
   newAccumulator,
   type BuildOptions,
-  type Manifest
+  type Manifest,
+  type WindowStats
 } from './build';
+import { MIN_QUALITY_VALUES, type MinQuality } from './quality';
+import type { WindowMode } from './window';
 import { createScrubber, parseDenylist, selfCheckExample, type SelfCheckHit } from './scrub';
 import {
   banditHome,
@@ -37,7 +43,7 @@ import {
   readUniqueJsonl,
   type HostTurn
 } from './sources';
-import type { DroppedExample, ExampleSource, TrainingExample } from './types';
+import type { DroppedExample, ExampleSource, NegativeExample, TrainingExample } from './types';
 
 export const DENYLIST_EXAMPLE = `# Burtson Training Studio — scrub denylist (scrub-v1)
 # Copy to ~/.bandit/training/denylist.txt and replace the placeholders with real terms.
@@ -60,6 +66,10 @@ interface CollectArgs {
   workspaces: string[];
   banditbench: string;
   history: number;
+  windowTokens: number;
+  windowMode: WindowMode;
+  minQuality: MinQuality;
+  includeHandbacks: boolean;
   dryRun: boolean;
 }
 
@@ -74,7 +84,11 @@ function parseCollectArgs(argv: string[]): CollectArgs {
     maxSecrets: 25,
     workspaces: defaultWorkspaceRoots(),
     banditbench: path.join(trainingHome(), 'banditbench-traces'),
-    history: 3,
+    history: 8,
+    windowTokens: DEFAULT_WINDOW_TOKENS,
+    windowMode: 'chunks',
+    minQuality: 'completed-or-unknown-with-tools',
+    includeHandbacks: false,
     dryRun: false
   };
   for (let i = 0; i < argv.length; i++) {
@@ -90,6 +104,18 @@ function parseCollectArgs(argv: string[]): CollectArgs {
     else if (a === '--workspaces') args.workspaces = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
     else if (a === '--banditbench') args.banditbench = argv[++i];
     else if (a === '--history') args.history = parseInt(argv[++i], 10);
+    else if (a === '--window-tokens') {
+      args.windowTokens = parseInt(argv[++i], 10);
+      if (!Number.isFinite(args.windowTokens) || args.windowTokens < 1024) throw new Error('--window-tokens: a number ≥ 1024');
+    } else if (a === '--window-mode') {
+      const v = argv[++i];
+      if (v !== 'chunks' && v !== 'tail') throw new Error('--window-mode: chunks or tail');
+      args.windowMode = v;
+    } else if (a === '--min-quality') {
+      const v = argv[++i] as MinQuality;
+      if (!MIN_QUALITY_VALUES.includes(v)) throw new Error(`--min-quality: one of ${MIN_QUALITY_VALUES.join(', ')}`);
+      args.minQuality = v;
+    } else if (a === '--include-handbacks') args.includeHandbacks = true;
     else if (a === '--dry-run') args.dryRun = true;
     else throw new Error(`unknown option ${a}`);
   }
@@ -111,6 +137,9 @@ async function loadDenylist(): Promise<ReturnType<typeof parseDenylist>> {
 export interface CollectResult {
   manifest: Manifest;
   examples: TrainingExample[];
+  negatives: NegativeExample[];
+  windowing: WindowStats;
+  handBacks: Record<string, number>;
   dropped: DroppedExample[];
   selfCheck: SelfCheckHit[];
   discovery: Record<string, number>;
@@ -121,7 +150,16 @@ export interface CollectResult {
 export async function collect(args: CollectArgs, version: string): Promise<CollectResult> {
   const denylist = await loadDenylist();
   const scrubber = createScrubber(denylist);
-  const options: BuildOptions = { keepNudges: args.keepNudges, maxSecrets: args.maxSecrets, maxHistoryTurns: args.history, since: args.since };
+  const options: BuildOptions = {
+    keepNudges: args.keepNudges,
+    maxSecrets: args.maxSecrets,
+    maxHistoryTurns: args.history,
+    since: args.since,
+    windowTokens: args.windowTokens,
+    windowMode: args.windowMode,
+    minQuality: args.minQuality,
+    includeHandbacks: args.includeHandbacks
+  };
   const acc = newAccumulator();
   const discovery: Record<string, number> = {};
 
@@ -186,7 +224,8 @@ export async function collect(args: CollectArgs, version: string): Promise<Colle
     discovery.banditbenchTraces = traces;
   }
 
-  const selfCheck = acc.examples.flatMap(selfCheckExample);
+  // Negatives are written to disk too, so they get the same leftover check.
+  const selfCheck = [...acc.examples, ...acc.negatives].flatMap(selfCheckExample);
   const manifest = buildManifest(acc.examples, acc.dropped, {
     version,
     options: {
@@ -195,11 +234,27 @@ export async function collect(args: CollectArgs, version: string): Promise<Colle
       keepNudges: args.keepNudges,
       maxSecrets: args.maxSecrets,
       historyTurns: args.history,
+      windowTokens: args.windowTokens,
+      windowMode: args.windowMode,
+      minQuality: args.minQuality,
+      includeHandbacks: args.includeHandbacks,
+      negatives: acc.negatives.length,
       denylistTerms: denylist.length
     },
     selfCheckHits: selfCheck.length
   });
-  return { manifest, examples: acc.examples, dropped: acc.dropped, selfCheck, discovery, joinStats: acc.stats, denylistTerms: denylist.length };
+  return {
+    manifest,
+    examples: acc.examples,
+    negatives: acc.negatives,
+    windowing: acc.windowing,
+    handBacks: acc.handBacks,
+    dropped: acc.dropped,
+    selfCheck,
+    discovery,
+    joinStats: acc.stats,
+    denylistTerms: denylist.length
+  };
 }
 
 function dropCounts(dropped: DroppedExample[]): Record<string, number> {
@@ -219,6 +274,9 @@ function printStats(r: CollectResult): void {
   w(`by status   ${JSON.stringify(m.byStatus)}\n`);
   w(`by model    ${JSON.stringify(m.byModel)}\n`);
   w(`drops       ${JSON.stringify(dropCounts(r.dropped))}\n`);
+  w(`windowing   ${JSON.stringify(r.windowing)}\n`);
+  w(`quality     ${JSON.stringify(m.byQuality)}\n`);
+  w(`hand-backs  ${JSON.stringify(r.handBacks)} → ${r.negatives.length} negative(s) for preference training\n`);
   w(`redactions  ${JSON.stringify(m.redactions)}\n`);
   w(`tokens      ${JSON.stringify(m.tokens)}\n`);
   const topTools = Object.entries(m.byTool).sort((a, b) => b[1] - a[1]).slice(0, 15);
@@ -239,6 +297,8 @@ async function writeDataset(r: CollectResult, outDir: string): Promise<void> {
   const jsonl = r.examples.map(e => JSON.stringify(e)).join('\n') + (r.examples.length ? '\n' : '');
   await fs.promises.writeFile(path.join(outDir, 'examples.jsonl.gz'), zlib.gzipSync(jsonl));
   await fs.promises.writeFile(path.join(outDir, 'manifest.json'), JSON.stringify(r.manifest, null, 2));
+  // Rejected trajectories (hand-backs) for future preference training; never uploaded as SFT.
+  await fs.promises.writeFile(path.join(outDir, 'negatives.jsonl'), r.negatives.map(e => JSON.stringify(e)).join('\n') + (r.negatives.length ? '\n' : ''));
   const report = {
     datasetId: r.manifest.datasetId,
     scrubVersion: r.manifest.scrubVersion,
@@ -246,6 +306,9 @@ async function writeDataset(r: CollectResult, outDir: string): Promise<void> {
     discovery: r.discovery,
     join: r.joinStats,
     dropCounts: dropCounts(r.dropped),
+    windowing: r.windowing,
+    handBacks: r.handBacks,
+    negatives: r.negatives.length,
     dropped: r.dropped.map(d => ({ ref: d.ref, source: d.source, reason: d.reason, ...(d.detail ? { detail: d.detail } : {}) })),
     selfCheck: { passed: r.selfCheck.length === 0, hits: r.selfCheck.map(h => ({ exampleId: h.exampleId, kind: h.kind })) }
   };
@@ -354,7 +417,7 @@ export async function runTrainCommand(argv: string[], cwd: string, version: stri
           ? path.resolve(cwd, args.out.replace(/^~(?=$|\/)/, os.homedir()))
           : path.join(trainingHome(), result.manifest.datasetId);
         await writeDataset(result, outDir);
-        process.stdout.write(`wrote ${outDir}\n  manifest.json  examples.jsonl.gz  scrub-report.json\n`);
+        process.stdout.write(`wrote ${outDir}\n  manifest.json  examples.jsonl.gz  scrub-report.json  negatives.jsonl\n`);
         process.stdout.write(`next: bandit train inspect ${outDir}   then   bandit train upload ${outDir}\n`);
       }
       return result.selfCheck.length ? 2 : 0;
@@ -368,7 +431,9 @@ export async function runTrainCommand(argv: string[], cwd: string, version: stri
   process.stdout.write(
     'usage:\n' +
     '  bandit train collect [--out dir] [--since YYYY-MM-DD] [--sources cli-session,stealth-web,banditbench]\n' +
-    '                       [--keep-nudges] [--max-secrets N] [--workspaces a,b] [--banditbench dir] [--history N] [--dry-run]\n' +
+    '                       [--keep-nudges] [--max-secrets N] [--workspaces a,b] [--banditbench dir] [--history N]\n' +
+    '                       [--window-tokens N] [--window-mode chunks|tail] [--min-quality none|completed|edited|completed-or-unknown-with-tools]\n' +
+    '                       [--include-handbacks] [--dry-run]\n' +
     '  bandit train inspect <dir> [--grep text] [--sample N]\n' +
     '  bandit train upload  <dir> [--api https://training.burtson.ai]\n'
   );

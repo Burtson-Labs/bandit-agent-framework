@@ -42,6 +42,17 @@ export interface ExampleLabels {
   fixtureId?: string;
   /** Prior turns of the same session included as context (prompt + final answer only). */
   historyTurns?: number;
+  /** The turn made a file edit (apply_edit / write_file / replace_range / apply_patch). */
+  edited?: boolean;
+  /** After editing, the turn ran a test, build or lint. */
+  verified?: boolean;
+  /** Relative training weight (completed + edited + verified count most). */
+  weight?: number;
+  /** The final reply handed work back to the user instead of doing it (never an SFT target). */
+  handBack?: boolean;
+  handBackReason?: 'shell-block-without-command' | 'handback-phrase' | 'false-capability-claim';
+  /** Window of a long trajectory: position, count and messages left out before it. */
+  window?: { index: number; of: number; droppedBefore: number };
 }
 
 export type RedactionKind = 'secret' | 'email' | 'phone' | 'path' | 'client' | 'person' | 'entropy' | 'file';
@@ -73,13 +84,22 @@ export type DropReason =
   | 'too-many-secrets'
   | 'no-assistant-output'
   | 'unparseable'
-  | 'duplicate';
+  | 'duplicate'
+  | 'near-duplicate'
+  | 'below-min-quality'
+  | 'hand-back'
+  | 'window-too-long';
 
 export interface DroppedExample {
   ref: string;
   source: ExampleSource;
   reason: DropReason;
   detail?: string;
+}
+
+/** A rejected trajectory kept for future preference (DPO) training; never used for SFT. */
+export interface NegativeExample extends TrainingExample {
+  rejectedReason: NonNullable<ExampleLabels['handBackReason']>;
 }
 
 export function emptyRedactions(): Record<RedactionKind, number> {

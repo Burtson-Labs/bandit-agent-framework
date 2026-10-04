@@ -229,8 +229,13 @@ export function createScrubber(denylist: DenyTerm[] = []): Scrubber {
   return { scrubText, scrubExample };
 }
 
+/**
+ * Redactions that count toward `--max-secrets`: real credential hits (token patterns,
+ * PEM blocks, connection strings, URL credentials) and whole sensitive-file reads.
+ * High-entropy, email and path redactions are routine (hashes, ids, logs) and don't.
+ */
 export function totalSecrets(counts: Record<RedactionKind, number>): number {
-  return counts.secret + counts.entropy;
+  return counts.secret + counts.file;
 }
 
 // ---- self-check: anything secret-looking that survived the scrub -------------------------
