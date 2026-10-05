@@ -8,7 +8,7 @@
 import type { AgentTool, ToolExecutionContext, ToolResult } from './tool-types';
 import { runPostEditTypeCheck } from './post-edit-checks';
 import { ToolRegistry } from './tool-registry';
-import { parseUnifiedPatch, applyParsedPatch } from './unified-patch';
+import { parseUnifiedPatch, applyParsedPatch, splitUnifiedPatchByFile } from './unified-patch';
 
 const MAX_FILE_CHARS = 80_000;   // ~20k tokens — hard cap for read_file output
 const MAX_SEARCH_CHARS = 16_000; // ~4k tokens — cap search results
@@ -1330,6 +1330,50 @@ function introducedNewErrors(before: string | undefined, after: string | undefin
 }
 
 /**
+ * Apply a unified-diff payload. A diff that covers several files (each with its own
+ * `--- a/<path>` / `+++ b/<path>` header, as `git diff` writes them and as the tool
+ * description asks for) is applied file by file.
+ *
+ * It used to apply the first file and stop: the parser read one file's hunks, the second
+ * header ended the parse, and the result said "Applied 1 hunk to src/format.ts" with no
+ * mention of the rest. qwen3.6:27b renamed a function with one two-file patch, was told
+ * it had applied, and left the call site in the other file unchanged (BanditBench
+ * 2026-10-05, edit.rename_across_files).
+ *
+ * Each file is all-or-nothing; files are independent, like the actions of the Codex
+ * envelope: the ones that apply are written, the ones that do not are reported with the
+ * reason, and the call is an error only when nothing was written.
+ */
+async function executeUnifiedDiffPatch(
+  patchText: string,
+  pathOverride: string | undefined,
+  ctx: ToolExecutionContext
+): Promise<ToolResult> {
+  const sections = splitUnifiedPatchByFile(patchText);
+  if (sections.length <= 1) {
+    return executeUnifiedDiffForFile(patchText, pathOverride, ctx);
+  }
+  // Several files: every section names its own path, so an explicit `path` (meant for a
+  // diff without headers) does not apply.
+  const results: Array<ToolResult & { file: string }> = [];
+  for (const section of sections) {
+    const header = /^\+\+\+ (?:b\/)?(.+?)\s*$/m.exec(section) ?? /^--- (?:a\/)?(.+?)\s*$/m.exec(section);
+    const result = await executeUnifiedDiffForFile(section, undefined, ctx);
+    results.push({ ...result, file: header?.[1] ?? '(no path)' });
+  }
+  const applied = results.filter((r) => !r.isError).length;
+  const failed = results.length - applied;
+  const body = results.map((r) => (r.isError ? `FAILED "${r.file}" — ${r.output}` : r.output)).join('\n\n');
+  if (failed === 0) {
+    return { output: body, isError: false };
+  }
+  const summary = applied === 0
+    ? `apply_patch failed for all ${results.length} files in the diff. Nothing was written.`
+    : `apply_patch applied ${applied} of ${results.length} files. The ${failed === 1 ? 'file marked FAILED was' : 'files marked FAILED were'} NOT changed — fix and re-send only ${failed === 1 ? 'that file' : 'those files'}.`;
+  return { output: `${summary}\n\n${body}`, isError: applied === 0 };
+}
+
+/**
  * Apply a single-file unified-diff payload. Path is read from the
  * `+++ b/<path>` header unless the caller passed an explicit `path`
  * param. We deliberately reuse the same read-before-edit guard,
@@ -1337,7 +1381,7 @@ function introducedNewErrors(before: string | undefined, after: string | undefin
  * — apply_patch is a different INPUT format, not a different write
  * pipeline.
  */
-async function executeUnifiedDiffPatch(
+async function executeUnifiedDiffForFile(
   patchText: string,
   pathOverride: string | undefined,
   ctx: ToolExecutionContext

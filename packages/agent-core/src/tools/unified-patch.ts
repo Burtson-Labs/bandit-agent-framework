@@ -21,6 +21,8 @@
  *
  * What we DO support:
  *   - Multiple hunks per patch
+ *   - Several files in one diff, split by splitUnifiedPatchByFile (each
+ *     file's section is then parsed on its own)
  *   - File header lines (`--- a/…` / `+++ b/…`) — parsed and ignored;
  *     the caller owns the path
  *   - Trailing-newline absence on the final hunk
@@ -131,6 +133,42 @@ export function parseUnifiedPatch(patch: string): ParsedPatch | null {
   }
   if (hunks.length === 0) {return null;}
   return { oldPath, newPath, hunks };
+}
+
+/**
+ * Split a unified diff that covers several files into one diff per file.
+ *
+ * `git diff` output for a multi-file change is the per-file diffs one after another, each
+ * with its own `--- a/…` / `+++ b/…` header, and that is what models send when asked to
+ * change two files in one call. parseUnifiedPatch reads ONE file's hunks and stops at the
+ * first line it does not know, so the second file's header ended the parse and everything
+ * after it was dropped without a word.
+ *
+ * A new file starts at a `diff ` line, or at a `--- ` line immediately followed by a
+ * `+++ ` line, once the current section already has a hunk. The pair rule (rather than
+ * trusting the hunk header's line counts, which models often get wrong) keeps a removed
+ * line that happens to begin with `-- ` from being read as a header.
+ */
+export function splitUnifiedPatchByFile(patch: string): string[] {
+  const lines = patch.split('\n');
+  const sections: string[][] = [];
+  let current: string[] = [];
+  let sawHunk = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const startsFile =
+      line.startsWith('diff ') ||
+      (line.startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ '));
+    if (startsFile && sawHunk) {
+      sections.push(current);
+      current = [];
+      sawHunk = false;
+    }
+    if (line.startsWith('@@')) {sawHunk = true;}
+    current.push(line);
+  }
+  if (current.some((line) => line.trim() !== '')) {sections.push(current);}
+  return sections.map((section) => section.join('\n'));
 }
 
 export interface ApplyResult {
