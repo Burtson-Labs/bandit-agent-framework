@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
+import { filterGrepOutputByGlob, planGrepForGlob } from '@burtson-labs/agent-core';
 import type { ToolExecutionContext, ILanguageAdapterRegistry, UserInputRequest, UserInputResponse } from '@burtson-labs/agent-core';
 
 export interface NodeToolContextOptions {
@@ -36,31 +37,6 @@ const COMMAND_TIMEOUT_MS = 30_000;
 
 /** Dirs to skip in searches and listings by default. */
 const IGNORED_DIRS = ['node_modules', '.git', 'dist', 'build', 'out', '.next', '.turbo', 'coverage'];
-
-// Convert a ripgrep-style glob (`src/**/*.{ts,tsx,js,jsx}`) into the
-// `(includes, subDir)` shape grep understands:
-//  - `subDir` is any non-wildcard prefix — passed as the positional dir
-//    argument so grep restricts its -r traversal to that subtree.
-//  - `includes` is the leaf pattern, expanded from a single `{a,b,c}`
-//    alternation into one basename per comma-separated value. Each value
-//    is handed to grep as a separate `--include` (grep ORs them).
-// Only handles the one-level `prefix/**/leaf` shape our agents emit —
-// more exotic globs degrade to "no prefix, leaf only" rather than crashing.
-function expandGlobForGrep(glob: string): { includes: string[]; subDir: string } {
-  const braceExpand = (leaf: string): string[] => {
-    const m = leaf.match(/^(.*?)\{([^}]+)\}(.*)$/);
-    if (!m) {return [leaf];}
-    const [, pre, body, post] = m;
-    return body.split(',').map(v => `${pre}${v.trim()}${post}`);
-  };
-
-  const m = glob.match(/^([^*{}]+?)\/\*\*\/(.+)$/);
-  if (m) {
-    const [, prefix, leaf] = m;
-    return { includes: braceExpand(leaf), subDir: prefix };
-  }
-  return { includes: braceExpand(glob), subDir: '' };
-}
 
 export class NodeToolExecutionContext implements ToolExecutionContext {
   // Per-context (per-turn) set of files the model has actually called
@@ -281,12 +257,18 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
       // made the extension look broken on pburg-bowl (rg was missing from
       // PATH in the Electron env → fell back to grep → every search came
       // back empty → model concluded the target file didn't exist → wandered
-      // the repo and hallucinated a code-fence answer). We expand the glob
-      // into the basename-only form grep understands and pin the directory
-      // prefix via the positional argument instead.
-      const expanded = fileGlob ? expandGlobForGrep(fileGlob) : { includes: [], subDir: '' };
-      const includeArgs = expanded.includes.flatMap(i => ['--include', i]);
-      const effectiveDir = expanded.subDir ? `${dir}/${expanded.subDir}` : dir;
+      // the repo and hallucinated a code-fence answer). planGrepForGlob
+      // (agent-core) splits the glob into a start directory, the basename
+      // form grep understands, and a check applied to each reported file, so
+      // path globs such as `src/utils/scoring.ts` work too.
+      const plan = fileGlob ? planGrepForGlob(fileGlob) : undefined;
+      const includeArgs = (plan?.includes ?? []).flatMap(i => ['--include', i]);
+      const effectiveDir = plan?.subDir ? path.join(dir, plan.subDir) : dir;
+      // The glob names a directory that is not there: nothing can match.
+      if (plan?.subDir && !fs.existsSync(effectiveDir)) {
+        resolve('');
+        return;
+      }
       const args = [
         '-rn',
         '-E',  // extended regex so `a|b|c` alternation works
@@ -299,10 +281,14 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
 
       let output = '';
       const proc = cp.spawn('grep', args, { shell: false });
+      const finish = (): string => {
+        const text = output.slice(0, MAX_SEARCH_BYTES);
+        return plan ? filterGrepOutputByGlob(text, plan, file => path.relative(dir, file)) : text;
+      };
 
       const timer = setTimeout(() => {
         proc.kill('SIGTERM');
-        resolve(output.slice(0, MAX_SEARCH_BYTES));
+        resolve(finish());
       }, SEARCH_TIMEOUT_MS);
 
       proc.stdout?.on('data', (d: Buffer) => {
@@ -316,7 +302,7 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
         if (code != null && code >= 2 && output.length === 0) {
           reject(new Error(`grep exited with code ${code}`));
         } else {
-          resolve(output.slice(0, MAX_SEARCH_BYTES));
+          resolve(finish());
         }
       });
 

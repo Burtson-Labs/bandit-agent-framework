@@ -4,6 +4,7 @@ export * from './core-tools';
 export * from './ask-user-tool';
 export * from './git-tools';
 export * from './language-adapters';
+export * from './grep-glob';
 export * from './tool-use-parser';
 export * from './tool-use-loop';
 export * from './compactMessages';

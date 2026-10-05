@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as cp from 'child_process';
+import { filterGrepOutputByGlob, planGrepForGlob } from '@burtson-labs/agent-core';
 import type { ToolExecutionContext, ILanguageAdapterRegistry, UserInputRequest, UserInputResponse } from '@burtson-labs/agent-core';
 
 /** Expand leading `~` / `~/` to the user's home dir. Models often emit paths
@@ -23,19 +24,63 @@ const IGNORED_DIRS = new Set([
   'target', '__pycache__', '.venv', 'venv'
 ]);
 
-function expandGlobForGrep(glob: string): { includes: string[]; subDir: string } {
-  const braceExpand = (leaf: string): string[] => {
-    const m = leaf.match(/^(.*?)\{([^}]+)\}(.*)$/);
-    if (!m) return [leaf];
-    const [, pre, body, post] = m;
-    return body.split(',').map(v => `${pre}${v.trim()}${post}`);
-  };
-  const m = glob.match(/^([^*{}]+?)\/\*\*\/(.+)$/);
-  if (m) {
-    const [, prefix, leaf] = m;
-    return { includes: braceExpand(leaf), subDir: prefix };
-  }
-  return { includes: braceExpand(glob), subDir: '' };
+/**
+ * search_code when ripgrep is not on PATH: `grep -rn`, restricted the way the glob asks.
+ *
+ * grep's --include matches basenames only, so the glob is split by planGrepForGlob into a
+ * start directory, basename includes, and a check on each reported file; without that any
+ * `file_glob` naming a directory (`src/utils/scoring.ts`, `src/utils/*.ts`) found nothing.
+ * Exported for tests: the tool context reaches it only when `rg` cannot be spawned.
+ */
+export function grepSearch(pattern: string, dir: string, fileGlob?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const excludeDirArgs = [...IGNORED_DIRS].map(d => ['--exclude-dir', d]).flat();
+    const plan = fileGlob ? planGrepForGlob(fileGlob) : undefined;
+    const includeArgs = (plan?.includes ?? []).flatMap(i => ['--include', i]);
+    const effectiveDir = plan?.subDir ? path.join(dir, plan.subDir) : dir;
+    // The glob names a directory that is not there: nothing can match.
+    if (plan?.subDir && !fs.existsSync(effectiveDir)) {
+      resolve('');
+      return;
+    }
+    const args = [
+      '-rn',
+      '-E',
+      '--color=never',
+      ...excludeDirArgs,
+      ...includeArgs,
+      pattern,
+      effectiveDir
+    ];
+
+    let output = '';
+    const proc = cp.spawn('grep', args, { shell: false });
+    const finish = (): string => {
+      const text = output.slice(0, MAX_SEARCH_BYTES);
+      return plan ? filterGrepOutputByGlob(text, plan, file => path.relative(dir, file)) : text;
+    };
+
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      resolve(finish());
+    }, SEARCH_TIMEOUT_MS);
+
+    proc.stdout?.on('data', (d: Buffer) => {
+      output += d.toString();
+      if (output.length > MAX_SEARCH_BYTES) proc.kill('SIGTERM');
+    });
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code != null && code >= 2 && output.length === 0) {
+        reject(new Error(`grep exited with code ${code}`));
+      } else {
+        resolve(finish());
+      }
+    });
+
+    proc.on('error', reject);
+  });
 }
 
 export interface CliToolContextOptions {
@@ -463,49 +508,7 @@ export class CliToolExecutionContext implements ToolExecutionContext {
   }
 
   private runGrep(pattern: string, dir: string, fileGlob?: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const excludeDirArgs = [...IGNORED_DIRS].map(d => ['--exclude-dir', d]).flat();
-      // See nodeToolContext.ts — grep's --include only matches basenames
-      // and does not support `**` / brace expansion. Rewrite the glob into
-      // per-extension includes + a subdirectory positional so the CLI's
-      // grep fallback behaves the same as ripgrep when rg is absent.
-      const expanded = fileGlob ? expandGlobForGrep(fileGlob) : { includes: [], subDir: '' };
-      const includeArgs = expanded.includes.flatMap(i => ['--include', i]);
-      const effectiveDir = expanded.subDir ? `${dir}/${expanded.subDir}` : dir;
-      const args = [
-        '-rn',
-        '-E',
-        '--color=never',
-        ...excludeDirArgs,
-        ...includeArgs,
-        pattern,
-        effectiveDir
-      ];
-
-      let output = '';
-      const proc = cp.spawn('grep', args, { shell: false });
-
-      const timer = setTimeout(() => {
-        proc.kill('SIGTERM');
-        resolve(output.slice(0, MAX_SEARCH_BYTES));
-      }, SEARCH_TIMEOUT_MS);
-
-      proc.stdout?.on('data', (d: Buffer) => {
-        output += d.toString();
-        if (output.length > MAX_SEARCH_BYTES) proc.kill('SIGTERM');
-      });
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        if (code != null && code >= 2 && output.length === 0) {
-          reject(new Error(`grep exited with code ${code}`));
-        } else {
-          resolve(output.slice(0, MAX_SEARCH_BYTES));
-        }
-      });
-
-      proc.on('error', reject);
-    });
+    return grepSearch(pattern, dir, fileGlob);
   }
 }
 
