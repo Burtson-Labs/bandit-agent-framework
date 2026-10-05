@@ -31,6 +31,7 @@ import {
   createDefaultSkillRegistry,
   createDefaultLanguageAdapters,
   registerWorkspaceSkills,
+  resetSemanticIndex,
   type ChatFn,
   type ToolLoopMessage
 } from '@burtson-labs/agent-core';
@@ -261,6 +262,9 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
   let traceContext: Pick<RunTraceInput, 'systemPrompt' | 'tools'> | undefined;
 
   try {
+    // The semantic-search skill keeps its index in a module-level store. Left alone, a
+    // search in this run returns files from an earlier fixture's (deleted) sandbox.
+    resetSemanticIndex();
     if (fixture.sourceDir) {
       execFileSync('git', ['clone', '--quiet', '--no-hardlinks', fixture.sourceDir, sandbox], { stdio: 'ignore' });
       for (const remote of execFileSync('git', ['-C', sandbox, 'remote'], { encoding: 'utf8' }).split('\n').filter(Boolean)) {

@@ -1,8 +1,10 @@
 import * as fs from 'fs';
+import * as http from 'http';
+import type { AddressInfo } from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDefaultLanguageAdapters } from '@burtson-labs/agent-core';
+import { configureSemanticSearchOllamaUrl, createDefaultLanguageAdapters } from '@burtson-labs/agent-core';
 import {
   EvalSandboxContext,
   SANDBOX_WORKSPACE_REL,
@@ -286,5 +288,33 @@ describe('eval runner: per-call outcomes and run measures', () => {
     expect(text).toContain('~/projects/other');
     expect(text).not.toContain('bandit-eval-x');
     expect(trace.labels.permissionDenials).toBe(2);
+  });
+});
+
+describe('eval runner: nothing carries over from one run to the next', () => {
+  it('a semantic search does not return files from an earlier run', async () => {
+    // Stand-in embedding endpoint: every text gets the same vector, so everything indexed matches.
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"embedding":[1,0,0]}'); });
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    configureSemanticSearchOllamaUrl(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    try {
+      // "what does" activates the semantic-search skill, which registers the tool.
+      const fixture = (id: string, file: string): Fixture => ({
+        ...base, id, prompt: 'What does this project do?', setup: { files: { [file]: `// ${file}\nexport const x = 1;\n` } }, assertions: {}
+      });
+      const search = scripted([call('semantic_search', { query: 'project purpose' }), 'done']);
+      const first = await runFixture(fixture('sbx.sem1', 'first-run-only.ts'), provider(search));
+      expect(first.runs[0].toolCalls[0].outputSnippet).toContain('first-run-only.ts');
+      const second = await runFixture(fixture('sbx.sem2', 'second-run-only.ts'), provider(scripted([call('semantic_search', { query: 'project purpose' }), 'done'])));
+      const output = second.runs[0].toolCalls[0].outputSnippet ?? '';
+      expect(output).toContain('second-run-only.ts');
+      expect(output).not.toContain('first-run-only.ts');
+    } finally {
+      configureSemanticSearchOllamaUrl('http://localhost:11434');
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 });
