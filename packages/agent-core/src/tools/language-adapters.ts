@@ -203,10 +203,54 @@ function cSharpStructureCheck(content: string): ValidationResult {
   return { ok: true };
 }
 
+/**
+ * Compiler diagnostics that say a type, namespace or assembly could not be resolved:
+ *   CS0246  type or namespace name could not be found
+ *   CS0234  type or namespace name does not exist in the namespace
+ *   CS0012  type is defined in an assembly that is not referenced
+ *   CS0400  type or namespace name could not be found in the global namespace
+ *   CS0006  metadata file could not be found
+ *
+ * The adapter compiles ONE file on its own, with no project file, no package references
+ * and none of the project's other sources. Every `using Microsoft.AspNetCore.Mvc;` and
+ * every type declared in a sibling file therefore fails to resolve, before and after any
+ * edit. That says the file belongs to a project; it says nothing about the edit. These
+ * codes never fail validation.
+ */
+const CSHARP_UNRESOLVED_REFERENCE = new Set(['CS0246', 'CS0234', 'CS0012', 'CS0400', 'CS0006']);
+
+/** `path(line,col): error CS1002: ; expected` — csc (Roslyn) and mcs agree on this shape. */
+const CSHARP_DIAGNOSTIC = /^(.*)\((\d+),(\d+)\):\s*error\s+(CS\d+):\s*(.*)$/;
+
+/**
+ * Reduce raw csc/mcs output to the diagnostics that are about the file's own text.
+ *
+ *  - unresolved-reference diagnostics are dropped (see CSHARP_UNRESOLVED_REFERENCE);
+ *  - warnings, mcs's "Compilation failed: N error(s)" summary and errors with no source
+ *    position (a compiler that could not start, write its output, …) are dropped: they
+ *    describe the machine, not the content;
+ *  - the throwaway temp path is replaced by the real file name, so the same error reads
+ *    the same on every call (the temp name carries a process id) and means something to
+ *    the model.
+ *
+ * Returns the remaining diagnostics, one per line, or an empty string when nothing is left.
+ */
+export function summarizeCSharpDiagnostics(compilerOutput: string, displayName: string): string {
+  const kept: string[] = [];
+  for (const rawLine of compilerOutput.split(/\r?\n/)) {
+    const match = CSHARP_DIAGNOSTIC.exec(rawLine.trim());
+    if (!match) {continue;}
+    const [, , line, column, code, message] = match;
+    if (CSHARP_UNRESOLVED_REFERENCE.has(code)) {continue;}
+    kept.push(`${displayName}(${line},${column}): error ${code}: ${message}`);
+  }
+  return kept.join('\n');
+}
+
 export class CSharpAdapter implements LanguageAdapter {
   readonly extensions = ['cs'];
 
-  async validate(_filePath: string, content: string, ctx: ToolExecutionContext): Promise<ValidationResult> {
+  async validate(filePath: string, content: string, ctx: ToolExecutionContext): Promise<ValidationResult> {
     // First: cheap structural check that always runs. Catches the
     // truncated-close-brace / duplicated-fragment corruption mode from
     // broken apply_edit calls even when no compiler is installed.
@@ -237,8 +281,12 @@ export class CSharpAdapter implements LanguageAdapter {
 
     const result = await ctx.runCommand('node', ['-e', script]);
     if (result.exitCode !== 0) {
-      const detail = (result.stdout || result.stderr).trim();
-      return { ok: false, error: `C# compilation error:\n${detail}` };
+      // A lone-file compile cannot see the project's references, so only diagnostics
+      // about this file's own text count (see summarizeCSharpDiagnostics).
+      const detail = summarizeCSharpDiagnostics(result.stdout || result.stderr, path.basename(filePath));
+      if (detail) {
+        return { ok: false, error: `C# compilation error:\n${detail}` };
+      }
     }
     return { ok: true };
   }

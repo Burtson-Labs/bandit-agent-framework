@@ -1301,6 +1301,7 @@ function introducedNewErrors(before: string | undefined, after: string | undefin
       .replace(/\bat position \d+/gi, 'at position N')
       .replace(/\b(line|ln) \d+(?: column| col)?(?: \d+)?/gi, 'line N')
       .replace(/:\s*\d+:\d+/g, ':N:N')   // file:line:col → file:N:N
+      .replace(/\(\d+,\d+(?:,\d+,\d+)?\)/g, '(N,N)') // file(line,col) — csc, mcs, tsc, MSBuild
       .replace(/\bcharacter \d+/gi, 'character N')
       .replace(/\boffset \d+/gi, 'offset N');
   const normalize = (s: string): Set<string> => {
