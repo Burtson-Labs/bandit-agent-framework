@@ -21,7 +21,23 @@ interface StoredChunk {
 
 let store: StoredChunk[] = [];
 let indexedPaths = new Set<string>();
+/** Workspace the store was built from. A different root means a different index. */
+let indexedRoot: string | undefined;
 let ollamaBaseUrl = 'http://localhost:11434';
+
+/**
+ * The store is one module-level array, so everything in the process shares it. Chunks
+ * from one workspace must not answer a search in another (an agent that changes
+ * workspace, a host serving several roots, an eval running fixtures back to back): the
+ * hits would name files that are not there. Start over when the root changes.
+ */
+function useIndexFor(workspaceRoot: string): void {
+  if (indexedRoot !== workspaceRoot) {
+    store = [];
+    indexedPaths = new Set();
+    indexedRoot = workspaceRoot;
+  }
+}
 
 async function embed(text: string): Promise<number[]> {
   const response = await fetch(`${ollamaBaseUrl}/api/embeddings`, {
@@ -96,6 +112,7 @@ const semanticSearchTool: AgentTool = {
 
     const topK = Math.min(parseInt(params.top_k ?? '6', 10) || 6, 15);
     const glob = params.file_glob ?? '**/*.{ts,tsx,js,jsx,py}';
+    useIndexFor(ctx.workspaceRoot);
 
     // If the store is empty, index workspace files first
     if (store.length === 0) {
@@ -182,6 +199,7 @@ const indexWorkspaceTool: AgentTool = {
   async execute(params, ctx: ToolExecutionContext): Promise<ToolResult> {
     const glob = params.glob ?? '**/*.{ts,tsx,js,jsx,py}';
     const maxFiles = Math.min(parseInt(params.max_files ?? '50', 10) || 50, 100);
+    useIndexFor(ctx.workspaceRoot);
 
     try {
       const files = await ctx.listFiles(glob);
@@ -246,10 +264,12 @@ export const semanticSearchSkill: SkillManifest = {
 
 /**
  * Configure the Ollama base URL for the embedding client.
- * Call this before the skill is used if Ollama is not on localhost.
+ * Call this before the skill is used if Ollama is not on localhost. Hosts call it with the
+ * same URL they send chat requests to; an empty value restores the default.
  */
-export function configureSemanticSearchOllamaUrl(url: string): void {
-  ollamaBaseUrl = url.replace(/\/+$/, '');
+export function configureSemanticSearchOllamaUrl(url: string | undefined): void {
+  const trimmed = (url ?? '').trim().replace(/\/+$/, '');
+  ollamaBaseUrl = trimmed || 'http://localhost:11434';
 }
 
 /**
@@ -258,4 +278,5 @@ export function configureSemanticSearchOllamaUrl(url: string): void {
 export function resetSemanticIndex(): void {
   store = [];
   indexedPaths = new Set();
+  indexedRoot = undefined;
 }

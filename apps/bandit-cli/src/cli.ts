@@ -26,6 +26,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import * as cp from 'child_process';
 import {
+  configureSemanticSearchOllamaUrl,
   createDefaultSkillRegistry,
   createDefaultLanguageAdapters,
   createToolUseLoop,
@@ -91,6 +92,7 @@ import { consumeMarkdownInChunk, flushMarkdownState } from './terminal/markdownR
 import { fuzzyMatchWorkspaceFiles } from './input/fileCompleter';
 import { buildCliChatFn } from './agent/cliChatFn';
 import { probeOllamaModel } from './agent/ollamaCapabilityProbe';
+import { semanticSearchOllamaUrl } from './agent/semanticSearchUrl';
 import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, saveModel, saveProvider, saveReasoningDisplay, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
 import { initTelemetry, resolveTelemetryConfig, telemetryStartTurn, telemetryEvent, telemetryEndTurn, telemetryEndTurnAwait } from './telemetry/otlp';
 import { notifyCli, type CliNotification } from './notifications';
@@ -811,6 +813,10 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   const { prompt, skillRegistry, cwd, settings, model, conversation, memoryBlock, todoStore, hookSettings, permissionStore, autoLedger, modeOverride } = opts;
   const getLine = opts.getLine ?? defaultGetLine;
   const replRl = opts.rl;
+
+  // semantic_search embeds through Ollama. Point it at the server this session is
+  // configured for; it used to call localhost:11434 whatever OLLAMA_URL / ollama.url said.
+  configureSemanticSearchOllamaUrl(semanticSearchOllamaUrl(settings));
 
   // Direct Ollama: know what the server says about this model before choosing its
   // context window and tool channel. See agent/ollamaCapabilityProbe.ts.
