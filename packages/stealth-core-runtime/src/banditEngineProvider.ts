@@ -5,6 +5,7 @@ import type {
   AIMessageContentPart
 } from './types/bandit';
 import { resolveOllamaRuntimeOptions } from './runtime/modelCapabilities';
+import { resolveToolHistoryMode, toOllamaToolHistory, toPartsToolHistory } from './toolHistory';
 import {
   DEFAULT_STREAM_IDLE_MS,
   DEFAULT_STREAM_WARN_MS,
@@ -354,9 +355,15 @@ function createDirectOllamaProvider(
         // request.options override these per-request (so tests / power
         // users can still opt out or up the window).
         const runtimeDefaults = resolveOllamaRuntimeOptions(model);
+        const hasNativeTools = Array.isArray(request.tools) && request.tools.length > 0;
+        const messages = normalizeOllamaMessages(request);
         const payload: Record<string, unknown> = {
           model,
-          messages: normalizeOllamaMessages(request),
+          // With native tools the model must see its earlier calls as `tool_calls`, not
+          // as the loop's text markup — see toolHistory.ts.
+          messages: hasNativeTools && resolveToolHistoryMode(model, 'ollama') === 'native'
+            ? toOllamaToolHistory(messages)
+            : messages,
           stream: request.stream !== false,
           keep_alive: runtimeDefaults.keep_alive,
           options: {
@@ -392,7 +399,6 @@ function createDirectOllamaProvider(
         // only on the terminal chunk and interleaving that with partial
         // content makes the downstream translator brittle. Non-native
         // requests keep streaming as before.
-        const hasNativeTools = Array.isArray(request.tools) && request.tools.length > 0;
         if (hasNativeTools) {
           payload.tools = request.tools;
           payload.stream = false;
@@ -734,6 +740,13 @@ export function serializeBanditPayload(request: AIChatRequest, opts?: { strictOp
     // provider's non-streaming translator (see ollama path at ~line
     // 334) can pair tool_calls back to inline <tool_call> markup.
     payload.stream = false;
+    // Replay earlier calls natively when asked to (off by default on these two paths —
+    // see resolveToolHistoryMode). The gateway forwards message fields to Ollama as they
+    // are, so it takes Ollama's shape; other servers take OpenAI's.
+    const providerKind = opts?.strictOpenAI ? 'openai-compatible' : 'bandit';
+    if (resolveToolHistoryMode(request.model, providerKind) === 'native') {
+      payload.messages = toPartsToolHistory(messages, opts?.strictOpenAI ? 'openai' : 'ollama');
+    }
   }
   // Strict OpenAI-compatible servers (some vLLM/TGI builds) 400 on
   // unknown top-level body fields — `think` and bare `images` are

@@ -1383,6 +1383,7 @@ export const slashCommands: SlashCommand[] = [
         `  ${c.dim('profile')}     ${profile.label} (${profile.id})`,
         `  ${c.dim('protocol')}    ${profile.protocol.preferred}${profile.protocol.fallback ? ` → ${profile.protocol.fallback}` : ''} (${profile.protocol.envelope})`,
         `  ${c.dim('fallback')}    ${profile.protocol.nativeToolFailureFallback ? 'native failures degrade to text tools' : 'no native fallback needed'}`,
+        `  ${c.dim('history')}     earlier tool calls replayed as ${profile.protocol.toolHistory === 'native' ? 'native tool_calls' : 'text markup'} when native tools are on`,
         `  ${c.dim('context')}     safe input ${profile.context.safeInputTokens} tok · output ${profile.context.outputBudgetTokens} tok · compaction ${profile.context.compaction}`,
         `  ${c.dim('prompting')}   ${profile.prompting.template} · examples ${profile.prompting.examples} · thinking ${profile.prompting.thinking}`,
         `  ${c.dim('parallelism')} ${profile.reliability.maxParallelTools} tool${profile.reliability.maxParallelTools === 1 ? '' : 's'} max`,

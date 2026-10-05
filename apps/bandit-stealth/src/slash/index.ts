@@ -491,6 +491,7 @@ export async function handleSlashCommand(
       `- Profile: ${profile.label} (\`${profile.id}\`)`,
       `- Protocol: \`${profile.protocol.preferred}\`${profile.protocol.fallback ? ` → \`${profile.protocol.fallback}\`` : ''} via \`${profile.protocol.envelope}\``,
       `- Native fallback: ${profile.protocol.nativeToolFailureFallback ? 'yes' : 'no'}`,
+      `- Tool history with native tools: \`${profile.protocol.toolHistory}\``,
       `- Context: safe input ${profile.context.safeInputTokens} tok · output ${profile.context.outputBudgetTokens} tok · compaction \`${profile.context.compaction}\``,
       `- Prompting: \`${profile.prompting.template}\` · examples \`${profile.prompting.examples}\` · thinking \`${profile.prompting.thinking}\``,
       `- Max parallel tools: ${profile.reliability.maxParallelTools}`,

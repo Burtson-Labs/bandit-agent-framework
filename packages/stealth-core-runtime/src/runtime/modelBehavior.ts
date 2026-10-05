@@ -12,6 +12,13 @@ import { candidateModelIds } from './modelId';
 
 export type ToolProtocol = 'native-tools' | 'text-tools';
 export type ToolEnvelope = 'ollama-tools' | 'xml-json';
+/**
+ * How earlier tool calls and their results are replayed to the model when the request
+ * carries native tools: in the provider's own message format (`native`), or as the text
+ * markup the loop keeps internally (`text`, the behaviour before 2026-10). Has no effect on
+ * the text-tools protocol. See toolHistory.ts for what the text form costs on local models.
+ */
+export type ToolHistoryMode = 'native' | 'text';
 export type PromptTemplateId = 'qwen-agent' | 'gemma-compact' | 'llama-tool-lite' | 'default-agent';
 export type CompactionMode = 'early' | 'normal' | 'aggressive';
 export type ThinkingDefault = 'on' | 'off' | 'auto';
@@ -28,6 +35,8 @@ export interface ModelBehaviorProfile {
     fallback?: ToolProtocol;
     envelope: ToolEnvelope;
     nativeToolFailureFallback: boolean;
+    /** Replay form for tool history on the native-tools path. */
+    toolHistory: ToolHistoryMode;
   };
   context: {
     safeInputTokens: number;
@@ -83,7 +92,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'native-tools',
       fallback: 'text-tools',
       envelope: 'ollama-tools',
-      nativeToolFailureFallback: true
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 64000,
@@ -112,7 +122,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'native-tools',
       fallback: 'text-tools',
       envelope: 'ollama-tools',
-      nativeToolFailureFallback: true
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 64000,
@@ -147,7 +158,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'native-tools',
       fallback: 'text-tools',
       envelope: 'ollama-tools',
-      nativeToolFailureFallback: true
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 24000,
@@ -176,7 +188,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'native-tools',
       fallback: 'text-tools',
       envelope: 'ollama-tools',
-      nativeToolFailureFallback: true
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 32000,
@@ -204,7 +217,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'text-tools',
       fallback: undefined,
       envelope: 'xml-json',
-      nativeToolFailureFallback: false
+      nativeToolFailureFallback: false,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 12000,
@@ -232,7 +246,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'text-tools',
       fallback: undefined,
       envelope: 'xml-json',
-      nativeToolFailureFallback: false
+      nativeToolFailureFallback: false,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 24000,
@@ -266,7 +281,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'native-tools',
       fallback: 'text-tools',
       envelope: 'ollama-tools',
-      nativeToolFailureFallback: true
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 200000,
@@ -294,7 +310,8 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       preferred: 'text-tools',
       fallback: undefined,
       envelope: 'xml-json',
-      nativeToolFailureFallback: false
+      nativeToolFailureFallback: false,
+      toolHistory: 'native'
     },
     context: {
       safeInputTokens: 8000,
@@ -501,10 +518,12 @@ function parseModelBehaviorOverride(
     const fallback = enumValue<ToolProtocol>(protocol.fallback, ['native-tools', 'text-tools'], `${key}.protocol.fallback`, warnings, true);
     const envelope = enumValue<ToolEnvelope>(protocol.envelope, ['ollama-tools', 'xml-json'], `${key}.protocol.envelope`, warnings);
     const nativeFallback = booleanValue(protocol.nativeToolFailureFallback, `${key}.protocol.nativeToolFailureFallback`, warnings);
+    const toolHistory = enumValue<ToolHistoryMode>(protocol.toolHistory, ['native', 'text'], `${key}.protocol.toolHistory`, warnings);
     if (preferred) {parsedProtocol.preferred = preferred;}
     if ('fallback' in protocol) {parsedProtocol.fallback = fallback;}
     if (envelope) {parsedProtocol.envelope = envelope;}
     if (nativeFallback !== undefined) {parsedProtocol.nativeToolFailureFallback = nativeFallback;}
+    if (toolHistory) {parsedProtocol.toolHistory = toolHistory;}
     override.protocol = parsedProtocol;
   } else if (record.protocol !== undefined) {
     warnings.push(`${key}.protocol must be an object`);

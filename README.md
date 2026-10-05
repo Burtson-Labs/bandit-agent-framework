@@ -367,6 +367,8 @@ Built-in capability profiles ship for the families listed below. Anything else g
 
 Model behavior profiles now sit beside capability detection. `/profile` explains the active model's harness strategy — native vs text tools, fallback policy, safe context/output budget, thinking default, max tool parallelism, and reliability guardrails. Both the CLI and extension load `.bandit/model-profiles.json`, and the tool loop now uses those profile values to choose native-vs-text tools, serialize risky edit batches, cap parallel calls, and decide whether native failures should fall back to text tools.
 
+When native tools are active, earlier tool calls and their results are replayed to the model in the provider's own message format (`tool_calls` plus `role: "tool"` messages) rather than as the loop's `<tool_call>` text; local models otherwise copy the text form, which Ollama's tool parsers swallow or reject. This is on for direct Ollama. A profile can set it per model family (`"protocol": { "toolHistory": "text" }` in `.bandit/model-profiles.json`), and `BANDIT_TOOL_HISTORY=text` (or `native`) forces one form for every model and provider. The Bandit gateway and OpenAI-compatible servers stay on the text form unless forced.
+
 ### Ollama Cloud
 
 Want a frontier model without the GPU? [Ollama Cloud](https://docs.ollama.com/cloud) runs large
