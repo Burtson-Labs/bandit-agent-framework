@@ -53,6 +53,8 @@ export interface NormalizeToolCallBatchResult {
   droppedForegroundTaskCalls: number;
   /** Calls dropped because the batch exceeded `maxParallelTools`. */
   droppedParallelCap: number;
+  /** The calls behind `droppedParallelCap`, in the order the model sent them. */
+  cappedCalls: ParsedToolCall[];
   /** Calls dropped because the batch would exceed the per-turn cap. */
   droppedTotalCap: number;
 }
@@ -123,8 +125,10 @@ export function normalizeToolCallBatch(args: NormalizeToolCallBatchArgs): Normal
 
   // 3. Per-iteration parallel cap.
   let droppedParallelCap = 0;
+  let cappedCalls: ParsedToolCall[] = [];
   if (accepted.length > maxParallelTools) {
     droppedParallelCap = accepted.length - maxParallelTools;
+    cappedCalls = accepted.slice(maxParallelTools);
     emit('tool_loop:tool_call_capped', {
       iteration,
       requested: accepted.length + 0,
@@ -155,6 +159,7 @@ export function normalizeToolCallBatch(args: NormalizeToolCallBatchArgs): Normal
     dedupedCount,
     droppedForegroundTaskCalls,
     droppedParallelCap,
+    cappedCalls,
     droppedTotalCap
   };
 }

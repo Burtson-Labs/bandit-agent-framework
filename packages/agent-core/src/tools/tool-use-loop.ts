@@ -2212,6 +2212,7 @@ export class ToolUseLoop {
       toolCalls = normalized.accepted;
       const droppedForegroundTaskCalls = normalized.droppedForegroundTaskCalls;
       const droppedToolCalls = normalized.droppedParallelCap;
+      const cappedToolCalls = normalized.cappedCalls;
       totalToolsExecuted += toolCalls.length;
 
       // Per-tool execution — repeat-breaker, registry lookup,
@@ -2276,14 +2277,30 @@ export class ToolUseLoop {
       // Inject tool results as the next user message.
       let resultsMessage = buildToolResultsMessage(toolResults);
       if (droppedToolCalls > 0) {
-        // Synthetic system-style note appended to the tool-result payload.
-        // Keeps the model from re-emitting the dropped calls verbatim on
-        // the next iteration: it sees "X were dropped, narrow your query"
-        // alongside the results from the kept calls.
+        // Synthetic system-style note appended to the tool-result payload. The
+        // calls cut by the per-reply cap are not duplicates (those were removed
+        // earlier and are not counted here): they are work the model asked for
+        // and did not get. The note used to read "Do not re-issue duplicates —
+        // … pick a single most-promising next action", and a model capped at
+        // one call per reply took that literally: qwen3:14b sent two edits for
+        // main.ts, saw one result plus that note, and reported the rename done
+        // with the call site unchanged (BanditBench 2026-10-05,
+        // refactor.multi_file 0/3). So say which calls did not run and that
+        // they may be sent again; repeating a call that already has a result
+        // is the only thing to avoid.
+        const describeCall = (tc: { name: string; params: Record<string, string> }): string => {
+          const target = tc.params.path ?? tc.params.pattern ?? tc.params.cmd ?? tc.params.command ?? '';
+          const short = target.length > 60 ? `${target.slice(0, 57)}…` : target;
+          return short ? `${tc.name}(${short})` : tc.name;
+        };
+        const listed = cappedToolCalls.slice(0, 6).map(describeCall).join(', ');
+        const more = cappedToolCalls.length > 6 ? `, and ${cappedToolCalls.length - 6} more` : '';
         resultsMessage +=
-          `\n\n[Note: you emitted ${droppedToolCalls + toolCalls.length} tool calls in one iteration; ` +
-          `only the first ${toolCalls.length} were executed. Do not re-issue duplicates — ` +
-          `instead, read the results above and pick a single most-promising next action.]`;
+          `\n\n[Note: you sent ${droppedToolCalls + toolCalls.length} tool calls in one reply; at most ${maxParallelTools} ` +
+          `${maxParallelTools === 1 ? 'runs' : 'run'} per reply, so only the first ${toolCalls.length} ` +
+          `${toolCalls.length === 1 ? 'was' : 'were'} executed. NOT executed: ${listed}${more}. ` +
+          `If you still need ${droppedToolCalls === 1 ? 'that call' : 'those calls'}, send ${droppedToolCalls === 1 ? 'it' : 'them'} again ` +
+          `(${maxParallelTools} per reply). Do not repeat a call that already has a result above.]`;
       }
       if (droppedForegroundTaskCalls > 0) {
         resultsMessage +=

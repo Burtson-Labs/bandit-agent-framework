@@ -164,6 +164,7 @@ describe('normalizeToolCallBatch — per-iteration parallel cap', () => {
     });
     expect(result.accepted.map((c) => c.params.path)).toEqual(['a.ts', 'b.ts']);
     expect(result.droppedParallelCap).toBe(3);
+    expect(result.cappedCalls.map((c) => c.params.path)).toEqual(['c.ts', 'd.ts', 'e.ts']);
     const capped = events.find((e) => e.type === 'tool_loop:tool_call_capped');
     expect(capped?.payload).toMatchObject({ iteration: 2, kept: 2, dropped: 3, requested: 5 });
   });
