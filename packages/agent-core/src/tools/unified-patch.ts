@@ -104,12 +104,20 @@ export function parseUnifiedPatch(patch: string): ParsedPatch | null {
     const newStart = parseInt(headerMatch[3], 10);
     const newCount = headerMatch[4] !== undefined ? parseInt(headerMatch[4], 10) : 1;
     i++;
+    // The body runs to the next hunk header (or a file header, or the end), whatever the
+    // header's line counts say. Models often get the counts wrong: qwen3.6:27b sent one
+    // `@@ -4,6 +4,9 @@` hunk whose body went on to add the method docs further down
+    // (BanditBench native_tools.multi_file_doc_add). Stopping at the counts applied the first
+    // insertion, dropped the rest without a word and reported "Applied 1 hunk". The counts
+    // only decide whether trailing blank lines (a patch ending in "\n") are context.
     const bodyLines: string[] = [];
+    const fromEmptyLine: boolean[] = [];
     let oldSeen = 0;
     let newSeen = 0;
-    while (i < lines.length && (oldSeen < oldCount || newSeen < newCount)) {
+    while (i < lines.length) {
       const line = lines[i];
       if (line.startsWith('@@')) {break;}
+      if (line.startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ ')) {break;}
       if (line.startsWith(' ')) { oldSeen++; newSeen++; }
       else if (line.startsWith('-')) { oldSeen++; }
       else if (line.startsWith('+')) { newSeen++; }
@@ -120,6 +128,7 @@ export function parseUnifiedPatch(patch: string): ParsedPatch | null {
         oldSeen++;
         newSeen++;
         bodyLines.push(' ');
+        fromEmptyLine.push(true);
         i++;
         continue;
       } else {
@@ -127,7 +136,16 @@ export function parseUnifiedPatch(patch: string): ParsedPatch | null {
         break;
       }
       bodyLines.push(line);
+      fromEmptyLine.push(false);
       i++;
+    }
+    // Empty lines past what the header accounts for are the patch's own trailing newlines,
+    // not context the file has to contain.
+    while (bodyLines.length > 0 && fromEmptyLine[fromEmptyLine.length - 1] && (oldSeen > oldCount || newSeen > newCount)) {
+      bodyLines.pop();
+      fromEmptyLine.pop();
+      oldSeen--;
+      newSeen--;
     }
     hunks.push({ oldStart, oldCount, newStart, newCount, bodyLines });
   }
