@@ -97,6 +97,19 @@ describe('toOllamaToolHistory', () => {
     ]);
   });
 
+  it('replays a Qwen3-Coder <function=…> call natively', () => {
+    // As Ollama returns it after a sentence of prose: opener eaten, closer left behind.
+    // Sent back as text it is the 500 {"error":"EOF"} case again.
+    const out = toOllamaToolHistory([
+      { role: 'assistant', content: 'Let me check the file.\n\n<function=read_file>\n<parameter=path>\nsrc/greetings.ts\n</parameter>\n</function>\n</tool_call>' },
+      { role: 'user', content: result('read_file', 'export function greet() {}') }
+    ]);
+    expect(out).toEqual([
+      { role: 'assistant', content: 'Let me check the file.', tool_calls: [{ function: { name: 'read_file', arguments: { path: 'src/greetings.ts' } } }] },
+      { role: 'tool', tool_name: 'read_file', content: 'export function greet() {}' }
+    ]);
+  });
+
   it('does not double the error marker', () => {
     const out = toOllamaToolHistory([
       { role: 'assistant', content: call('apply_edit', { path: 'a.ts' }) },

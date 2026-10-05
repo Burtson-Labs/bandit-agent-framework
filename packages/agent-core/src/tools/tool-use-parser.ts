@@ -102,6 +102,45 @@ function findFenceBlocks(text: string): { raw: string; inner: string }[] {
 }
 
 /**
+ * Qwen3-Coder's own call syntax, which is not JSON:
+ *
+ *   <tool_call>
+ *   <function=read_file>
+ *   <parameter=path>
+ *   src/greetings.ts
+ *   </parameter>
+ *   </function>
+ *   </tool_call>
+ *
+ * Ollama's parser turns it into a native tool call when it is the whole reply. When the
+ * model says something first ("I'll rename… let me check the files."), Ollama 0.35.1
+ * eats the opening tag and returns the rest as content, closing tag included. Nothing
+ * here recognised it, so the reply was taken for a final answer and the turn ended with
+ * no tool call at all (BanditBench 2026-10-05, qwen3-coder:30b: refactor.multi_file and
+ * search.then_edit, two of three runs each).
+ *
+ * The wrapper tags are optional on both sides. A parameter value is everything between
+ * its tags minus the one line break the template puts after the opener and before the
+ * closer, so file content keeps its own indentation and blank lines.
+ */
+function findFunctionTagBlocks(text: string): { raw: string; inner: string }[] {
+  const out: { raw: string; inner: string }[] = [];
+  const blockRe = /(?:<tool_call>\s*)?<function=([A-Za-z_][\w.-]*)>([\s\S]*?)<\/function>(?:\s*<\/tool_call>)?/g;
+  let block: RegExpExecArray | null;
+  while ((block = blockRe.exec(text)) !== null) {
+    const [raw, name, body] = block;
+    const params: Record<string, string> = {};
+    const paramRe = /<parameter=([A-Za-z_][\w.-]*)>([\s\S]*?)<\/parameter>/g;
+    let param: RegExpExecArray | null;
+    while ((param = paramRe.exec(body)) !== null) {
+      params[param[1]] = param[2].replace(/^\r?\n/, '').replace(/\r?\n$/, '');
+    }
+    out.push({ raw, inner: JSON.stringify({ name, params }) });
+  }
+  return out;
+}
+
+/**
  * Extract all tool call blocks from a model response. Accepts both the
  * canonical <tool_call>…</tool_call> form and the markdown-fenced
  * ```tool_call …``` variant. Returns an empty array if none found.
@@ -180,6 +219,12 @@ export function parseToolCalls(text: string): ParsedToolCall[] {
 
   for (const b of findXmlBlocks(text)) {consume(b);}
   for (const b of findFenceBlocks(text)) {consume(b);}
+  // Qwen3-Coder's <function=…> form. Explicit markup, so it is read from the raw text
+  // (a parameter may hold fenced code), but only when no JSON call was found: a
+  // write_file whose content merely mentions the syntax must not spawn a second call.
+  if (results.length === 0) {
+    for (const b of findFunctionTagBlocks(text)) {consume(b);}
+  }
   // Bare-JSON fallback — with Qwen 2.5 Coder 32B via
   // Ollama: model emits `{"name":"foo","arguments":{...}}` as its entire
   // content field (Ollama's tag-based extractor only promotes tagged
@@ -282,6 +327,7 @@ function findPythonicBlocks(text: string): { raw: string; inner: string }[] {
 export function hasToolCalls(text: string): boolean {
   if (findXmlBlocks(text).length > 0) {return true;}
   if (findFenceBlocks(text).length > 0) {return true;}
+  if (findFunctionTagBlocks(text).length > 0) {return true;}
   // Only run the weaker fallbacks when the stronger ones missed — and against
   // fence-masked text so a code example isn't read as a tool call (mirrors
   // parseToolCalls so the two never disagree).
@@ -297,7 +343,7 @@ export function hasToolCalls(text: string): boolean {
  * botched the JSON escaping" (common failure mode with long content strings).
  */
 export function looksLikeAttemptedToolCall(text: string): boolean {
-  return /<tool_call\b|```\s*tool_call\b/i.test(text);
+  return /<tool_call\b|```\s*tool_call\b|<function=[A-Za-z_][\w.-]*>/i.test(text);
 }
 
 /**
@@ -347,6 +393,8 @@ export function stripToolCallMarkup(text: string): string {
   for (const b of findXmlBlocks(text)) {out = out.replace(b.raw, '');}
   // Drop well-formed fenced blocks (```tool_call ... ```).
   for (const b of findFenceBlocks(text)) {out = out.replace(b.raw, '');}
+  // Drop Qwen3-Coder <function=…>…</function> blocks.
+  for (const b of findFunctionTagBlocks(text)) {out = out.replace(b.raw, '');}
   // Aggressively remove any leftover malformed tool_call markup. These
   // regexes fire ONLY if a structured block wasn't already removed —
   // after structured stripping, anything remaining is by definition not
