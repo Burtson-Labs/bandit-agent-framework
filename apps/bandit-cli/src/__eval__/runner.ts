@@ -48,7 +48,7 @@ import {
 import { EvalSandboxContext, createSandboxLayout, describeDenial, isSandboxViolation, sandboxEnv, type EvalSandboxLayout, type SandboxDenial } from './sandboxContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
-import { writeRunTrace } from './traceOut';
+import { writeRunTrace, type RunTraceInput } from './traceOut';
 import type {
   EvalReport,
   EvalRuntimeInfo,
@@ -250,6 +250,15 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
   const layout = await createSandboxLayout(`bandit-eval-${fixture.id}-`);
   const sandbox = layout.workspace;
   let denials: SandboxDenial[] = [];
+  // What the run has produced so far lives outside the try, so a run stopped by the
+  // wall-clock cap still reports its tool calls and leaves a trace of how far it got.
+  const toolCalls: ToolCallTrace[] = [];
+  const loopEvents: Record<string, number> = {};
+  let malformedToolCalls = 0;
+  let currentIteration = 0;
+  let chunkChars = 0;
+  let lastMessages: ToolLoopMessage[] = [];
+  let traceContext: Pick<RunTraceInput, 'systemPrompt' | 'tools'> | undefined;
 
   try {
     if (fixture.sourceDir) {
@@ -297,8 +306,6 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     }
     if (provider.commandDeny) registry = withCommandDeny(registry, provider.commandDeny);
 
-    const toolCalls: ToolCallTrace[] = [];
-    let malformedToolCalls = 0;
     const settle = (call: ToolCallTrace | undefined, isError: boolean, output?: string): void => {
       if (!call || call.settled) return;
       call.settled = true;
@@ -361,9 +368,8 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     const timeoutMs = provider.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
     let timedOut = false;
     let degenerate = false;
-    // Count every streamed char so the run carries an approx output-token
-    // figure (chars/4, tool markup included — it's real generated cost).
-    let chunkChars = 0;
+    // Every streamed char is counted (chunkChars) so the run carries an approx
+    // output-token figure (chars/4, tool markup included — it's real generated cost).
     const chat: typeof rawChat = async function* (messages, tools, options) {
       let callChars = 0;
       for await (const chunk of rawChat(messages, tools, options)) {
@@ -392,9 +398,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       compactToolBlock: runtime.compactToolBlock
     });
 
-    const loopEvents: Record<string, number> = {};
     let order = 0;
-    let currentIteration = 0;
 
     const emitEvent = (type: string, payload?: unknown): void => {
       if (type !== 'tool_loop:llm_chunk') loopEvents[type] = (loopEvents[type] ?? 0) + 1;
@@ -443,11 +447,13 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       }, timeoutMs);
       timer.unref?.();
     });
+    traceContext = { systemPrompt, tools: registry.buildNativeToolsSchema() };
     const result = await Promise.race([
       loop.runWithMessages(seedMessages, chat, systemPrompt, {
         emitEvent,
         signal: abort.signal,
-        messageTokenBudget: runtime.messageTokenBudget
+        messageTokenBudget: runtime.messageTokenBudget,
+        onMessagesSnapshot: messages => { lastMessages = messages; }
       }),
       deadline
     ]).finally(() => clearTimeout(timer));
@@ -509,20 +515,39 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       loopEvents
     };
   } catch (err) {
+    const failureReasons = [
+      `runner error: ${err instanceof Error ? err.message : String(err)}`,
+      ...denials.filter(isSandboxViolation).map(d => `permission auto-denied (non-interactive): ${d.kind} ${d.path} is outside the workspace`)
+    ];
+    if (provider.traceOut && traceContext && lastMessages.length > 0) {
+      await writeRunTrace(provider.traceOut, {
+        fixtureId: fixture.id,
+        runNumber,
+        model: provider.model,
+        ...traceContext,
+        messages: lastMessages,
+        hitLimit: false,
+        passed: false,
+        failureReasons,
+        workspaceRoot: sandbox,
+        homeRoot: layout.home,
+        permissionDenials: denials.length
+      }).catch(() => undefined);
+    }
     return {
       runNumber,
       passed: false,
-      failureReasons: [
-        `runner error: ${err instanceof Error ? err.message : String(err)}`,
-        ...denials.filter(isSandboxViolation).map(d => `permission auto-denied (non-interactive): ${d.kind} ${d.path} is outside the workspace`)
-      ],
-      toolCalls: [],
-      iterations: 0,
+      failureReasons,
+      toolCalls,
+      iterations: toolCalls.length > 0 || lastMessages.length > 0 ? currentIteration + 1 : 0,
       hitLimit: false,
       finalResponse: '',
       wallTimeMs: Date.now() - started,
+      approxTokens: Math.round(chunkChars / 4),
       sandboxDenials: denials.map(describeDenial),
       timedOut: /wall-clock cap/.test(err instanceof Error ? err.message : String(err)),
+      malformedToolCalls,
+      loopEvents,
       error: err instanceof Error ? err.stack : String(err)
     };
   } finally {
@@ -609,9 +634,9 @@ async function listFilesGlob(pattern: string, cwd: string): Promise<string[]> {
   }
 }
 
-async function buildChat(provider: RunnerProvider): Promise<ChatFn> {
+export async function buildChat(provider: RunnerProvider): Promise<ChatFn> {
   const driver = await createProvider(provider.settings);
-  return async function* (messages: ToolLoopMessage[], tools) {
+  return async function* (messages: ToolLoopMessage[], tools, callOptions) {
     for await (const chunk of driver.chat({
       model: provider.model,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
@@ -622,7 +647,11 @@ async function buildChat(provider: RunnerProvider): Promise<ChatFn> {
       // translates returned tool_calls back into inline markup — the same
       // path the REPL uses (cliChatFn types this `unknown` for the same
       // structural-compat reason).
-      tools: tools as never
+      tools: tools as never,
+      // Per-call thinking override, as in cliChatFn: after reasoning-only replies the
+      // loop retries with think:false. Dropping it here left that recovery inert, so a
+      // thinking model that stalled kept stalling until the prefill fallback.
+      ...(callOptions?.think !== undefined ? { think: callOptions.think } : {})
     })) {
       const text = chunk.message?.content ?? '';
       if (text) yield text;

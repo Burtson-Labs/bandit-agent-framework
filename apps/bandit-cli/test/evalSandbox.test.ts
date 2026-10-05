@@ -245,6 +245,31 @@ describe('eval runner: per-call outcomes and run measures', () => {
     expect(r.runs[0].endedEarly).toBe(false);
   });
 
+  it('a run stopped by the wall-clock cap keeps its tool calls and leaves a trace', async () => {
+    const traceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bandit-eval-traces-'));
+    roots.push(traceDir);
+    let turn = 0;
+    const stalls: RunnerProvider = {
+      kind: 'ollama', model: 'fake', settings: {} as RunnerProvider['settings'], runTimeoutMs: 400, traceOut: traceDir,
+      chat: async function* () {
+        if (turn++ === 0) { yield call('read_file', { path: 'a.txt' }); return; }
+        await new Promise(() => undefined); // never answers the second call
+        yield '';
+      }
+    };
+    const fixture: Fixture = { ...base, id: 'sbx.stall', prompt: 'read it', setup: { files: { 'a.txt': 'A' } }, assertions: { finalResponseMatches: /A/ } };
+    const r = await runFixture(fixture, stalls);
+    expect(r.runs[0].timedOut).toBe(true);
+    expect(r.runs[0].toolCalls.map(c => [c.name, c.isError])).toEqual([['read_file', false]]);
+    expect(r.runs[0].endedEarly ?? false).toBe(false);
+    const files = fs.readdirSync(traceDir);
+    expect(files).toHaveLength(1);
+    const trace = JSON.parse(fs.readFileSync(path.join(traceDir, files[0]), 'utf8'));
+    expect(trace.labels.passed).toBe(false);
+    expect(trace.labels.failureReasons.join(' ')).toMatch(/wall-clock cap/);
+    expect(JSON.stringify(trace.messages)).toContain('read_file');
+  });
+
   it('writes the home and the workspace into the trace under stable names', () => {
     const home = '/private/var/folders/zz/T/bandit-eval-x-Ab12/home';
     const trace = buildRunTrace({

@@ -32,6 +32,11 @@ export interface EvalJsonRun {
   hitLimit: boolean;
   wallMs: number;
   approxTokens: number;
+  /** Times the loop had to re-ask because a reply was empty, unparseable or needed a
+   *  fallback channel (`*_retry`, `*_recovery`, `*_fallback` loop events). */
+  loopRecoveries: number;
+  /** Corrective nudges the loop injected (`*_nudge` loop events). */
+  loopNudges: number;
 }
 
 export interface EvalJsonFixture {
@@ -97,6 +102,10 @@ function oneLine(reason: string): string {
   return reason.replace(/\s+/g, ' ').trim();
 }
 
+function countEvents(run: RunResult, pattern: RegExp): number {
+  return Object.entries(run.loopEvents ?? {}).reduce((n, [name, count]) => (pattern.test(name) ? n + count : n), 0);
+}
+
 function runToJson(run: RunResult): EvalJsonRun {
   return {
     run: run.runNumber,
@@ -110,7 +119,9 @@ function runToJson(run: RunResult): EvalJsonRun {
     timedOut: run.timedOut ?? false,
     hitLimit: run.hitLimit,
     wallMs: run.wallTimeMs,
-    approxTokens: run.approxTokens ?? 0
+    approxTokens: run.approxTokens ?? 0,
+    loopRecoveries: countEvents(run, /_(retry|recovery|fallback)$/),
+    loopNudges: countEvents(run, /_nudge$/)
   };
 }
 
