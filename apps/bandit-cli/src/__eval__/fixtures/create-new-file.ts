@@ -14,7 +14,15 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    mustCallAnyOf: [{ name: 'write_file', params: { path: /src\/utils\/clamp\.ts$/ } }],
+    mustCallAnyOf: [
+      { name: 'write_file', params: { path: /src\/utils\/clamp\.ts$/ } },
+      // "*** Add File:" in an apply_patch creates a file just as well.
+      { name: 'apply_patch', params: { patch: /src\/utils\/clamp\.ts/ } }
+    ],
+    // The file is where it was asked for and exports clamp.
+    finalFiles: {
+      'src/utils/clamp.ts': /export\s+(?:default\s+)?(?:function\s+clamp\b|const\s+clamp\b)|export\s*\{[^}]*\bclamp\b[^}]*\}/
+    },
     maxIterations: 4
   },
   runs: 3,

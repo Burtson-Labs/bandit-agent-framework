@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { targetedEditOf } from './shared';
 
 /**
  * Native-tool-calling smoke test. Built specifically to grade the  * native-tools path on capable Ollama models (Qwen2.5-Coder-32B, Llama 3.1+,
@@ -73,24 +74,32 @@ export const fixture: Fixture = {
     // Both files must actually be edited — this is the bar the 12B missed
     // (it edited FileController repeatedly but dropped HealthController in
     // parallel-apply-edit traces).
+    // Any targeted edit counts: apply_edit, replace_range, or one apply_patch
+    // covering both files (which is what the apply_patch description tells
+    // the model to use for a 2+ file change).
     mustCallAllOf: [
-      { name: 'apply_edit', params: { path: /HealthController\.cs$/ } },
-      { name: 'apply_edit', params: { path: /FileController\.cs$/ } }
+      targetedEditOf('HealthController.cs'),
+      targetedEditOf('FileController.cs')
     ],
     // write_file would be wrong here — we want targeted edits, not full
-    // file rewrites. A capable model on the native-tools path picks
-    // apply_edit correctly.
+    // file rewrites.
     mustNotCall: ['write_file'],
+    // The docs have to be in the files.
+    finalFiles: {
+      'src/Controllers/HealthController.cs': /\/\/\/\s*<summary>/,
+      'src/Controllers/FileController.cs': /\/\/\/\s*<summary>/
+    },
     // A native-tools capable model should finish this in 2-3 iterations.
     // We give a small buffer because the eval also runs on weaker models
     // to compare the spread; anything over 4 iterations means the model
     // is thrashing and the test fails loudly.
     maxIterations: 4,
     // The final response should acknowledge both files were updated.
-    // Regex is permissive — any mention of both controller names in
-    // the summary passes. Stochastic summaries are common so we don't
-    // over-specify wording.
-    finalResponseMatches: /(?:Health|both).*(?:File|controller)/i
+    // Regex is permissive — both controller names anywhere in the summary
+    // (a bulleted list puts them on separate lines, which the old
+    // single-line pattern missed), or "both". Stochastic summaries are
+    // common so we don't over-specify wording.
+    finalResponseMatches: /(?=[\s\S]*Health)(?=[\s\S]*File)|\bboth\b/i
   },
   // Run 3× for stability; 2/3 passes to guard against a single stochastic
   // miss. Capable models should hit 3/3 comfortably.

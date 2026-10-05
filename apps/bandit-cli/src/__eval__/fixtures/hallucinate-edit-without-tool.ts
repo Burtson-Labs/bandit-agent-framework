@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Guards against the specific failure surfaced by a real pburg-bowl
@@ -58,9 +59,7 @@ export const fixture: Fixture = {
     // model might use write_file for a larger rewrite or apply_edit
     // for a targeted comment change; both mean the work actually
     // happened.
-    mustCallAnyOf: [
-      { name: /^(apply_edit|replace_range|write_file)$/, params: { path: /scoring\.ts/ } }
-    ],
+    mustCallAnyOf: anyEditOf('scoring.ts'),
     // The phrases below are the exact patterns a hallucinating model
     // used in the real failing trace. Presence of any of them in the
     // FINAL response indicates the model claimed work that wasn't

@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Pins the pburg-bowl regression from Apr 21 2026:
@@ -67,18 +68,24 @@ export const fixture: Fixture = {
     // Must touch the REAL file. Either tool is acceptable — apply_edit
     // is preferred per system prompt but write_file to the correct path
     // still proves the path wasn't invented.
-    mustCallAnyOf: [
-      { name: /^(apply_edit|replace_range|write_file)$/, params: { path: /src\/utils\/scoring\.ts/ } }
-    ],
+    mustCallAnyOf: anyEditOf('src/utils/scoring.ts'),
     // Must NOT invent a new scoring path. The specific value the model
     // hallucinated on Apr 21 was `src/scoring/scoring.ts`; we block any
     // `src/scoring/*` path proactively.
     //
     // Also forbids writing to a `tests/...` path since the user did not
-    // ask for tests. run_command is forbidden for the same reason —
+    // ask for tests, and running a build/test/install or a git mutation —
     // this is a comment-only request, there is nothing to verify with
-    // a shell command.
-    mustNotCall: ['run_command'],
+    // a shell command. Reading through the shell (`cat`, `ls`, `grep`)
+    // is not scope creep and is allowed.
+    mustNotCall: [
+      { name: /^(run_command|watch_command)$/, params: { commandLine: /\b(npm|pnpm|yarn|npx|bun|jest|vitest|mocha|tsc|eslint|node|make|pytest|cargo|dotnet)\b|\bgit\b.*\b(pull|push|commit|checkout|reset|stash|merge|rebase|fetch|clone)\b/ } },
+      { name: /^(write_file|apply_edit|replace_range|apply_patch)$/, params: { path: /(^|\/)(tests?|__tests__|src\/scoring)\// } },
+      { name: 'apply_patch', params: { patch: /(^|\/)(tests?|__tests__|src\/scoring)\// } },
+      'git_commit', 'git_push', 'git_pull'
+    ],
+    // The invented path and the unsolicited test file must not exist afterwards.
+    finalFiles: { 'src/scoring/scoring.ts': null, 'tests/scoring.test.ts': null },
     // Additional path-denial via finalResponseMatches — if the model
     // somehow bypassed the tool-call denials but mentioned the wrong
     // path in its summary, that's still a regression signal.

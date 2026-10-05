@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Context reuse on artifact revisions. In the publish→revise flow the agent
@@ -11,6 +12,15 @@ import type { Fixture } from '../types';
  * The prior turn frames the artifact as auto-republishing from the file on
  * change, so the fixture never tempts the model toward host-only publish
  * tools (publish_artifact is registered by the host, not the eval sandbox).
+ *
+ * What is graded is the model's FIRST move: it must go straight to an edit of
+ * status.html instead of reading, listing or searching. The fixture used to
+ * forbid read_file outright, which no run could satisfy with apply_edit,
+ * replace_range or write_file: the tool context's read-before-edit guard is
+ * per turn, so a blind edit of a file "written last turn" is rejected with
+ * "call read_file first". A model that tries the edit, is told to read, reads
+ * and then edits has done what the product makes it do, and passes; a model
+ * that opens with a read or a search has not trusted its transcript, and fails.
  */
 const ARTIFACT_HTML = [
   '<!doctype html>',
@@ -62,16 +72,19 @@ export const fixture: Fixture = {
   },
   assertions: {
     // The file's full contents are in the immediately-preceding assistant
-    // message — any read-path call (read_file, cat/grep via run_command,
-    // search, listing) is the exact failure this fixture pins.
-    mustNotCall: ['read_file', 'list_files', 'ls', 'search_code', 'run_command'],
+    // message, so the first call must be an edit attempt on it…
+    firstCallAnyOf: anyEditOf('status.html'),
+    // …and exploring (cat/grep via run_command, search, listing) is never
+    // needed. read_file is only reachable after the edit guard asks for it.
+    mustNotCall: ['list_files', 'ls', 'search_code', 'run_command'],
     // Any write route is acceptable: apply_edit/replace_range are the
     // natural shape, but a full write_file from context is still "edited
-    // without re-reading" — the re-read is the only failure under test.
-    mustCallAnyOf: [
-      { name: /^(apply_edit|replace_range|write_file)$/, params: { path: /status\.html/ } }
-    ],
-    maxIterations: 4
+    // without re-reading".
+    mustCallAnyOf: anyEditOf('status.html'),
+    // Heading and title changed, nothing else.
+    finalFiles: { 'status.html': ARTIFACT_HTML.replace(/Fleet Status/g, 'Fleet Health') },
+    // edit attempt → (guard) read → edit → reply is four; one spare.
+    maxIterations: 5
   },
   runs: 3,
   passThreshold: 2

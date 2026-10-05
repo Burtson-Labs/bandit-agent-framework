@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { EXPLAINS_NOT_FOUND } from './shared';
 
 /**
  * Restraint: a pure-knowledge question needs ZERO tools. Reaching for
@@ -13,8 +14,11 @@ export const fixture: Fixture = {
     files: { 'notes.md': '# scratch\n' }
   },
   assertions: {
-    mustNotCall: ['read_file', 'list_files', 'ls', 'search_code', 'run_command', 'write_file', 'apply_edit'],
-    finalResponseMatches: /not found|does not exist|doesn't exist|couldn't .*find|cannot .*find|no .*resource/i,
+    // ZERO tools means zero: any call at all is the failure.
+    mustNotCall: [{ name: /./ }],
+    // Any correct phrasing of "the server has nothing at that address" —
+    // "could not be found" and a typographic "doesn’t exist" included.
+    finalResponseMatches: EXPLAINS_NOT_FOUND,
     maxIterations: 2
   },
   runs: 3,

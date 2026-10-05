@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Guards against the deferral-on-parse-error trace from pburg-bowl
@@ -63,9 +64,7 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    mustCallAnyOf: [
-      { name: /^(apply_edit|replace_range|write_file)$/, params: { path: /scoring\.ts/ } }
-    ],
+    mustCallAnyOf: anyEditOf('scoring.ts'),
     finalResponseMatches: /^(?!.*(?:i apologi[sz]e for the (?:malformed|invalid)|in my next tool call|let me know which task.*resume|please let me know.*(?:specific action|which task|what.*like me to))).*$/is,
     maxIterations: 12
   },

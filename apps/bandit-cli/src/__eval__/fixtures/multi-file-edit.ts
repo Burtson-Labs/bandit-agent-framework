@@ -1,46 +1,50 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Cross-file refactor regression. The insights report flagged that small
  * refactors often miss the "paired" file (e.g. rename in the frontend but
  * forget the backend). This fixture pins a two-file setup where the rename
- * has to land in BOTH files to be correct, and grades on whether the agent
- * touched both. Targeted edits via apply_edit are the expected path — a
- * single write_file can only hit one file.
+ * has to land in BOTH files to be correct, and grades the files themselves:
+ * after the run both must read exactly as before with `greet` renamed. (The
+ * earlier assertion only looked for an apply_edit call that mentioned
+ * greetings.ts, so a run whose every edit was rejected still passed, and a
+ * run that renamed only one file passed too.)
  */
+const GREETINGS = [
+  'export function greet(name: string): string {',
+  '  return `hello, ${name}`;',
+  '}',
+  ''
+].join('\n');
+
+const MAIN = [
+  'import { greet } from "./greetings";',
+  '',
+  'export function entry(): void {',
+  '  console.log(greet("world"));',
+  '}',
+  ''
+].join('\n');
+
 export const fixture: Fixture = {
   id: 'refactor.multi_file',
   description: 'Cross-file rename must edit both files, not stop after one',
   prompt: 'Rename the `greet` function to `sayHello` in both greetings.ts and main.ts. Keep everything else.',
   setup: {
     files: {
-      'greetings.ts': [
-        'export function greet(name: string): string {',
-        '  return `hello, ${name}`;',
-        '}',
-        ''
-      ].join('\n'),
-      'main.ts': [
-        'import { greet } from "./greetings";',
-        '',
-        'export function entry(): void {',
-        '  console.log(greet("world"));',
-        '}',
-        ''
-      ].join('\n')
+      'greetings.ts': GREETINGS,
+      'main.ts': MAIN
     }
   },
   assertions: {
-    mustCallAnyOf: [
-      { name: 'apply_edit', params: { path: /greetings\.ts/, find: /greet/ } }
-    ],
-    // Soft signal: we EXPECT the model to touch main.ts too, but some
-    // models will do it via a separate call that reaches main.ts by path
-    // OR use write_file, OR call task() to delegate. We encode the hard
-    // requirement on greetings.ts above; the full "both files touched"
-    // check is better surfaced as a manual spot-check in the report.
-    // TODO(eval-phase-2): multi-predicate assertions that require N
-    // different tool calls, each matching their own spec.
+    // An edit that actually landed on greetings.ts, by any edit tool…
+    mustCallAnyOf: anyEditOf('greetings.ts'),
+    // …and the outcome: both files renamed, nothing else touched.
+    finalFiles: {
+      'greetings.ts': GREETINGS.replace(/\bgreet\b/g, 'sayHello'),
+      'main.ts': MAIN.replace(/\bgreet\b/g, 'sayHello')
+    },
     maxIterations: 8
   },
   runs: 3,

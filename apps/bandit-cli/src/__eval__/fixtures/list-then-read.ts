@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { SHELL_LISTING, WRITE_TOOLS } from './shared';
 
 /**
  * Discovery: "what's in here?" requires listing first, then reading the file
@@ -27,10 +28,11 @@ export const fixture: Fixture = {
     // Discovery (list/search) + a read of the script by ANY read path; the
     // outcome must describe the real steps (both the sync and the restart).
     mustCallAllOf: [
-      { name: /^(list_files|ls|search_code)$/ },
+      // Discovery, by the listing tools or the shell (`ls scripts`, `find scripts`).
+      [{ name: /^(list_files|ls|search_code)$/ }, SHELL_LISTING],
       { name: /^(read_file|run_command)$/ }
     ],
-    mustNotCall: ['write_file', 'apply_edit'],
+    mustNotCall: WRITE_TOOLS,
     finalResponseMatches: /(?=[\s\S]*rsync)(?=[\s\S]*(restart|systemctl))/i,
     maxIterations: 5
   },

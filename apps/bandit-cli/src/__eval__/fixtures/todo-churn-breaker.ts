@@ -31,12 +31,14 @@ export const fixture: Fixture = {
     }
   },
   assertions: {
-    // A concrete tool must land. We allow list_files for exploration,
-    // but at minimum the model should read_file or search_code to
-    // answer the question — if it only calls todo_write, the breaker
-    // should have fired and the run fails by definition (no real tool
-    // call happened).
-    mustCallAnyOf: ['read_file', 'search_code', 'list_files'],
+    // A concrete tool must land — any tool that is not planning. If the
+    // model only calls todo_write, the breaker should have fired and the
+    // run fails by definition (no real tool call happened).
+    mustCallAnyOf: [{ name: /^(?!todo_write$).+/ }],
+    // And the question has to be answered: greet("world") is `hello, world`.
+    // Without this a run that read the file and then asked "what would you
+    // like to do with this code?" passed.
+    finalResponseMatches: /hello,\s*world/i,
     // Keep the iteration budget tight so a model that churns on
     // todo_write would blow past it and fail loudly. The breaker's
     // job is to prevent exactly that.

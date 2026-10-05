@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { targetedEditOf } from './shared';
 
 /**
  * Doc maintenance: add an entry to an existing markdown doc in the
@@ -26,9 +27,13 @@ export const fixture: Fixture = {
   assertions: {
     mustCallAllOf: [
       { name: 'read_file', params: { path: /CHANGELOG\.md/ } },
-      { name: /^(apply_edit|replace_range)$/, params: { path: /CHANGELOG\.md/ } }
+      targetedEditOf('CHANGELOG.md')
     ],
     mustNotCall: ['write_file'],
+    // Newest first, same shape as the existing entries, older entries intact.
+    finalFiles: {
+      'CHANGELOG.md': /^# Changelog\s+## 1\.2\.0\s+- Added CSV export\.\s+## 1\.1\.0\s+- Added user avatars\.\s+## 1\.0\.0\s+- Initial release\.\s*$/
+    },
     maxIterations: 5
   },
   runs: 3,

@@ -1,4 +1,5 @@
 import type { Fixture } from '../types';
+import { anyEditOf } from './shared';
 
 /**
  * Reproduces the pburg-bowl 2026-04-21 failure:
@@ -80,9 +81,7 @@ export const fixture: Fixture = {
     // paste in themselves). The assertion is conservative on purpose:
     // we accept an honest "I couldn't find the file" answer as a pass,
     // and we reject a confident code-fence-as-handoff.
-    mustCallAnyOf: [
-      { name: /^(apply_edit|replace_range|write_file)$/, params: { path: /scoring\.ts/ } }
-    ],
+    mustCallAnyOf: anyEditOf('scoring.ts'),
     // Reject the "here's the helper, paste it in" signature from the
     // real trace. Looks for "Replace your ... with this", "paste this",
     // "put this in", "use this snippet", etc. — all case-insensitive.
