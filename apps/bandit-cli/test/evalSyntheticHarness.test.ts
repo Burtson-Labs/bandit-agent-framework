@@ -18,6 +18,19 @@ describe('eval harness: synthetic-task assertions', () => {
     expect(evaluateRun([], 1, '', { finalFiles: { 'a.ts': 'x' } }, { 'a.ts': null }).reasons[0]).toMatch(/missing after the run/);
   });
 
+  it('compares text line for line, ignoring blank lines and trailing whitespace', () => {
+    const expected = { finalFiles: { 'a.ts': 'export function f() {\n  return 1;\n}\n' } };
+    const grade = (actual: string) => evaluateRun([], 1, '', expected, { 'a.ts': actual }).passed;
+    // What replace_range leaves when its content ends in a newline: one stray blank line.
+    expect(grade('export function f() {\n\n  return 1;\n}\n')).toBe(true);
+    expect(grade('export function f() {  \r\n  return 1;\r\n}')).toBe(true);
+    // Indentation, content and order still count.
+    expect(grade('export function f() {\nreturn 1;\n}\n')).toBe(false);
+    expect(grade('export function f() {\n  return 2;\n}\n')).toBe(false);
+    expect(grade('  return 1;\nexport function f() {\n}\n')).toBe(false);
+    expect(grade('export function f() {\n  return 1;\n}\n// extra\n')).toBe(false);
+  });
+
   it('matches commandLine against run_command cmd plus separate args', () => {
     const spec = { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: /npm (run )?test/ } }] };
     expect(evaluateRun([call('run_command', { cmd: 'npm', args: 'test' })], 1, '', spec).passed).toBe(true);

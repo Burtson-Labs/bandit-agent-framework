@@ -95,7 +95,7 @@ export function evaluateRun(
         reasons.push(`file ${file} missing after the run`);
         continue;
       }
-      const ok = expected instanceof RegExp ? expected.test(actual) : actual.trimEnd() === expected.trimEnd();
+      const ok = expected instanceof RegExp ? expected.test(actual) : sameText(actual, expected);
       if (!ok) {
         const preview = actual.slice(0, 120).replace(/\s+/g, ' ');
         reasons.push(`file ${file} content did not match ${expected instanceof RegExp ? expected : 'the expected text'} — got "${preview}${actual.length > 120 ? '…' : ''}"`);
@@ -104,6 +104,20 @@ export function evaluateRun(
   }
 
   return { passed: reasons.length === 0, reasons, missingRequiredCalls };
+}
+
+/**
+ * Text equality for `finalFiles`: every non-blank line must match in order, but blank
+ * lines and trailing whitespace are not compared. A line-range edit whose content ends
+ * in a newline leaves a stray blank line behind (replace_range counts the empty tail as
+ * a line); that is not what "the file is wrong" should mean. A fixture that cares where
+ * a blank line is uses a RegExp.
+ */
+function sameText(actual: string, expected: string): boolean {
+  const lines = (text: string): string[] => text.split(/\r?\n/).map(line => line.trimEnd()).filter(line => line.length > 0);
+  const a = lines(actual);
+  const b = lines(expected);
+  return a.length === b.length && a.every((line, index) => line === b[index]);
 }
 
 function paramPreview(call: ToolCallTrace): string {

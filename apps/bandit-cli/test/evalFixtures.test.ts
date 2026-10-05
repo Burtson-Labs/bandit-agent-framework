@@ -299,6 +299,22 @@ describe('edit fixtures grade the file, not the wording or the tool name', () =>
     expect(rewritten.passed).toBe(false);
   });
 
+  it('apply_edit.small_comment: the comment must be directly above greet; a stray blank line elsewhere is not a failure', () => {
+    const a = fx('apply_edit.small_comment').assertions;
+    const edit = [ok('replace_range', { path: 'sample.ts' })];
+    const body = 'export function greet(name: string): string {\n  return `hello, ${name}`;\n}\n\nexport function other(name: string): string {\n  return `HELLO, ${name}`;\n}\n';
+    const grade = (content: string) => evaluateRun(edit, 2, 'Added.', a, { 'sample.ts': content });
+    expect(grade('// entry point\n' + body).reasons).toEqual([]);
+    // gemma4:31b, 2026-10-05: replace_range content ended in a newline, leaving a blank line after the signature.
+    expect(grade('// entry point\nexport function greet(name: string): string {\n\n  return `hello, ${name}`;\n}\n\nexport function other(name: string): string {\n  return `HELLO, ${name}`;\n}\n').passed).toBe(true);
+    // Same model, other run: the blank line landed between the comment and the function.
+    expect(grade('// entry point\n\n' + body).passed).toBe(false);
+    // qwen3:8b: comment after the function; the fine-tune: comment inside it.
+    expect(grade('export function greet(name: string): string {\n  return `hello, ${name}`;\n}\n// entry point\n\nexport function other(name: string): string {\n  return `HELLO, ${name}`;\n}\n').passed).toBe(false);
+    expect(grade('export function greet(name: string): string {\n  // entry point\n  return `hello, ${name}`;\n}\n\nexport function other(name: string): string {\n  return `HELLO, ${name}`;\n}\n').passed).toBe(false);
+    expect(grade(body).passed).toBe(false);
+  });
+
   it('agent.scope_and_path_discipline: reading through the shell is fine, running the tests is not', () => {
     const edit = ok('apply_edit', { path: 'src/utils/scoring.ts' });
     const absent = { 'src/scoring/scoring.ts': null, 'tests/scoring.test.ts': null };

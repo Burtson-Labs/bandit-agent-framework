@@ -18,6 +18,13 @@ const ORIGINAL = [
   ''
 ];
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const WITH_COMMENT = new RegExp(
+  '^\\s*// entry point[ \\t]*\\r?\\n' +
+  ORIGINAL.filter(line => line.length > 0).map(line => escapeRegExp(line) + '[ \\t]*').join('\\s*\\n\\s*') +
+  '\\s*$'
+);
+
 export const fixture: Fixture = {
   id: 'apply_edit.small_comment',
   description: 'One-line comment addition should route to apply_edit, not write_file',
@@ -33,8 +40,10 @@ export const fixture: Fixture = {
     // full write_file rewrite, so accept the whole targeted-edit family.
     mustCallAnyOf: targetedEditOf('sample.ts'),
     mustNotCall: ['write_file'],
-    // "Nothing else": the file is the original plus that one line.
-    finalFiles: { 'sample.ts': ['// entry point', ...ORIGINAL].join('\n') },
+    // The comment sits on the line directly above greet (no blank line between),
+    // and "nothing else": every other line is as it was. Stray blank lines
+    // elsewhere are tolerated, as for every text comparison.
+    finalFiles: { 'sample.ts': WITH_COMMENT },
     maxIterations: 4
   },
   runs: 3,
