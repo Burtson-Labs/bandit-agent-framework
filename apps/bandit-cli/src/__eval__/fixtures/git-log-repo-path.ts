@@ -39,7 +39,8 @@ export const fixture: Fixture = {
       { name: 'run_command', params: { commandLine: /^git\b.*-C\s+\S*some-other-project/ } },
       { name: 'run_command', params: { commandLine: /^git\b/, cwd: /some-other-project/ } }
     ],
-    finalResponseMatches: /pagination off-by-one/i,
+    // \W+ rather than a hyphen: gpt-oss writes "off‑by‑one" with non-breaking hyphens.
+    finalResponseMatches: /pagination\W+off\W+by\W+one/i,
     maxIterations: 4
   },
   runs: 3,

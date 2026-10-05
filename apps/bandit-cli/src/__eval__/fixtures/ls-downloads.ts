@@ -27,7 +27,8 @@ export const fixture: Fixture = {
       { name: 'ls', params: { path: /Downloads/ } }
     ],
     mustNotCall: [],
-    finalResponseMatches: /quarterly-report|team-offsite-photos|installer-notes/i,
+    // Any separator: a model may typeset the hyphens in a file name.
+    finalResponseMatches: /quarterly\W?report|team\W?offsite\W?photos|installer\W?notes/i,
     maxIterations: 3
   },
   runs: 3,

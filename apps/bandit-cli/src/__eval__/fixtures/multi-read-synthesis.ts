@@ -32,7 +32,7 @@ export const fixture: Fixture = {
     mustNotCall: WRITE_TOOLS,
     // The reply names all three differing settings, however it spells them
     // ("apiUrl", "API URL", "log level", "caching").
-    finalResponseMatches: /(?=[\s\S]*cach)(?=[\s\S]*log[\s_-]?level)(?=[\s\S]*api[\s_-]?url)/i,
+    finalResponseMatches: /(?=[\s\S]*cach)(?=[\s\S]*log\W?level)(?=[\s\S]*api\W?url)/i,
     maxIterations: 5
   },
   runs: 3,

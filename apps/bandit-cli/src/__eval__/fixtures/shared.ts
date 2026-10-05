@@ -51,7 +51,7 @@ export const SAYS_NOT_THERE = new RegExp(
     'no\\s+such\\s+file',
     `${NEG}\\s+(?:be\\s+)?(?:find|found|locate|located|read|open|access)`,
     "(?:is\\s*n['’]?t|is\\s+not|not)\\s+(?:present|there|available)",
-    'non-?existent',
+    'non\\W?existent',
     'missing',
     'there\\s+is\\s+no\\b',
     'no\\s+(?:file|document)\\s+(?:named|called|at|exists)',
@@ -68,7 +68,7 @@ export const EXPLAINS_NOT_FOUND = new RegExp(
     `${NEG}\\s+(?:be\\s+)?(?:find|found|locate|located)`,
     'no\\s+(?:such\\s+|matching\\s+)?(?:resource|page|content)',
     "(?:is\\s*n['’]?t|is\\s+not|not)\\s+(?:available|present)",
-    'non-?existent',
+    'non\\W?existent',
     'missing',
     'unavailable'
   ].join('|'),

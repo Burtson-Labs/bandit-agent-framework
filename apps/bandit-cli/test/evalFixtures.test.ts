@@ -335,6 +335,20 @@ describe('edit fixtures grade the file, not the wording or the tool name', () =>
   });
 });
 
+describe('answers are not failed on typography', () => {
+  it('git_log.repo_path accepts the commit message with typeset hyphens (gpt-oss:20b, 2026-10-05)', () => {
+    const calls = [ok('git_log', { repo_path: '~/projects/some-other-project', count: '1' })];
+    expect(grade('git_log.repo_path', calls, 'The latest commit message is: **“Fix pagination off\u2011by\u2011one in the audit export.”**').reasons).toEqual([]);
+    expect(grade('git_log.repo_path', calls, 'The latest commit message is "Initial import".').passed).toBe(false);
+  });
+
+  it('ls.home_dir and read.multi_synthesis accept typeset separators', () => {
+    expect(grade('ls.home_dir', [ok('ls', { path: '~/Downloads' })], 'It contains quarterly\u2011report.pdf and two other files.').reasons).toEqual([]);
+    const both = [ok('read_file', { path: 'config/dev.json' }), ok('read_file', { path: 'config/prod.json' })];
+    expect(grade('read.multi_synthesis', both, 'They differ in API\u00a0URL, cache and log\u2011level.').reasons).toEqual([]);
+  });
+});
+
 describe('shared wording patterns', () => {
   it('EXPLAINS_NOT_FOUND and SAYS_NOT_THERE are not stateful', () => {
     for (let i = 0; i < 3; i++) {
