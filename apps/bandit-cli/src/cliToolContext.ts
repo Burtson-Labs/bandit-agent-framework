@@ -50,6 +50,12 @@ export interface CliToolContextOptions {
    *  answers. Wired only for interactive (TTY) sessions; absent in
    *  piped/CI runs so the tool degrades to "ask in plain text". */
   requestUserInput?: (request: UserInputRequest) => Promise<UserInputResponse>;
+  /** Extra environment for commands spawned by run_command / watch_command,
+   *  layered over process.env. A key set to `undefined` is removed from the
+   *  child's environment. The eval sandbox uses this to point HOME at a
+   *  throwaway directory and keep host credentials away from model-issued
+   *  commands; interactive sessions leave it unset. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export class CliToolExecutionContext implements ToolExecutionContext {
@@ -183,7 +189,7 @@ export class CliToolExecutionContext implements ToolExecutionContext {
     // whitespace-only tokens unconditionally (they're definitely not
     // valid credentials), and pass through real values unchanged so
     // the user can opt in to env-var auth when they want it.
-    const childEnv: NodeJS.ProcessEnv = { ...process.env };
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...(this.options.env ?? {}) };
     const baseCmd = cmd.split(/[\\/]/).pop() ?? cmd;
     if (baseCmd === 'gh') {
       for (const key of ['GITHUB_TOKEN', 'GH_TOKEN'] as const) {
@@ -342,7 +348,7 @@ export class CliToolExecutionContext implements ToolExecutionContext {
       const proc = cp.spawn(cmd, expandedArgs, {
         cwd: expandedCwd,
         shell: process.platform === 'win32',
-        env: { ...process.env }
+        env: { ...process.env, ...(this.options.env ?? {}) }
       });
 
       const finish = (exitCode: number | null) => {

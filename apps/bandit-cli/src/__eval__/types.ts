@@ -23,6 +23,15 @@ export interface FixtureSetup {
   skills?: Record<string, string>;
   /** Optional BANDIT.md contents. */
   memory?: string;
+  /** Files written under the sandbox HOME (`~`) before the run, keyed by path
+   *  relative to it — e.g. `'Downloads/report.pdf'`. Lets a fixture ask about
+   *  "~/Downloads" without the real home directory ever being read. */
+  homeFiles?: Record<string, string>;
+  /** Extra git repositories created inside the sandbox, keyed by path relative
+   *  to the sandbox HOME — e.g. `'projects/other-repo'` is `~/projects/other-repo`,
+   *  a sibling of the workspace (`~/projects/app`). Each commit writes its files
+   *  and commits them in order, so the last entry is the repo's latest commit. */
+  gitRepos?: Record<string, { commits: Array<{ message: string; files: Record<string, string> }> }>;
 }
 
 export interface ToolCallAssertion {
@@ -126,6 +135,11 @@ export interface RunResult {
    *  future graph/loop routing change prove it didn't inflate token cost. */
   approxTokens?: number;
   error?: string;
+  /** Out-of-sandbox accesses that were refused during the run ("read /etc/hosts").
+   *  Informational unless one was a write/delete, which fails the run. */
+  sandboxDenials?: string[];
+  /** The run was stopped by the wall-clock cap. */
+  timedOut?: boolean;
 }
 
 export interface FixtureResult {

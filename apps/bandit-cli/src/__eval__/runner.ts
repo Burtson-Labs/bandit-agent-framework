@@ -12,8 +12,11 @@
  *   - Same language adapters the CLI ships with
  *
  * What's deliberately different:
- *   - No interactive permission gate: tools are confined to the sandbox and anything outside
- *     it is auto-denied with a tool error (never awaited); each run has a wall-clock cap
+ *   - No interactive permission gate: tools are confined to a per-run sandbox with its own
+ *     home directory (sandboxContext.ts); anything outside it is refused with a tool error
+ *     (never awaited). A refused read/list/run is just that tool error — the run is graded
+ *     on its assertions — while a refused WRITE or DELETE outside the workspace fails the run.
+ *     Each run has a wall-clock cap
  *   - No hooks (they're per-workspace and out of scope for behavioural evals)
  *   - No mention expansion, no semantic context, no session persistence —
  *     those are well-covered by the smoke test at the mechanical level.
@@ -21,7 +24,6 @@
 
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import {
   ToolUseLoop,
@@ -43,7 +45,7 @@ import {
   type ProviderSettings,
   buildExtensionSystemPrompt
 } from '@burtson-labs/stealth-core-runtime';
-import { EvalSandboxContext } from './sandboxContext';
+import { EvalSandboxContext, createSandboxLayout, describeDenial, isSandboxViolation, sandboxEnv, type EvalSandboxLayout, type SandboxDenial } from './sandboxContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
 import { writeRunTrace } from './traceOut';
@@ -210,8 +212,9 @@ export async function runFixture(fixture: Fixture, provider: RunnerProvider): Pr
 
 async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: number): Promise<RunResult> {
   const started = Date.now();
-  const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), `bandit-eval-${fixture.id}-`));
-  let denials: string[] = [];
+  const layout = await createSandboxLayout(`bandit-eval-${fixture.id}-`);
+  const sandbox = layout.workspace;
+  let denials: SandboxDenial[] = [];
 
   try {
     if (fixture.sourceDir) {
@@ -220,7 +223,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
         execFileSync('git', ['-C', sandbox, 'remote', 'remove', remote], { stdio: 'ignore' });
       }
     }
-    await applySetup(sandbox, fixture);
+    await applySetup(layout, fixture);
     const runtime = await resolveModelRuntime(provider);
 
     const skillRegistry = createDefaultSkillRegistry();
@@ -294,7 +297,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     const windowProblem = contextWindowProblem(systemPrompt.length, toolSchemaChars, runtime.numCtx);
     if (windowProblem) throw new Error(windowProblem);
 
-    const toolCtx = new EvalSandboxContext(sandbox, createDefaultLanguageAdapters());
+    const toolCtx = new EvalSandboxContext(layout, createDefaultLanguageAdapters());
     denials = toolCtx.denials;
     const rawChat = provider.chat ?? await buildChat(provider);
     const abort = new AbortController();
@@ -390,10 +393,13 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       finalFiles[rel] = await fs.promises.readFile(path.join(sandbox, rel), 'utf8').catch(() => null);
     }
     const evalResult = evaluateRun(toolCalls, result.iterations, result.finalResponse, fixture.assertions, finalFiles);
-    // Auto-denied out-of-workspace access and runaway generations fail the run, visibly.
-    for (const d of toolCtx.denials) {
+    // A refused read/list/run outside the sandbox was returned to the model as a tool error
+    // and the assertions above already grade what it did next. Trying to WRITE or DELETE
+    // outside the workspace is different: in a real session that is a change to files the
+    // task never mentioned, so it fails the run, visibly. So do runaway generations.
+    for (const d of toolCtx.denials.filter(isSandboxViolation)) {
       evalResult.passed = false;
-      evalResult.reasons.push(`permission auto-denied (non-interactive): ${d} is outside the workspace`);
+      evalResult.reasons.push(`permission auto-denied (non-interactive): ${d.kind} ${d.path} is outside the workspace`);
     }
     if (degenerate) {
       evalResult.passed = false;
@@ -415,7 +421,9 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
         hitLimit: result.hitLimit,
         passed: evalResult.passed,
         failureReasons: evalResult.reasons,
-        workspaceRoot: sandbox
+        workspaceRoot: sandbox,
+        homeRoot: layout.home,
+        permissionDenials: toolCtx.denials.length
       }).catch(err => process.stderr.write(`bandit eval: trace-out failed: ${err instanceof Error ? err.message : String(err)}\n`));
     }
 
@@ -428,7 +436,9 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       hitLimit: result.hitLimit,
       finalResponse: result.finalResponse,
       wallTimeMs: Date.now() - started,
-      approxTokens: Math.round(chunkChars / 4)
+      approxTokens: Math.round(chunkChars / 4),
+      sandboxDenials: toolCtx.denials.map(describeDenial),
+      timedOut
     };
   } catch (err) {
     return {
@@ -436,28 +446,50 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       passed: false,
       failureReasons: [
         `runner error: ${err instanceof Error ? err.message : String(err)}`,
-        ...denials.map(d => `permission auto-denied (non-interactive): ${d} is outside the workspace`)
+        ...denials.filter(isSandboxViolation).map(d => `permission auto-denied (non-interactive): ${d.kind} ${d.path} is outside the workspace`)
       ],
       toolCalls: [],
       iterations: 0,
       hitLimit: false,
       finalResponse: '',
       wallTimeMs: Date.now() - started,
+      sandboxDenials: denials.map(describeDenial),
+      timedOut: /wall-clock cap/.test(err instanceof Error ? err.message : String(err)),
       error: err instanceof Error ? err.stack : String(err)
     };
   } finally {
-    await fs.promises.rm(sandbox, { recursive: true, force: true }).catch(() => undefined);
+    await fs.promises.rm(layout.root, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-async function applySetup(root: string, fixture: Fixture): Promise<void> {
-  const setup = fixture.setup;
-  if (!setup) return;
-
-  for (const [relPath, content] of Object.entries(setup.files ?? {})) {
-    const abs = path.join(root, relPath);
+async function writeFiles(base: string, files: Record<string, string> | undefined): Promise<void> {
+  for (const [relPath, content] of Object.entries(files ?? {})) {
+    const abs = path.join(base, relPath);
     await fs.promises.mkdir(path.dirname(abs), { recursive: true });
     await fs.promises.writeFile(abs, content, 'utf8');
+  }
+}
+
+async function applySetup(layout: EvalSandboxLayout, fixture: Fixture): Promise<void> {
+  const setup = fixture.setup;
+  if (!setup) return;
+  const root = layout.workspace;
+
+  await writeFiles(root, setup.files);
+  await writeFiles(layout.home, setup.homeFiles);
+
+  for (const [relPath, repo] of Object.entries(setup.gitRepos ?? {})) {
+    const dir = path.join(layout.home, relPath);
+    await fs.promises.mkdir(dir, { recursive: true });
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: dir, stdio: 'ignore', env: { ...process.env, ...sandboxEnv(layout) } });
+    };
+    git('init', '--quiet');
+    for (const commit of repo.commits) {
+      await writeFiles(dir, commit.files);
+      git('add', '-A');
+      git('commit', '--quiet', '--no-gpg-sign', '-m', commit.message);
+    }
   }
 
   if (setup.skills) {

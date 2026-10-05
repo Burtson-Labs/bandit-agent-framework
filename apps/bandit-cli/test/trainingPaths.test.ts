@@ -6,7 +6,7 @@ import { neutralSystemPrompt, rebuiltSystemPrompt, workspaceRootOfTurnFile } fro
 import { inferWorkspaceRoot, relativizeExample } from '../src/training/paths';
 import { selfCheckExample } from '../src/training/scrub';
 import { emptyLabels, emptyRedactions, type CanonicalMessage, type TrainingExample } from '../src/training/types';
-import { EvalSandboxContext, SandboxDeniedError } from '../src/__eval__/sandboxContext';
+import { EvalSandboxContext, SandboxDeniedError, createSandboxLayout } from '../src/__eval__/sandboxContext';
 import { createDefaultLanguageAdapters } from '@burtson-labs/agent-core';
 import { runFixture, type RunnerProvider } from '../src/__eval__/runner';
 import type { Fixture } from '../src/__eval__/types';
@@ -119,31 +119,35 @@ describe('training paths: system prompt + self-check', () => {
 });
 
 describe('eval sandbox context: out-of-workspace access is auto-denied', () => {
-  const dirs: string[] = [];
-  afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
-  const sandbox = (): string => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bandit-eval-test-')); dirs.push(d); return d; };
+  const roots: string[] = [];
+  afterEach(() => { for (const d of roots.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+  const sandbox = async (): Promise<EvalSandboxContext> => {
+    const layout = await createSandboxLayout('bandit-eval-test-');
+    roots.push(layout.root);
+    return new EvalSandboxContext(layout, createDefaultLanguageAdapters());
+  };
 
   it('allows relative paths inside the sandbox', async () => {
-    const sb = sandbox();
-    const ctx = new EvalSandboxContext(sb, createDefaultLanguageAdapters());
-    await ctx.writeFile(path.join(sb, 'sample.ts'), 'x');
-    expect(await ctx.readFile(path.join(sb, 'sample.ts'))).toBe('x');
+    const ctx = await sandbox();
+    await ctx.writeFile(path.join(ctx.workspaceRoot, 'sample.ts'), 'x');
+    expect(await ctx.readFile(path.join(ctx.workspaceRoot, 'sample.ts'))).toBe('x');
     expect(ctx.denials).toEqual([]);
   });
 
   it('denies a memorized absolute path immediately with an explanatory error, recording it', async () => {
-    const sb = sandbox();
-    const ctx = new EvalSandboxContext(sb, createDefaultLanguageAdapters());
+    const ctx = await sandbox();
     const target = '~/Documents/GitHub/bandit-agent-framework/sample.ts';
     const started = Date.now();
     await expect(ctx.writeFile(target, 'x')).rejects.toThrow(SandboxDeniedError);
     await expect(ctx.writeFile(target, 'x')).rejects.toThrow(/outside the workspace.*non-interactive.*relative to the workspace root/s);
     await expect(ctx.readFile('/etc/hosts')).rejects.toThrow(/Permission denied/);
-    await expect(ctx.runCommand('cat', ['~/.ssh/config'])).rejects.toThrow(/Permission denied/);
+    await expect(ctx.runCommand('cat', ['/Users/dev/.ssh/config'])).rejects.toThrow(/Permission denied/);
     await expect(ctx.listFiles('*', '/')).rejects.toThrow(/Permission denied/);
     expect(Date.now() - started).toBeLessThan(1000);
     expect(ctx.denials).toHaveLength(5);
-    expect(ctx.denials[0]).toContain('write ~/Documents/GitHub/bandit-agent-framework/sample.ts');
+    expect(ctx.denials[0]).toEqual({ kind: 'write', path: target });
+    // Nothing was created under the sandbox home either.
+    expect(fs.existsSync(path.join(ctx.layout.home, 'Documents'))).toBe(false);
   });
 });
 
@@ -161,6 +165,7 @@ describe('eval runner: never hangs', () => {
     expect(Date.now() - started).toBeLessThan(5000);
     expect(r.passed).toBe(false);
     expect(r.runs[0].failureReasons.join('\n')).toMatch(/wall-clock cap/);
+    expect(r.runs[0].timedOut).toBe(true);
   });
 
   it('auto-denies an out-of-workspace edit and reports it as a failure reason', async () => {
