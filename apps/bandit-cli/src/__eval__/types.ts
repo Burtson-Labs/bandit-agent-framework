@@ -144,4 +144,13 @@ export interface EvalReport {
   fixtureResults: FixtureResult[];
   totalWallTimeMs: number;
   startedAt: string;
+  /** How the model was actually driven: tool channel and requested context window. */
+  runtime?: EvalRuntimeInfo;
+}
+
+export interface EvalRuntimeInfo {
+  nativeTools: boolean;
+  /** Context window requested from Ollama (`options.num_ctx`); absent for other providers. */
+  numCtx?: number;
+  tier: string;
 }

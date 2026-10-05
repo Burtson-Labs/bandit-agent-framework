@@ -32,13 +32,24 @@ import {
   type ChatFn,
   type ToolLoopMessage
 } from '@burtson-labs/agent-core';
-import { createProvider, getModelCapabilities, type ProviderSettings, buildExtensionSystemPrompt } from '@burtson-labs/stealth-core-runtime';
+import {
+  createProvider,
+  getModelCapabilities,
+  getModelBehaviorProfile,
+  queryOllamaModelCapabilities,
+  registerModelCapabilities,
+  resolveOllamaRuntimeOptions,
+  resolvePreferredToolProtocol,
+  type ProviderSettings,
+  buildExtensionSystemPrompt
+} from '@burtson-labs/stealth-core-runtime';
 import { EvalSandboxContext } from './sandboxContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
 import { writeRunTrace } from './traceOut';
 import type {
   EvalReport,
+  EvalRuntimeInfo,
   Fixture,
   FixtureResult,
   RunResult,
@@ -69,6 +80,76 @@ export interface RunnerProvider {
 export const DEFAULT_RUN_TIMEOUT_MS = 300_000;
 /** A single model call that streams more than this is degenerate (repetition); stop it. */
 const MAX_CHARS_PER_CALL = 60_000;
+/** Compaction budget for providers whose window we do not control — same constant as the CLI. */
+const HOSTED_NUM_CTX = 32768;
+
+/**
+ * How production would drive this model: tool channel, context window, per-model loop
+ * limits. Resolved once per provider, after registering what Ollama reports about the
+ * model — the CLI does the same probe at startup (cli.ts probeOllamaCapabilities). Without
+ * it a model that has no built-in profile (qwen3:8b, gpt-oss:20b, qwen3-coder:30b, any
+ * fine-tune) fell back to an 8192-token window, smaller than the system prompt plus the
+ * tool schemas, and the benchmark measured prompt truncation instead of the model.
+ */
+export interface ModelRuntime extends EvalRuntimeInfo {
+  messageTokenBudget: number;
+  outputBudgetTokens: number;
+  maxParallelTools: number;
+  nativeToolFailureFallback: boolean;
+  compactToolBlock: boolean;
+  supportsVision: boolean;
+}
+
+const runtimeByProvider = new WeakMap<RunnerProvider, Promise<ModelRuntime>>();
+
+export function resolveModelRuntime(provider: RunnerProvider): Promise<ModelRuntime> {
+  let pending = runtimeByProvider.get(provider);
+  if (!pending) {
+    pending = buildModelRuntime(provider);
+    runtimeByProvider.set(provider, pending);
+  }
+  return pending;
+}
+
+async function buildModelRuntime(provider: RunnerProvider): Promise<ModelRuntime> {
+  if (provider.kind === 'ollama' && !provider.chat) {
+    const base = (provider.settings.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '');
+    const probed = await queryOllamaModelCapabilities(provider.model, base);
+    // Built-in profiles still win inside getModelCapabilities; this only fills the gap for
+    // models the table does not know.
+    if (probed) registerModelCapabilities(provider.model, probed);
+  }
+  const caps = getModelCapabilities(provider.model);
+  const behavior = getModelBehaviorProfile(provider.model);
+  const numCtx = provider.kind === 'ollama' ? resolveOllamaRuntimeOptions(provider.model).num_ctx : undefined;
+  return {
+    nativeTools: caps.supportsToolCalling && resolvePreferredToolProtocol(provider.model) === 'native-tools',
+    numCtx,
+    tier: caps.tier,
+    messageTokenBudget: Math.floor((numCtx ?? HOSTED_NUM_CTX) * 0.75),
+    outputBudgetTokens: behavior.context.outputBudgetTokens,
+    maxParallelTools: behavior.reliability.maxParallelTools,
+    nativeToolFailureFallback: behavior.protocol.nativeToolFailureFallback !== false,
+    compactToolBlock: caps.tier === 'small',
+    supportsVision: caps.supportsVision
+  };
+}
+
+/**
+ * The system prompt and native tool schemas are sent on every call. When they alone do
+ * not fit the window the model will be loaded with, Ollama drops the oldest messages
+ * (the user's request goes first) and every result is an artifact of that. Returns a
+ * message when the run must not go ahead. Estimate: 4 chars per token, which
+ * under-counts for this prompt (measured 4.4), so the check errs towards running.
+ */
+export function contextWindowProblem(systemPromptChars: number, toolSchemaChars: number, numCtx: number | undefined): string | null {
+  if (!numCtx) return null;
+  const needed = Math.ceil((systemPromptChars + toolSchemaChars) / 4);
+  if (needed <= numCtx * 0.85) return null;
+  return `the system prompt and tool schemas need about ${needed} tokens but the model would be loaded with a ${numCtx}-token ` +
+    'context window (num_ctx), so the conversation would be truncated before the model sees it. ' +
+    'Register a capability profile for this model or raise its context window; results from this configuration would not measure the model.';
+}
 
 const COMMAND_TOOLS = new Set(['run_command', 'watch_command']);
 
@@ -140,6 +221,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       }
     }
     await applySetup(sandbox, fixture);
+    const runtime = await resolveModelRuntime(provider);
 
     const skillRegistry = createDefaultSkillRegistry();
     await registerWorkspaceSkills(
@@ -196,11 +278,21 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       });
       if (memory) corePrompt = `${corePrompt}\n\n## Project Memory\n\n${memory}`;
     } else {
-      corePrompt = buildSystemPrompt(memory);
+      // Same options the CLI passes, so a large-tier model gets the trimmed prompt it gets
+      // in production instead of the small-model one.
+      corePrompt = buildSystemPrompt(memory, {
+        modelId: provider.model,
+        supportsVision: runtime.supportsVision,
+        userGoal: fixture.prompt
+      });
     }
     const systemPrompt = skillInstructions
       ? `${corePrompt}\n\n## Skill Instructions\n\n${skillInstructions}`
       : corePrompt;
+
+    const toolSchemaChars = runtime.nativeTools ? JSON.stringify(registry.buildNativeToolsSchema()).length : 0;
+    const windowProblem = contextWindowProblem(systemPrompt.length, toolSchemaChars, runtime.numCtx);
+    if (windowProblem) throw new Error(windowProblem);
 
     const toolCtx = new EvalSandboxContext(sandbox, createDefaultLanguageAdapters());
     denials = toolCtx.denials;
@@ -227,15 +319,17 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     };
 
     const maxIterations = fixture.maxIterations ?? 8;
-    // Production tool channel per model (native when supported): benching
+    // Production tool channel and per-model loop limits (see resolveModelRuntime): benching
     // bandit-core-2 on the text XML block it never sees in real turns made it
     // answer "I don't have access to your file system"; qwen3-coder's Ollama
     // template outright 500s (EOF) when XML markup streams through content.
-    const nativeTools = await resolveNativeTools(provider);
     const loop = new ToolUseLoop(registry, toolCtx, {
       maxIterations,
-      nativeTools,
-      nativeToolFailureFallback: true
+      nativeTools: runtime.nativeTools,
+      nativeToolFailureFallback: runtime.nativeToolFailureFallback,
+      outputBudgetTokens: runtime.outputBudgetTokens,
+      maxParallelTools: runtime.maxParallelTools,
+      compactToolBlock: runtime.compactToolBlock
     });
 
     const toolCalls: ToolCallTrace[] = [];
@@ -283,7 +377,11 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       timer.unref?.();
     });
     const result = await Promise.race([
-      loop.runWithMessages(seedMessages, chat, systemPrompt, { emitEvent, signal: abort.signal }),
+      loop.runWithMessages(seedMessages, chat, systemPrompt, {
+        emitEvent,
+        signal: abort.signal,
+        messageTokenBudget: runtime.messageTokenBudget
+      }),
       deadline
     ]).finally(() => clearTimeout(timer));
 
@@ -433,35 +531,6 @@ async function buildChat(provider: RunnerProvider): Promise<ChatFn> {
   };
 }
 
-/**
- * Decide the tool channel per model the way PRODUCTION does: native tools
- * when the model supports them, text-tools XML otherwise. Benching a model
- * on a channel it never uses in real turns measures the wrong thing — and
- * some templates (qwen3-coder) hard-crash Ollama's response parser when our
- * XML markup streams through the content channel (the #16398 EOF family).
- *
- * ollama: live /api/show capabilities probe (source of truth, mirrors the
- * CLI's probeOllamaCapabilities). bandit/openai-compatible: the static
- * capabilities table.
- */
-async function resolveNativeTools(provider: RunnerProvider): Promise<boolean> {
-  if (provider.kind === 'ollama') {
-    try {
-      const base = (provider.settings.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '');
-      const res = await fetch(`${base}/api/show`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(provider.settings.ollamaHeaders ?? {}) },
-        body: JSON.stringify({ model: provider.model })
-      });
-      if (res.ok) {
-        const body = await res.json() as { capabilities?: string[] };
-        return Array.isArray(body.capabilities) && body.capabilities.includes('tools');
-      }
-    } catch { /* fall through to the static table */ }
-  }
-  return getModelCapabilities(provider.model).supportsToolCalling;
-}
-
 export interface RunFixturesOptions {
   /** Fires after each fixture resolves. Lets callers stream a live
    *  pass/fail line to stdout instead of waiting for the whole run
@@ -498,12 +567,14 @@ export async function runFixtures(
       options.onFixtureComplete?.(result, { done, total: fixtures.length });
     }
   }));
+  const runtime = await resolveModelRuntime(provider);
   return {
     provider: provider.kind,
     model: provider.model,
     variant: provider.variant ?? 'cli',
     fixtureResults: results,
     totalWallTimeMs: Date.now() - started,
-    startedAt
+    startedAt,
+    runtime: { nativeTools: runtime.nativeTools, numCtx: runtime.numCtx, tier: runtime.tier }
   };
 }

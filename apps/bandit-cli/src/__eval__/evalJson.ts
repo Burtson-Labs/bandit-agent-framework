@@ -12,7 +12,7 @@
  * objects. Pure so it unit-tests without running a model.
  */
 
-import type { EvalReport, FixtureResult } from './types';
+import type { EvalReport, EvalRuntimeInfo, FixtureResult } from './types';
 
 export interface EvalJsonFixture {
   id: string;
@@ -54,6 +54,8 @@ export interface EvalJson {
    *  set was mixed, so a reader never assumes a uniform N that wasn't used. */
   runsPerFixture: number | null;
   totals: EvalJsonTotals;
+  /** Tool channel and context window the model was driven with, when known. */
+  runtime?: EvalRuntimeInfo;
   fixtures: EvalJsonFixture[];
 }
 
@@ -123,6 +125,7 @@ export function buildEvalJson(report: EvalReport): EvalJson {
       failed: fixtures.filter((f) => !f.passed && !f.skipped).length,
       skipped: fixtures.filter((f) => f.skipped).length
     },
+    ...(report.runtime ? { runtime: report.runtime } : {}),
     fixtures
   };
 }
