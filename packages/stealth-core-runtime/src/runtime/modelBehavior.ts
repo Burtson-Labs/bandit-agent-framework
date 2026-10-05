@@ -83,6 +83,54 @@ const COMMON_RETRYABLE_ERRORS = [
   'fetch failed / socket hang up'
 ];
 
+/**
+ * Qwen3 dense models (qwen3:8b and qwen3:14b measured). One shape for every size; the sizes
+ * differ only in the thinking default, so the 14B entry cannot drift from the rest.
+ *
+ * BanditBench 2026-10-05, all harness fixes in, tool history native, runs passed of 78:
+ *  - maxParallelTools 4: these models put two or more calls in one reply (both edits of a
+ *    two-site change, both reads of a comparison) in 14 and 17 of qwen3:14b's runs and 10 of
+ *    qwen3:8b's, largest batch 10. The default cap of one dropped all but the first call of
+ *    each; with four, 2 and 3 of qwen3:14b's runs had a reply capped.
+ *  - thinking: qwen3:14b with thinking off passed 72 and 70 in 5.0 and 4.1 minutes, against
+ *    65 and 68 in 17.0 and 16.5 with Ollama's default (thinking on). qwen3:8b went the other
+ *    way: 58 with thinking off against 68 on, ending early in 9 runs against 4. So the 14B
+ *    runs with it off and every other size keeps the model's default. `/think` (CLI) and
+ *    banditStealth.thinkingMode still override it per session.
+ */
+function qwen3DenseProfile(id: string, match: string[], label: string, thinking: ThinkingDefault): ModelBehaviorProfile {
+  return {
+    id,
+    match,
+    label,
+    protocol: {
+      preferred: 'native-tools',
+      fallback: 'text-tools',
+      envelope: 'ollama-tools',
+      nativeToolFailureFallback: true,
+      toolHistory: 'native'
+    },
+    context: {
+      safeInputTokens: 18000,
+      outputBudgetTokens: 2048,
+      compaction: 'normal'
+    },
+    prompting: {
+      template: 'qwen-agent',
+      examples: 'minimal',
+      thinking
+    },
+    reliability: {
+      maxParallelTools: 4,
+      retryableErrors: [...COMMON_RETRYABLE_ERRORS, 'Qwen tool-call parser EOF'],
+      knownFailureModes: [
+        'With tool history replayed as text, Ollama returns empty replies after the first tool call (the parser swallows the copied <tool_call> text).',
+        'Sends both edits of a two-site change in one reply; a per-reply cap of one loses the second.'
+      ]
+    }
+  };
+}
+
 const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
   {
     id: 'bandit-logic',
@@ -144,6 +192,10 @@ const BUILT_IN_BEHAVIOR_PROFILES: ModelBehaviorProfile[] = [
       ]
     }
   },
+  // The prefix carries the colon so it does not catch qwen3.6 (own entry) or qwen3-coder
+  // (default profile: on BanditBench a profile of its own made no difference).
+  qwen3DenseProfile('qwen3', ['qwen3:'], 'Qwen 3 agent profile', 'auto'),
+  qwen3DenseProfile('qwen3-14b', ['qwen3:14b'], 'Qwen 3 14B agent profile', 'off'),
   {
     id: 'gemma4',
     match: ['gemma4', 'gemma3', 'bandit-core:12b', 'bandit-core:27b', 'bandit-core:31b'],
