@@ -19,7 +19,7 @@
 
 import type { ToolExecutionContext, ChatFn, ToolLoopMessage } from './tool-types';
 import type { ToolRegistry } from './tool-registry';
-import { parseToolCalls, hasToolCalls, buildToolResultsMessage, looksLikeAttemptedToolCall, stripToolCallMarkup, stripReasoningChannels, stripToAnswerContent, hasFabricatedToolResult, applySecretRedactionIfEnabled, AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
+import { parseToolCalls, hasToolCalls, buildToolResultsMessage, looksLikeAttemptedToolCall, stripDanglingToolCallOpener, stripToolCallMarkup, stripReasoningChannels, stripToAnswerContent, hasFabricatedToolResult, applySecretRedactionIfEnabled, AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
 import { normalizeToolCallBatch } from './loop/toolCallNormalize';
 import { createToolDispatcher } from './loop/singleToolExecute';
 import { resolveTurnGoal } from './loop/turnSetup';
@@ -1074,6 +1074,14 @@ export class ToolUseLoop {
           throw error;
         }
       }
+      // A lone `<tool_call>` opener after a finished answer is a leaked token, not a
+      // call that failed to parse — see stripDanglingToolCallOpener.
+      const withoutDanglingOpener = stripDanglingToolCallOpener(response);
+      if (withoutDanglingOpener !== response) {
+        emit('tool_loop:dangling_tool_call_stripped', { iteration: iterations, responseLength: response.length });
+        response = withoutDanglingOpener;
+      }
+
       // Diagnostic preview: 2000 chars + flags so we can tell apart "model
       // emitted tool markup that the parser missed" from "model genuinely
       // never emitted markup." 200 chars was too short to see past a

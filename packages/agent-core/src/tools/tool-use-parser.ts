@@ -301,6 +301,28 @@ export function looksLikeAttemptedToolCall(text: string): boolean {
 }
 
 /**
+ * Drop a bare `<tool_call>` opener that ends a reply which has already said something.
+ *
+ * On Ollama's native tool path qwen3-coder:30b ends about one finished answer in four with
+ * the opening tag and nothing after it ("…No additional steps are needed.<tool_call>"):
+ * the special token leaks into content and generation stops. Nothing was attempted, but
+ * looksLikeAttemptedToolCall saw the tag, the loop answered "Your previous tool_call was
+ * not valid JSON", and the model, with its work already done, re-read and re-edited the
+ * file until the turn ran out of iterations (BanditBench 2026-10-05, 19 of 78 runs).
+ *
+ * Only that exact shape is touched: text, then the opener, then end of reply, with no
+ * other call markup anywhere. A reply that is only the opener, a truncated call body, and
+ * a reply that also holds a complete call all stay as they are.
+ */
+export function stripDanglingToolCallOpener(text: string): string {
+  const match = /^([\s\S]*\S)\s*<tool_call>\s*$/.exec(text);
+  if (!match) {return text;}
+  const before = match[1];
+  if (looksLikeAttemptedToolCall(before)) {return text;}
+  return before;
+}
+
+/**
  * True when the text contains a `<tool_result>` envelope the model
  * should never have emitted — those tags are our injection format for
  * feeding tool output BACK to the model in the next user message. When
