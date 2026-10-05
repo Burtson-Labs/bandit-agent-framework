@@ -83,6 +83,49 @@ export function grepSearch(pattern: string, dir: string, fileGlob?: string): Pro
   });
 }
 
+/**
+ * What the agent has seen of each file during this session, so the read-before-edit
+ * guard can tell "never looked at it" from "read or wrote it a turn ago".
+ *
+ * A tool context lives for one turn, and so did its read-tracking: a follow-up such as
+ * "change the title" on a file the agent wrote in the previous turn was always rejected
+ * once with "you have not read this file in this conversation", although its full
+ * contents sat in the transcript — and although the system prompt's "Already read this
+ * session" block told the model not to read it again.
+ *
+ * The ledger records a file's mtime and size when the agent reads it and after each of
+ * the agent's own writes to it. A later turn may edit it without re-reading for as long
+ * as the file on disk is still that one. Anything else that touches the file (the user's
+ * editor, a formatter run through run_command, a git checkout) changes its mtime, and
+ * the guard asks for a fresh read as before. It lives in memory for one process: a
+ * resumed session starts empty.
+ */
+export class SessionFileLedger {
+  private readonly seen = new Map<string, { mtimeMs: number; size: number }>();
+
+  /** Record the file as it is on disk right now: the agent has just read or written it. */
+  note(absolutePath: string): void {
+    try {
+      const stat = fs.statSync(absolutePath);
+      this.seen.set(absolutePath, { mtimeMs: stat.mtimeMs, size: stat.size });
+    } catch {
+      this.seen.delete(absolutePath);
+    }
+  }
+
+  /** True while the file on disk is still the one the agent last read or wrote. */
+  isCurrent(absolutePath: string): boolean {
+    const entry = this.seen.get(absolutePath);
+    if (!entry) return false;
+    try {
+      const stat = fs.statSync(absolutePath);
+      if (stat.mtimeMs === entry.mtimeMs && stat.size === entry.size) return true;
+    } catch { /* gone */ }
+    this.seen.delete(absolutePath);
+    return false;
+  }
+}
+
 export interface CliToolContextOptions {
   /** Called before any writeFile. Return false to abort the write. */
   approveWrite?: (absolutePath: string, content: string) => Promise<boolean>;
@@ -101,6 +144,9 @@ export interface CliToolContextOptions {
    *  throwaway directory and keep host credentials away from model-issued
    *  commands; interactive sessions leave it unset. */
   env?: NodeJS.ProcessEnv;
+  /** Session-wide record of files the agent has read or written (REPL only). When
+   *  set, a file seen in an earlier turn and unchanged on disk since counts as read. */
+  sessionFiles?: SessionFileLedger;
 }
 
 export class CliToolExecutionContext implements ToolExecutionContext {
@@ -127,11 +173,20 @@ export class CliToolExecutionContext implements ToolExecutionContext {
   }
 
   markFileRead(absolutePath: string): void {
-    this._readFiles.add(expandHome(absolutePath));
+    const resolved = expandHome(absolutePath);
+    this._readFiles.add(resolved);
+    this.options.sessionFiles?.note(resolved);
   }
 
   hasFileBeenRead(absolutePath: string): boolean {
-    return this._readFiles.has(expandHome(absolutePath));
+    const resolved = expandHome(absolutePath);
+    if (this._readFiles.has(resolved)) return true;
+    // Read or written in an earlier turn of this session and untouched since.
+    if (this.options.sessionFiles?.isCurrent(resolved)) {
+      this._readFiles.add(resolved);
+      return true;
+    }
+    return false;
   }
 
   async readFile(absolutePath: string): Promise<string> {
@@ -148,6 +203,8 @@ export class CliToolExecutionContext implements ToolExecutionContext {
     }
     await fs.promises.mkdir(path.dirname(resolved), { recursive: true });
     await fs.promises.writeFile(resolved, content, 'utf-8');
+    // The agent's own edit of a file it knows: it still knows the file.
+    if (this._readFiles.has(resolved)) this.options.sessionFiles?.note(resolved);
   }
 
   async deleteFile(absolutePath: string): Promise<void> {

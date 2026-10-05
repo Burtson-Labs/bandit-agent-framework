@@ -60,7 +60,7 @@ import {
 } from '@burtson-labs/stealth-core-runtime';
 import { PasteBuffer } from './input/pasteBuffer';
 import { createInkLineInterface, type InkLineInterface } from './input/inkInterface';
-import { CliToolExecutionContext, expandHome } from './cliToolContext';
+import { CliToolExecutionContext, SessionFileLedger, expandHome } from './cliToolContext';
 import { readClipboardImage } from './clipboardImage';
 import { openFilePicker } from './filePicker';
 import { pdfReadTool, pdfPreviewTool, pdfRenderTool } from './pdfTool';
@@ -746,6 +746,11 @@ interface RunOptions {
    *  prior — wasted ~30s of prefill on cached content. Omit in
    *  one-shot mode (no cross-turn benefit there). */
   recentReads?: Map<string, RecentReadEntry>;
+  /** Session-scoped record of files the agent has read or written, shared
+   *  across turns the same way. Lets the read-before-edit guard accept an
+   *  edit to a file seen in an earlier turn while it is unchanged on disk.
+   *  Omit in one-shot mode. */
+  sessionFiles?: SessionFileLedger;
   /** Callback invoked when the agent's `switch_model` tool fires.
    * Let the REPL mutate its own model state so the NEXT prompt uses
    * the new model without the user having to type `/model <name>`.
@@ -989,6 +994,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
 
   const toolCtx = new CliToolExecutionContext(cwd, createDefaultLanguageAdapters(), {
     customRepoRoots: opts.customRepoRoots,
+    sessionFiles: opts.sessionFiles,
     // Wire ask_user → the interactive form, but only for TTY sessions; in
     // piped/CI runs the tool degrades to "ask in plain text" (ctx callback
     // absent), matching the TTY gate on the interactionSkill registration.
@@ -2587,6 +2593,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // bandit launch starts with an empty cache by design (the file's
   // content might have changed since prior sessions ended).
   const sessionRecentReads = new Map<string, RecentReadEntry>();
+  // What the agent has read or written this session, for the read-before-edit
+  // guard (see SessionFileLedger). Same lifetime as the read cache above.
+  const sessionFiles = new SessionFileLedger();
   // Background-task store. Lives at the REPL level so tasks survive
   // across turns. Subagents spawned via task(run_in_background="true")
   // record into this store; completed tasks get their synopses
@@ -5386,6 +5395,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             getCoauthor: () => sessionCoauthor,
             getWatchdogMs: () => sessionWatchdogMs,
             recentReads: sessionRecentReads,
+            sessionFiles,
             // Route the agent's `switch_model` tool through the same
             // SlashContext.model.set path used by `/model <name>`, so
             // settings + provider are rebuilt consistently and the NEXT
