@@ -88,7 +88,8 @@ export interface FixtureAssertions {
   finalResponseMatches?: RegExp;
   /** Workspace state after the run, by relative path. A string must equal the
    *  file's content line for line (blank lines and trailing whitespace are not
-   *  compared), a RegExp must match it, and null means the file must NOT exist. Grades the outcome, not just the
+   *  compared; a `.json` file is compared as parsed JSON), a RegExp must match
+   *  it, and null means the file must NOT exist. Grades the outcome, not just the
    *  tool choice — an apply_edit that lands the wrong text still fails. */
   finalFiles?: Record<string, string | RegExp | null>;
 }

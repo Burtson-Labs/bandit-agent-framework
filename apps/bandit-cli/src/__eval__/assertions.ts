@@ -95,7 +95,7 @@ export function evaluateRun(
         reasons.push(`file ${file} missing after the run`);
         continue;
       }
-      const ok = expected instanceof RegExp ? expected.test(actual) : sameText(actual, expected);
+      const ok = expected instanceof RegExp ? expected.test(actual) : sameContent(file, actual, expected);
       if (!ok) {
         const preview = actual.slice(0, 120).replace(/\s+/g, ' ');
         reasons.push(`file ${file} content did not match ${expected instanceof RegExp ? expected : 'the expected text'} — got "${preview}${actual.length > 120 ? '…' : ''}"`);
@@ -118,6 +118,30 @@ function sameText(actual: string, expected: string): boolean {
   const a = lines(actual);
   const b = lines(expected);
   return a.length === b.length && a.every((line, index) => line === b[index]);
+}
+
+/**
+ * A `.json` file is compared as JSON: same keys and values, whatever the layout. An edit
+ * that lands the right value but joins two lines (apply_edit's whitespace-tolerant match
+ * does this when the model's `find` is indented differently from the file) has not
+ * changed the configuration. Invalid JSON never matches. Everything else is compared as text.
+ */
+function sameContent(file: string, actual: string, expected: string): boolean {
+  if (/\.json$/i.test(file)) {
+    let want: unknown;
+    try { want = JSON.parse(expected); } catch { return sameText(actual, expected); }
+    try { return canonicalJson(JSON.parse(actual)) === canonicalJson(want); } catch { return false; }
+  }
+  return sameText(actual, expected);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function paramPreview(call: ToolCallTrace): string {

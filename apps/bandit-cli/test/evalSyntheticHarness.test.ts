@@ -31,6 +31,19 @@ describe('eval harness: synthetic-task assertions', () => {
     expect(grade('export function f() {\n  return 1;\n}\n// extra\n')).toBe(false);
   });
 
+  it('compares a .json file as JSON, and never accepts invalid JSON', () => {
+    const expected = { finalFiles: { 'config/features.json': JSON.stringify({ darkMode: true, betaSearch: true, maxUploadMb: 25 }, null, 2) } };
+    const grade = (actual: string) => evaluateRun([], 1, '', expected, { 'config/features.json': actual }).passed;
+    // qwen3:14b, 2026-10-05: apply_edit matched across the line break and joined two lines.
+    expect(grade('{    "darkMode": true,\n  "betaSearch": true,\n  "maxUploadMb": 25\n}')).toBe(true);
+    expect(grade('{"maxUploadMb":25,"betaSearch":true,"darkMode":true}')).toBe(true);
+    // qwen3:8b: the key itself was damaged.
+    expect(grade('{\n  "dark,Mode": true,\n  "betaSearch": true,\n  "maxUploadMb": 25\n}')).toBe(false);
+    expect(grade('{\n  "darkMode": false,\n  "betaSearch": true,\n  "maxUploadMb": 25\n}')).toBe(false);
+    expect(grade('{\n  "darkMode": true,\n  "betaSearch": true\n}')).toBe(false);
+    expect(grade('{\n  "darkMode": true,\n  "betaSearch": true,\n  "maxUploadMb": 25,\n}')).toBe(false);
+  });
+
   it('matches commandLine against run_command cmd plus separate args', () => {
     const spec = { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: /npm (run )?test/ } }] };
     expect(evaluateRun([call('run_command', { cmd: 'npm', args: 'test' })], 1, '', spec).passed).toBe(true);
