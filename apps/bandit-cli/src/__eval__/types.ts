@@ -45,23 +45,40 @@ export interface ToolCallAssertion {
    *  match their expected value (exact string match or a test function).
    *  `commandLine` matches run_command's cmd + args joined with a space. */
   params?: Record<string, string | RegExp | ((value: string) => boolean)>;
+  /** By default only a call that SUCCEEDED satisfies a `mustCall*` entry — an
+   *  apply_edit whose `find` never matched changed nothing and proves nothing.
+   *  Set true where the attempt itself is the behaviour under test (running a
+   *  command that is expected to fail, reading a file that is expected to be
+   *  missing). Ignored by `mustNotCall`, where any attempt counts. */
+  allowError?: boolean;
 }
+
+export type ToolCallSpec = string | ToolCallAssertion;
 
 export interface FixtureAssertions {
   /** The agent must call AT LEAST ONE of these tools at least once.
    *  Accepts plain tool names or {name, params} predicates for finer-grained
    *  checks (e.g. "git_log must include repo_path"). */
-  mustCallAnyOf?: Array<string | ToolCallAssertion>;
+  mustCallAnyOf?: ToolCallSpec[];
   /** The agent must satisfy EVERY entry in this list — each entry matches
    *  at least one tool call. Use this for cross-stack fixtures that require
    *  edits in multiple files: "must edit Worksheet.cs AND worksheet.ts AND
    *  ChecklistSection.tsx". A missing entry is a failure with a specific
-   *  "expected call matching X was never made" reason. */
-  mustCallAllOf?: Array<string | ToolCallAssertion>;
+   *  "expected call matching X was never made" reason. An entry may itself
+   *  be an array, meaning "any one of these" — for a step that has several
+   *  legitimate routes (`ls`, `list_files`, or `run_command ls` to discover). */
+  mustCallAllOf?: Array<ToolCallSpec | ToolCallSpec[]>;
   /** The agent must NOT call any of these tools. Used to forbid known
    *  wrong choices (write_file when apply_edit was expected, legacy JSON
-   *  writes when markdown was expected, etc). */
-  mustNotCall?: string[];
+   *  writes when markdown was expected, etc). A plain name forbids the tool
+   *  outright; a {name, params} entry forbids only matching calls (e.g.
+   *  run_command is fine for `cat`, not for `npm test`). Attempts count,
+   *  whether or not the call succeeded. */
+  mustNotCall?: ToolCallSpec[];
+  /** The FIRST tool call of the run must match one of these (attempts count).
+   *  For "acts from context instead of exploring first" fixtures. A run with
+   *  no tool calls fails it. */
+  firstCallAnyOf?: ToolCallSpec[];
   /** The trace must finish within this many loop iterations. Catches the
    *  "model grinds to maxIterations" failure mode explicitly. Defaults
    *  to the loop's own cap if omitted. */
@@ -117,6 +134,9 @@ export interface ToolCallTrace {
   /** First 400 chars of the raw tool_call block emitted by the model.
    *  Essential for debugging parser-edge cases where params land empty. */
   rawCallSnippet?: string;
+  /** Set once the call's result (or error) has been recorded, so two calls to
+   *  the same tool in one batch each get their own outcome. */
+  settled?: boolean;
 }
 
 export interface RunResult {
@@ -140,6 +160,15 @@ export interface RunResult {
   sandboxDenials?: string[];
   /** The run was stopped by the wall-clock cap. */
   timedOut?: boolean;
+  /** The model gave its final answer (no iteration cap, no timeout) while a
+   *  tool call the fixture requires had still not been made successfully. */
+  endedEarly?: boolean;
+  /** Tool calls the harness had to reject for their SHAPE rather than their
+   *  effect: unparseable call blocks, unknown tool names, missing required
+   *  parameters. */
+  malformedToolCalls?: number;
+  /** Count of tool-loop events by name (nudges, retries, fallbacks). */
+  loopEvents?: Record<string, number>;
 }
 
 export interface FixtureResult {

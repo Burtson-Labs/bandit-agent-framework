@@ -264,7 +264,7 @@ const FAMILIES = {
     return {
       prompt: `Run node ${script} and tell me if it succeeds.`,
       files: { [script]: `console.error('inspect: ${word}');\nprocess.exit(${code});\n`, 'package.json': `{ "name": "${pick(DOMAINS)}-tools", "private": true }\n` },
-      assertions: { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: new RegExp(reEsc(path.basename(script))) } }], mustNotCall: ['write_file', 'apply_edit', 'replace_range', ...NO_PATCH], finalResponseMatches: new RegExp(`(?=[\\s\\S]*(fail|did not (pass|succeed)|didn['’]t (pass|succeed)|not succeed|cannot|can['’]t|error|exit(ed)?[^\\n]{0,20}${code}))(?=[\\s\\S]*${reEsc(word.split(' ')[0])})`, 'i'), maxIterations: 4 },
+      assertions: { mustCallAnyOf: [{ name: 'run_command', params: { commandLine: new RegExp(reEsc(path.basename(script))) }, allowError: true }], mustNotCall: ['write_file', 'apply_edit', 'replace_range', ...NO_PATCH], finalResponseMatches: new RegExp(`(?=[\\s\\S]*(fail|did not (pass|succeed)|didn['’]t (pass|succeed)|not succeed|cannot|can['’]t|error|exit(ed)?[^\\n]{0,20}${code}))(?=[\\s\\S]*${reEsc(word.split(' ')[0])})`, 'i'), maxIterations: 4 },
       maxIterations: 5
     };
   },

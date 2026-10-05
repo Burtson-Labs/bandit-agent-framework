@@ -12,7 +12,27 @@
  * objects. Pure so it unit-tests without running a model.
  */
 
-import type { EvalReport, EvalRuntimeInfo, FixtureResult } from './types';
+import type { EvalReport, EvalRuntimeInfo, FixtureResult, RunResult } from './types';
+
+/** One run, as scalars: enough to compute behaviour measures (early stops, malformed
+ *  tool calls, timeouts) for a model without re-reading its traces. */
+export interface EvalJsonRun {
+  run: number;
+  passed: boolean;
+  iterations: number;
+  toolCalls: number;
+  toolErrors: number;
+  /** Calls rejected for their shape: unparseable, unknown tool, missing required parameter. */
+  malformedToolCalls: number;
+  /** Out-of-sandbox accesses that were refused. */
+  sandboxDenials: number;
+  /** Final answer given while a required tool call was still unmade. */
+  endedEarly: boolean;
+  timedOut: boolean;
+  hitLimit: boolean;
+  wallMs: number;
+  approxTokens: number;
+}
 
 export interface EvalJsonFixture {
   id: string;
@@ -32,6 +52,8 @@ export interface EvalJsonFixture {
   medianIterations: number;
   /** True when any run ground all the way to the iteration cap. */
   hitLimit: boolean;
+  /** Per-run detail, in run order. Absent in reports written before this field existed. */
+  runDetails?: EvalJsonRun[];
 }
 
 export interface EvalJsonTotals {
@@ -54,6 +76,9 @@ export interface EvalJson {
    *  set was mixed, so a reader never assumes a uniform N that wasn't used. */
   runsPerFixture: number | null;
   totals: EvalJsonTotals;
+  /** Individual runs across every fixture that ran — finer-grained than `totals`,
+   *  which counts a fixture as passed on a majority of its runs. Absent in older reports. */
+  runTotals?: { runs: number; passed: number };
   /** Tool channel and context window the model was driven with, when known. */
   runtime?: EvalRuntimeInfo;
   fixtures: EvalJsonFixture[];
@@ -70,6 +95,23 @@ function median(values: number[]): number {
 /** Collapse a multi-line reason to a single readable line. */
 function oneLine(reason: string): string {
   return reason.replace(/\s+/g, ' ').trim();
+}
+
+function runToJson(run: RunResult): EvalJsonRun {
+  return {
+    run: run.runNumber,
+    passed: run.passed,
+    iterations: run.iterations,
+    toolCalls: run.toolCalls.length,
+    toolErrors: run.toolCalls.filter((c) => c.isError).length,
+    malformedToolCalls: run.malformedToolCalls ?? 0,
+    sandboxDenials: run.sandboxDenials?.length ?? 0,
+    endedEarly: run.endedEarly ?? false,
+    timedOut: run.timedOut ?? false,
+    hitLimit: run.hitLimit,
+    wallMs: run.wallTimeMs,
+    approxTokens: run.approxTokens ?? 0
+  };
 }
 
 function fixtureToJson(result: FixtureResult): EvalJsonFixture {
@@ -100,7 +142,8 @@ function fixtureToJson(result: FixtureResult): EvalJsonFixture {
       : {}),
     medianWallMs: median(result.runs.map((r) => r.wallTimeMs)),
     medianIterations: median(result.runs.map((r) => r.iterations)),
-    hitLimit: result.runs.some((r) => r.hitLimit)
+    hitLimit: result.runs.some((r) => r.hitLimit),
+    runDetails: result.runs.map(runToJson)
   };
 }
 
@@ -124,6 +167,10 @@ export function buildEvalJson(report: EvalReport): EvalJson {
       // code ignores them and so does this count.
       failed: fixtures.filter((f) => !f.passed && !f.skipped).length,
       skipped: fixtures.filter((f) => f.skipped).length
+    },
+    runTotals: {
+      runs: fixtures.reduce((n, f) => n + (f.runDetails?.length ?? 0), 0),
+      passed: fixtures.reduce((n, f) => n + (f.runDetails?.filter((r) => r.passed).length ?? 0), 0)
     },
     ...(report.runtime ? { runtime: report.runtime } : {}),
     fixtures

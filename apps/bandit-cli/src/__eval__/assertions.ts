@@ -8,11 +8,15 @@
  * breaks three ways at once after a system-prompt change.
  */
 
-import type { FixtureAssertions, ToolCallAssertion, ToolCallTrace } from './types';
+import type { FixtureAssertions, ToolCallSpec, ToolCallTrace } from './types';
 
 export interface EvaluationResult {
   passed: boolean;
   reasons: string[];
+  /** How many `mustCallAnyOf` / `mustCallAllOf` requirements no successful call
+   *  satisfied. Non-zero on a run that ended with a final answer means the model
+   *  stopped before doing the work the task needed. */
+  missingRequiredCalls: number;
 }
 
 export function evaluateRun(
@@ -23,15 +27,18 @@ export function evaluateRun(
   finalFiles?: Record<string, string | null>
 ): EvaluationResult {
   const reasons: string[] = [];
+  let missingRequiredCalls = 0;
+  // A required call only counts when it worked (or the spec opts into attempts).
+  const satisfies = (spec: ToolCallSpec): boolean => toolCalls.some(call => matchesSpec(call, spec, 'required'));
+  const describeActual = (): string => toolCalls.length > 0
+    ? toolCalls.map(c => (c.isError ? `${c.name} (failed)` : c.name)).join(', ')
+    : '(no tool calls)';
 
   if (assertions.mustCallAnyOf && assertions.mustCallAnyOf.length > 0) {
-    const satisfied = assertions.mustCallAnyOf.some(spec => toolCalls.some(call => matchesSpec(call, spec)));
-    if (!satisfied) {
+    if (!assertions.mustCallAnyOf.some(satisfies)) {
+      missingRequiredCalls++;
       const expected = assertions.mustCallAnyOf.map(describeSpec).join(' OR ');
-      const actual = toolCalls.length > 0
-        ? toolCalls.map(c => c.name).join(', ')
-        : '(no tool calls)';
-      reasons.push(`expected agent to call ${expected} — got: ${actual}`);
+      reasons.push(`expected agent to call ${expected} — got: ${describeActual()}`);
     }
   }
 
@@ -40,22 +47,30 @@ export function evaluateRun(
     // Unlike mustCallAnyOf, the failure reason names each unmet entry
     // individually — for a cross-stack fixture the author wants to see
     // "missed Worksheet.cs AND worksheet.ts", not "missed one of…".
-    for (const spec of assertions.mustCallAllOf) {
-      const hit = toolCalls.some(call => matchesSpec(call, spec));
-      if (!hit) {
-        reasons.push(`expected call matching ${describeSpec(spec)} was never made`);
+    for (const entry of assertions.mustCallAllOf) {
+      const alternatives = Array.isArray(entry) ? entry : [entry];
+      if (!alternatives.some(satisfies)) {
+        missingRequiredCalls++;
+        reasons.push(`expected call matching ${alternatives.map(describeSpec).join(' OR ')} was never made successfully — got: ${describeActual()}`);
       }
+    }
+  }
+
+  if (assertions.firstCallAnyOf && assertions.firstCallAnyOf.length > 0) {
+    const first = toolCalls[0];
+    if (!first || !assertions.firstCallAnyOf.some(spec => matchesSpec(first, spec, 'attempt'))) {
+      const expected = assertions.firstCallAnyOf.map(describeSpec).join(' OR ');
+      const actual = first ? `${first.name}${paramPreview(first)}` : '(no tool calls)';
+      reasons.push(`expected the first tool call to be ${expected} — got: ${actual}`);
     }
   }
 
   if (assertions.mustNotCall && assertions.mustNotCall.length > 0) {
     for (const forbidden of assertions.mustNotCall) {
-      const violation = toolCalls.find(c => c.name === forbidden);
+      const violation = toolCalls.find(c => matchesSpec(c, forbidden, 'attempt'));
       if (violation) {
-        const paramPreview = Object.keys(violation.params).length > 0
-          ? ` (params: ${summarizeParams(violation.params)})`
-          : '';
-        reasons.push(`agent called forbidden tool "${forbidden}" at iteration ${violation.iteration}${paramPreview}`);
+        const label = typeof forbidden === 'string' ? `"${forbidden}"` : `"${violation.name}" (forbidden: ${describeSpec(forbidden)})`;
+        reasons.push(`agent called forbidden tool ${label} at iteration ${violation.iteration}${paramPreview(violation)}`);
       }
     }
   }
@@ -88,16 +103,27 @@ export function evaluateRun(
     }
   }
 
-  return { passed: reasons.length === 0, reasons };
+  return { passed: reasons.length === 0, reasons, missingRequiredCalls };
 }
 
-function matchesSpec(call: ToolCallTrace, spec: string | ToolCallAssertion): boolean {
+function paramPreview(call: ToolCallTrace): string {
+  return Object.keys(call.params).length > 0 ? ` (params: ${summarizeParams(call.params)})` : '';
+}
+
+/**
+ * `required`: the call must also have succeeded, unless the spec sets `allowError`.
+ * `attempt`: the call was made, whatever came of it (forbidden calls, first-call checks).
+ */
+function matchesSpec(call: ToolCallTrace, spec: ToolCallSpec, mode: 'required' | 'attempt'): boolean {
+  const allowError = mode === 'attempt' || (typeof spec !== 'string' && spec.allowError === true);
+  if (!allowError && call.isError) return false;
   if (typeof spec === 'string') return call.name === spec;
   // Tool-name matching: string for exact, RegExp for OR patterns like
   // /^(apply_edit|replace_range|write_file)$/.
   if (typeof spec.name === 'string') {
     if (call.name !== spec.name) return false;
   } else {
+    spec.name.lastIndex = 0;
     if (!spec.name.test(call.name)) return false;
   }
   if (!spec.params) return true;
@@ -111,6 +137,7 @@ function matchesSpec(call: ToolCallTrace, spec: string | ToolCallAssertion): boo
     if (typeof matcher === 'string') {
       if (value !== matcher) return false;
     } else if (matcher instanceof RegExp) {
+      matcher.lastIndex = 0;
       if (!matcher.test(value)) return false;
     } else if (typeof matcher === 'function') {
       if (!matcher(value)) return false;
@@ -119,7 +146,7 @@ function matchesSpec(call: ToolCallTrace, spec: string | ToolCallAssertion): boo
   return true;
 }
 
-function describeSpec(spec: string | ToolCallAssertion): string {
+function describeSpec(spec: ToolCallSpec): string {
   if (typeof spec === 'string') return spec;
   const nameLabel = typeof spec.name === 'string' ? spec.name : `/${spec.name.source}/`;
   if (!spec.params || Object.keys(spec.params).length === 0) return nameLabel;

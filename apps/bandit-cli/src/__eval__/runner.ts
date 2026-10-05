@@ -153,6 +153,15 @@ export function contextWindowProblem(systemPromptChars: number, toolSchemaChars:
     'Register a capability profile for this model or raise its context window; results from this configuration would not measure the model.';
 }
 
+/** Order-independent identity of a call's arguments, to pair a result with its call. */
+function paramsKey(params: Record<string, string>): string {
+  return JSON.stringify(Object.keys(params).sort().map(key => [key, params[key]]));
+}
+
+/** Tool results that reject the SHAPE of a call rather than report its effect. */
+const MALFORMED_RESULT = /\bparameter is required\b|\bis not registered\b|\bunknown tool\b|\bnot a valid tool\b/i;
+const MALFORMED_EVENTS = new Set(['tool_loop:parse_retry', 'tool_loop:tool_not_found']);
+
 const COMMAND_TOOLS = new Set(['run_command', 'watch_command']);
 
 /** Wrap command tools so denied command lines return an error instead of running. */
@@ -169,6 +178,32 @@ export function withCommandDeny(registry: ToolRegistry, deny: RegExp): ToolRegis
       return tool.execute(params, ctx);
     };
     return guarded;
+  });
+  return new ToolRegistry().registerAll(wrapped);
+}
+
+/**
+ * Wrap every tool so the runner learns each call's outcome where it happens. The loop's
+ * `tool_result` events carry only the tool name, and a parallel batch finishes out of
+ * order, so events alone cannot say WHICH of two apply_edits failed.
+ */
+export function withOutcomeCapture(
+  registry: ToolRegistry,
+  record: (name: string, params: Record<string, string>, isError: boolean, output: string) => void
+): ToolRegistry {
+  const wrapped = registry.getAll().map(tool => {
+    const observed = Object.create(tool) as typeof tool;
+    observed.execute = async (params, ctx) => {
+      try {
+        const result = await tool.execute(params, ctx);
+        record(tool.name, params, !!result.isError, result.output);
+        return result;
+      } catch (err) {
+        record(tool.name, params, true, err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    };
+    return observed;
   });
   return new ToolRegistry().registerAll(wrapped);
 }
@@ -262,6 +297,28 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
     }
     if (provider.commandDeny) registry = withCommandDeny(registry, provider.commandDeny);
 
+    const toolCalls: ToolCallTrace[] = [];
+    let malformedToolCalls = 0;
+    const settle = (call: ToolCallTrace | undefined, isError: boolean, output?: string): void => {
+      if (!call || call.settled) return;
+      call.settled = true;
+      call.isError = isError;
+      if (output) call.outputSnippet = output.slice(0, 280);
+      if (isError && output && MALFORMED_RESULT.test(output)) malformedToolCalls++;
+    };
+    const oldestUnsettled = (name: string | undefined, params?: Record<string, string>): ToolCallTrace | undefined => {
+      const open = toolCalls.filter(c => c.name === name && !c.settled);
+      const wanted = params ? paramsKey(params) : undefined;
+      return open.find(c => wanted !== undefined && paramsKey(c.params) === wanted) ?? open[0];
+    };
+    // Each captured outcome is followed by the loop's own result event for that tool name;
+    // that event must not be applied a second time to another call still in flight.
+    const capturedAwaitingEvent = new Map<string, number>();
+    registry = withOutcomeCapture(registry, (name, params, isError, output) => {
+      settle(oldestUnsettled(name, params), isError, output);
+      capturedAwaitingEvent.set(name, (capturedAwaitingEvent.get(name) ?? 0) + 1);
+    });
+
     const memory = fixture.setup?.memory ?? '';
     const skillInstructions = activeSkills
       .filter(s => s.instructions)
@@ -335,33 +392,40 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       compactToolBlock: runtime.compactToolBlock
     });
 
-    const toolCalls: ToolCallTrace[] = [];
+    const loopEvents: Record<string, number> = {};
     let order = 0;
     let currentIteration = 0;
 
     const emitEvent = (type: string, payload?: unknown): void => {
+      if (type !== 'tool_loop:llm_chunk') loopEvents[type] = (loopEvents[type] ?? 0) + 1;
+      if (MALFORMED_EVENTS.has(type)) malformedToolCalls++;
       if (type === 'tool_loop:llm_start') {
         const p = payload as { iteration?: number };
         if (typeof p?.iteration === 'number') currentIteration = p.iteration;
       } else if (type === 'tool_loop:tool_execute') {
         const p = payload as { name?: string; params?: Record<string, string>; rawSnippet?: string };
         if (p?.name) {
-          toolCalls.push({
+          const trace: ToolCallTrace = {
             name: p.name,
             params: { ...(p.params ?? {}) },
             order: order++,
             iteration: currentIteration,
             isError: false,
             rawCallSnippet: p.rawSnippet
-          });
+          };
+          toolCalls.push(trace);
         }
-      } else if (type === 'tool_loop:tool_result') {
-        const p = payload as { name?: string; isError?: boolean; outputSnippet?: string };
-        const last = [...toolCalls].reverse().find(c => c.name === p?.name);
-        if (last) {
-          last.isError = !!p?.isError;
-          if (p?.outputSnippet) last.outputSnippet = p.outputSnippet;
+      } else if (type === 'tool_loop:tool_result' || type === 'tool_loop:tool_error' || type === 'tool_loop:tool_blocked') {
+        // Normally settled already by withOutcomeCapture; this covers calls that never
+        // reach a registry tool (blocked by a gate, handled inside the loop).
+        const p = payload as { name?: string; isError?: boolean; outputSnippet?: string; error?: string; reason?: string };
+        const captured = capturedAwaitingEvent.get(p?.name ?? '') ?? 0;
+        if (captured > 0 && type !== 'tool_loop:tool_blocked') {
+          capturedAwaitingEvent.set(p?.name ?? '', captured - 1);
+          return;
         }
+        const isError = type === 'tool_loop:tool_result' ? !!p?.isError : true;
+        settle(oldestUnsettled(p?.name), isError, p?.outputSnippet ?? p?.error ?? p?.reason);
       }
     };
 
@@ -438,7 +502,11 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       wallTimeMs: Date.now() - started,
       approxTokens: Math.round(chunkChars / 4),
       sandboxDenials: toolCtx.denials.map(describeDenial),
-      timedOut
+      timedOut,
+      // Gave a final answer of its own accord while required tool work was still undone.
+      endedEarly: !result.hitLimit && !timedOut && !degenerate && evalResult.missingRequiredCalls > 0,
+      malformedToolCalls,
+      loopEvents
     };
   } catch (err) {
     return {

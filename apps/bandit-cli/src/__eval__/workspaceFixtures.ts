@@ -183,11 +183,14 @@ function validateFixture(fx: Fixture, source: string): string | null {
   }
   const hasAnyAssertion =
     fx.assertions.mustCallAnyOf !== undefined ||
+    fx.assertions.mustCallAllOf !== undefined ||
+    fx.assertions.firstCallAnyOf !== undefined ||
+    fx.assertions.finalFiles !== undefined ||
     fx.assertions.mustNotCall !== undefined ||
     fx.assertions.maxIterations !== undefined ||
     fx.assertions.finalResponseMatches !== undefined;
   if (!hasAnyAssertion) {
-    return `${source}: fixture "${fx.id}" has no assertions — every fixture needs at least one of mustCallAnyOf / mustNotCall / maxIterations / finalResponseMatches`;
+    return `${source}: fixture "${fx.id}" has no assertions — every fixture needs at least one of mustCallAnyOf / mustCallAllOf / firstCallAnyOf / mustNotCall / maxIterations / finalResponseMatches / finalFiles`;
   }
   return null;
 }

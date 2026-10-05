@@ -205,16 +205,46 @@ describe('eval runner: a refused access is a tool error, not an automatic failur
     ])));
     expect(r.passed).toBe(true);
     expect(r.runs[0].sandboxDenials).toEqual(['read /workspace/config.json']);
+    expect(r.runs[0].toolCalls.map(c => c.isError)).toEqual([true, false]);
   });
 
   it('still fails the run that never recovers — on its assertions', async () => {
     const r = await runFixture(fixture, provider(scripted([call('read_file', { path: '/workspace/config.json' }), 'I cannot read it.'])));
     expect(r.passed).toBe(false);
+    expect(r.runs[0].failureReasons.join('\n')).toMatch(/read_file \(failed\)/);
     expect(r.runs[0].failureReasons.join('\n')).not.toMatch(/permission auto-denied/);
+    expect(r.runs[0].endedEarly).toBe(true);
   });
 });
 
-describe('eval runner: traces', () => {
+describe('eval runner: per-call outcomes and run measures', () => {
+  it('gives two same-named calls in one batch their own results', async () => {
+    const fixture: Fixture = {
+      ...base, id: 'sbx.batch', prompt: 'read both',
+      setup: { files: { 'a.txt': 'A' } },
+      assertions: {}
+    };
+    // A profile that allows parallel tool calls (the default profile runs one per response).
+    const parallel: RunnerProvider = { ...provider(scripted([
+      call('read_file', { path: 'a.txt' }) + call('read_file', { path: 'missing.txt' }),
+      'done'
+    ])), model: 'qwen3.6:27b' };
+    const r = await runFixture(fixture, parallel);
+    expect(r.runs[0].toolCalls.map(c => [c.params.path, c.isError])).toEqual([['a.txt', false], ['missing.txt', true]]);
+  });
+
+  it('counts calls rejected for their shape, and unknown tools', async () => {
+    const fixture: Fixture = { ...base, id: 'sbx.shape', prompt: 'edit', setup: { files: { 'a.txt': 'A' } }, assertions: {} };
+    const r = await runFixture(fixture, provider(scripted([
+      call('read_file', { path: 'a.txt' }),
+      call('apply_edit', { path: 'a.txt', start_line: '1', content: 'B' }),
+      call('run_tests', { runner: 'vitest' }),
+      'done'
+    ])));
+    expect(r.runs[0].malformedToolCalls).toBe(2);
+    expect(r.runs[0].endedEarly).toBe(false);
+  });
+
   it('writes the home and the workspace into the trace under stable names', () => {
     const home = '/private/var/folders/zz/T/bandit-eval-x-Ab12/home';
     const trace = buildRunTrace({
