@@ -69,6 +69,65 @@ describe('replace_range', () => {
     expect(result.output).toContain('Inserted 1 line before line 2');
   });
 
+  // BanditBench 2026-10-05: gemma4:31b and qwen3:14b end `content` with a newline on every
+  // call. That newline was counted as one more line, so "// entry point\n" inserted the
+  // comment AND a blank line under it ("Inserted 2 lines"), and a replaced line gained a
+  // blank line after it.
+  describe('a trailing newline in content', () => {
+    const FILE = '/tmp/test/sample.ts';
+    const SOURCE = 'export function greet(name: string): string {\n  return `hello, ${name}`;\n}\n';
+    const edit = async (params: Record<string, string>, source = SOURCE) => {
+      const files = new Map<string, string>([[FILE, source]]);
+      const ctx = buildCtx(files);
+      await readFileTool.execute({ path: 'sample.ts' }, ctx);
+      const result = await replaceRangeTool.execute({ path: 'sample.ts', ...params }, ctx);
+      return { result, text: files.get(FILE)! };
+    };
+
+    it('inserting "// entry point\\n" puts the comment directly above, with no blank line', async () => {
+      const { result, text } = await edit({ start_line: '1', end_line: '0', content: '// entry point\n' });
+      expect(result.isError).toBeFalsy();
+      expect(text).toBe(`// entry point\n${SOURCE}`);
+      expect(result.output).toContain('Inserted 1 line before line 1');
+    });
+
+    it('replacing a line with text that ends in a newline leaves the next line where it was', async () => {
+      const { result, text } = await edit({ start_line: '1', end_line: '1', content: '// entry point\nexport function greet(name: string): string {\n' });
+      expect(text).toBe(`// entry point\n${SOURCE}`);
+      expect(result.output).toContain('Replaced lines 1-1 (+2 -1)');
+    });
+
+    it('gives the same file with and without the trailing newline', async () => {
+      const withNewline = await edit({ start_line: '2', end_line: '2', content: '  return `hi, ${name}`;\n' });
+      const without = await edit({ start_line: '2', end_line: '2', content: '  return `hi, ${name}`;' });
+      expect(withNewline.text).toBe(without.text);
+      expect(withNewline.text).toBe('export function greet(name: string): string {\n  return `hi, ${name}`;\n}\n');
+    });
+
+    it('a blank line that was asked for is still written', async () => {
+      const spaced = await edit({ start_line: '1', end_line: '0', content: '// entry point\n\n' });
+      expect(spaced.text).toBe(`// entry point\n\n${SOURCE}`);
+      const blankOnly = await edit({ start_line: '1', end_line: '0', content: '\n' });
+      expect(blankOnly.text).toBe(`\n${SOURCE}`);
+      expect(blankOnly.result.output).toContain('Inserted 1 line before line 1');
+    });
+
+    it('CRLF files: the trailing CRLF is a terminator too', async () => {
+      const crlf = 'one\r\ntwo\r\nthree\r\n';
+      const { text } = await edit({ start_line: '2', end_line: '2', content: 'TWO\r\n' }, crlf);
+      expect(text).toBe('one\r\nTWO\r\nthree\r\n');
+    });
+
+    it('replacing through the end of the file keeps the final newline the content carries', async () => {
+      // "a\nb\n" reads as three lines (the third is empty); replacing 2-3 with "B\n" must
+      // not drop the file's last newline.
+      const { text } = await edit({ start_line: '2', end_line: '3', content: 'B\n' }, 'a\nb\n');
+      expect(text).toBe('a\nB\n');
+      const noNewline = await edit({ start_line: '2', end_line: '2', content: 'B\n' }, 'a\nb');
+      expect(noNewline.text).toBe('a\nB\n');
+    });
+  });
+
   it('stale expected_hash no longer blocks the edit — proceeds with a warning trailer (2026-05-26 right-way fix)', async () => {
     // Prior behavior rejected on hash mismatch, which created a loop:
     // model copied shown_hash from a wider read_file and called

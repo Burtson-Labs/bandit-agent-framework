@@ -759,7 +759,7 @@ const replaceRangeTool: AgentTool = {
     { name: 'path', description: 'File path. Relative paths resolve against the workspace root; absolute and ~ paths are also accepted.', required: true },
     { name: 'start_line', description: '1-based first line to replace. For insertion, this is the line to insert before.', required: true },
     { name: 'end_line', description: '1-based last line to replace, inclusive. Use start_line-1 to insert before start_line. Defaults to start_line for a one-line replacement.' },
-    { name: 'content', description: 'Replacement text for the range. Empty string deletes the range. Use real newline characters for multi-line replacements.', required: true },
+    { name: 'content', description: 'Replacement text for the range. Empty string deletes the range. Use real newline characters for multi-line replacements. A newline at the end is optional and does not add a blank line.', required: true },
     { name: 'expected_hash', description: 'Advisory only — when passed, the framework compares it against the current range hash and records a warning in the result if they differ, but the edit still proceeds. The read-tracking guard is the real safety mechanism; you do not need to pass this for normal edits. Kept for backwards compatibility with callers that copy shown_hash from read_file.' },
     { name: 'expected_old', description: 'Optional exact old text for the range. When passed, the edit is rejected if the current content does not match — use for short, surgical replacements where the exact source line is known. Stricter than expected_hash; intentionally NOT advisory.' }
   ],
@@ -853,7 +853,17 @@ const replaceRangeTool: AgentTool = {
       };
     }
 
-    const replacementLines = String(content) === '' ? [] : splitTextLines(String(content)).lines;
+    // A newline at the end of `content` terminates its last line; it is not one more
+    // (empty) line. Joining already puts a line break between the replacement and
+    // whatever follows the range, so counting it again left a stray blank line after
+    // every replacement written the natural way ("// entry point\n" → "Inserted 2
+    // lines"). It is only kept when the range runs to the end of the file, where
+    // that newline is the file's own final newline.
+    const text = String(content);
+    const hasFollowingLines = endIdx < lines.length;
+    const replacementLines = text === ''
+      ? []
+      : splitTextLines(hasFollowingLines ? text.replace(/\r?\n$/, '') : text).lines;
     const after = [
       ...lines.slice(0, startIdx),
       ...replacementLines,
