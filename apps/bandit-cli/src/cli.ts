@@ -51,7 +51,6 @@ import {
   registerModelBehaviorConfig,
   queryModelsDevCapabilities,
   queryOpenAICompatibleModelInfo,
-  queryOllamaModelCapabilities,
   resolveOllamaRuntimeOptions,
   resolvePreferredToolProtocol,
   checkOllamaLoadedContext,
@@ -91,6 +90,7 @@ import { consumeTablesInChunk, flushTableState } from './terminal/tableRender';
 import { consumeMarkdownInChunk, flushMarkdownState } from './terminal/markdownRender';
 import { fuzzyMatchWorkspaceFiles } from './input/fileCompleter';
 import { buildCliChatFn } from './agent/cliChatFn';
+import { probeOllamaModel } from './agent/ollamaCapabilityProbe';
 import { loadConfigFiles, resolveConfig, describeConfig, saveTheme, saveModel, saveProvider, saveReasoningDisplay, readTavilyKey, type ConfigOverrides, type ResolvedConfig } from './config';
 import { initTelemetry, resolveTelemetryConfig, telemetryStartTurn, telemetryEvent, telemetryEndTurn, telemetryEndTurnAwait } from './telemetry/otlp';
 import { notifyCli, type CliNotification } from './notifications';
@@ -811,6 +811,12 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   const { prompt, skillRegistry, cwd, settings, model, conversation, memoryBlock, todoStore, hookSettings, permissionStore, autoLedger, modeOverride } = opts;
   const getLine = opts.getLine ?? defaultGetLine;
   const replRl = opts.rl;
+
+  // Direct Ollama: know what the server says about this model before choosing its
+  // context window and tool channel. See agent/ollamaCapabilityProbe.ts.
+  if (settings.kind === 'ollama') {
+    await probeOllamaModel(model, settings.ollamaNodeUrl?.trim() || settings.ollamaUrl || 'http://localhost:11434');
+  }
 
   // Plan checklist rendering. The model's todo list is committed to
   // scrollback as a styled block each time it MEANINGFULLY changes, so
@@ -3144,12 +3150,12 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
   // profiles still win over this cache (precedence rule in
   // getModelCapabilities), so the probe only upgrades unknowns. Local
   // call, 5s timeout, silent on failure.
+  // Started here so the answer is usually in before the first prompt; each turn
+  // waits for it (runPrompt) rather than racing it.
   const probeOllamaCapabilities = (modelId: string): void => {
     if (settings.kind !== 'ollama' || !modelId) {return;}
     const baseUrl = settings.ollamaUrl ?? resolved.ollamaUrl ?? 'http://localhost:11434';
-    void queryOllamaModelCapabilities(modelId, baseUrl)
-      .then(caps => { if (caps) {registerModelCapabilities(modelId, caps);} })
-      .catch(() => undefined);
+    void probeOllamaModel(modelId, baseUrl);
   };
   probeOllamaCapabilities(model);
   // Per-session thinking-mode override. undefined = use the runtime

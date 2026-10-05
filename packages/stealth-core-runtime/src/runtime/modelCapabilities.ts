@@ -439,9 +439,90 @@ function deriveTierFromParamSize(paramSize: string): ModelTier {
   return 'large';
 }
 
+/** The parts of Ollama's `/api/show` response the capability probe reads. */
+export interface OllamaShowResponse {
+  details?: { parameter_size?: string; family?: string };
+  model_info?: Record<string, unknown>;
+  capabilities?: string[];
+}
+
+/**
+ * Largest window the probe will report as usable for a locally served model. The declared
+ * context length is what the weights support (40,960 for qwen3, 131,072 for gpt-oss,
+ * 262,144 for qwen3-coder and gemma4), not what one GPU can hold next to them, and
+ * everything downstream sizes itself from this number (injected-context budget, the
+ * num_ctx clamp). 32k is what a 32 GB card serves for models up to ~35B; small models keep
+ * the 16k the built-in small profiles use (they run on laptops); the largest tier keeps the
+ * 131k the probe has always assumed for it.
+ */
+const PROBED_CONTEXT_WINDOW_CAP: Record<ModelTier, number> = { small: 16384, medium: 32768, large: 131072 };
+
+/** Assumed window when Ollama reports no context length at all (very old servers). */
+const PROBED_CONTEXT_WINDOW_FALLBACK: Record<ModelTier, number> = { small: 16384, medium: 32768, large: 131072 };
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * The context length a model declares in its GGUF metadata, as `/api/show` returns it.
+ *
+ * The key is namespaced by architecture, `<general.architecture>.context_length`:
+ * `qwen3.context_length`, `gemma4.context_length`, `gptoss.context_length`,
+ * `qwen3moe.context_length`. There is no `llm.context_length` (the key this probe used to
+ * read, so the declared value was never used). Deeper keys that merely end in
+ * `context_length`, such as `gptoss.rope.scaling.original_context_length: 4096`, describe
+ * something else and are ignored.
+ */
+export function readOllamaContextLength(modelInfo: Record<string, unknown> | undefined): number | undefined {
+  if (!modelInfo) {return undefined;}
+  const architecture = modelInfo['general.architecture'];
+  if (typeof architecture === 'string' && architecture) {
+    const declared = positiveInteger(modelInfo[`${architecture}.context_length`]);
+    if (declared !== undefined) {return declared;}
+  }
+  for (const [key, value] of Object.entries(modelInfo)) {
+    if (/^[^.]+\.context_length$/.test(key) && positiveInteger(value) !== undefined) {
+      return value as number;
+    }
+  }
+  return undefined;
+}
+
+/** Capabilities inferred from one `/api/show` response. Pure, so it can be tested on captured payloads. */
+export function capabilitiesFromOllamaShow(modelId: string, data: OllamaShowResponse): ModelCapabilities {
+  const paramSize = data.details?.parameter_size ?? '';
+  const tier = deriveTierFromParamSize(paramSize);
+  // The model's own declared context length, capped at what one GPU can serve.
+  const declared = readOllamaContextLength(data.model_info);
+  const contextWindow = declared !== undefined
+    ? Math.min(declared, PROBED_CONTEXT_WINDOW_CAP[tier])
+    : PROBED_CONTEXT_WINDOW_FALLBACK[tier];
+  const family = (data.details?.family ?? '').toLowerCase();
+  // Trust Ollama's advertised capabilities when present. Hard-coding false
+  // here silently downgraded every tool-calling model that hit auto-detection
+  // before the built-in profile precedence fix landed. Even with that fix,
+  // models without a built-in profile (a new tag, a user-pulled variant)
+  // should report tools accurately when the runtime says so.
+  const caps = new Set((data.capabilities ?? []).map((c) => c.toLowerCase()));
+  const supportsJsonMode = true; // All Ollama-served models support format:"json"
+  const supportsToolCalling = caps.has('tools');
+  const supportsVision =
+    caps.has('vision') ||
+    family.includes('llava') || family.includes('vision') || family.includes('vl');
+  return {
+    tier,
+    contextWindow,
+    supportsJsonMode,
+    supportsToolCalling,
+    supportsVision,
+    label: modelId
+  };
+}
+
 /**
  * Queries Ollama /api/show to auto-detect capabilities for a model not in BUILT_IN_PROFILES.
- * Returns a partial ModelCapabilities object (tier + contextWindow) on success, null on failure.
+ * Returns a ModelCapabilities object on success, null on failure.
  * Silently returns null when Ollama is unreachable or the model is not installed.
  *
  * Call this once per model switch and persist via registerModelCapabilities().
@@ -459,36 +540,7 @@ export async function queryOllamaModelCapabilities(
       signal: AbortSignal.timeout(5000)
     });
     if (!response.ok) {return null;}
-    const data = await response.json() as {
-      details?: { parameter_size?: string; family?: string };
-      model_info?: { 'llm.context_length'?: number };
-      capabilities?: string[];
-    };
-    const paramSize = data.details?.parameter_size ?? '';
-    const tier = deriveTierFromParamSize(paramSize);
-    // Prefer the model's own declared context length when available.
-    const contextWindow = data.model_info?.['llm.context_length']
-      ?? (tier === 'large' ? 131072 : tier === 'medium' ? 32768 : 8192);
-    const family = (data.details?.family ?? '').toLowerCase();
-    // Trust Ollama's advertised capabilities when present. Hard-coding false
-    // here silently downgraded every tool-calling model that hit auto-detection
-    // before the built-in profile precedence fix landed. Even with that fix,
-    // models without a built-in profile (a new tag, a user-pulled variant)
-    // should report tools accurately when the runtime says so.
-    const caps = new Set((data.capabilities ?? []).map((c) => c.toLowerCase()));
-    const supportsJsonMode = true; // All Ollama-served models support format:"json"
-    const supportsToolCalling = caps.has('tools');
-    const supportsVision =
-      caps.has('vision') ||
-      family.includes('llava') || family.includes('vision') || family.includes('vl');
-    return {
-      tier,
-      contextWindow,
-      supportsJsonMode,
-      supportsToolCalling,
-      supportsVision,
-      label: modelId
-    };
+    return capabilitiesFromOllamaShow(modelId, await response.json() as OllamaShowResponse);
   } catch {
     return null;
   }
@@ -653,6 +705,9 @@ export interface OllamaRuntimeOptions {
   think?: boolean;
 }
 
+/** num_ctx requested for a model nothing is known about. See resolveOllamaRuntimeOptions. */
+const UNKNOWN_MODEL_NUM_CTX = 16384;
+
 export function resolveOllamaRuntimeOptions(modelId: string): OllamaRuntimeOptions {
   const caps = getModelCapabilities(modelId);
   // num_ctx is what we REQUEST from Ollama (not the model's native
@@ -681,9 +736,18 @@ export function resolveOllamaRuntimeOptions(modelId: string): OllamaRuntimeOptio
     default:
       num_ctx = 12288;
   }
-  // Clamp to the model's declared native window so we never ask for
-  // more than the model can actually honor.
-  if (caps.contextWindow > 0 && num_ctx > caps.contextWindow) {
+  if (caps === DEFAULT_CAPABILITIES) {
+    // Nothing is known about this model: no built-in profile, and no /api/show probe has
+    // registered it (not run yet, failed, or the server is not reachable for metadata).
+    // The 8,192-token window DEFAULT_CAPABILITIES assumes is a guess, and clamping the
+    // request to it loaded the model with a window smaller than the fixed prompt (about
+    // 8,100 tokens of system prompt and tool schemas), so the user's request was the first
+    // thing truncated. Ask for a window the agent can work in; Ollama lowers it by itself
+    // if the model's real window is smaller.
+    num_ctx = UNKNOWN_MODEL_NUM_CTX;
+  } else if (caps.contextWindow > 0 && num_ctx > caps.contextWindow) {
+    // Clamp to the model's declared native window so we never ask for
+    // more than the model can actually honor.
     num_ctx = caps.contextWindow;
   }
   // Thinking-mode default now comes from behavior profiles rather than
