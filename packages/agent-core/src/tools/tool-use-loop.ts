@@ -1352,13 +1352,31 @@ export class ToolUseLoop {
       const hasCodeFence = /```[a-zA-Z0-9_-]*\s*\n/.test(stripReasoningChannels(response));
       const tailMatch = stripped.match(/(?:[.!?]\s+)([^.!?]*)$/);
       const tail = (tailMatch ? tailMatch[1] : stripped).slice(-200);
-      const narratedButNoAction =
+      // A lone status line is the same stall without the intent phrase. Gemma 4 opens a
+      // step with one ("Reading the project structure to find package.json.", "Updating
+      // `src/utils/scoring.ts` to add …") and sometimes stops right there: no call, no
+      // "I'll"/"let me", so the gate below let the line through as the final answer
+      // (BanditBench edit.version_bump, gemma4:12b-it-qat, 2026-10-05: a run with no tool
+      // call at all). Only a reply that is one sentence opening with an action verb's
+      // -ing form counts, so an answer that merely starts that way and goes on does not.
+      const statusLine = stripped.trim();
+      const leadingGerund = /^([A-Z][a-z]+ing)\b/.exec(statusLine)?.[1];
+      const statusLineNoAction =
         !hasToolCalls(response) &&
         !hasCodeFence &&
-        stripped.length > 0 &&
-        stripped.length < 240 &&
-        NARRATE_INTENT_RE.test(tail) &&
-        NARRATE_VERB_RE.test(tail);
+        leadingGerund !== undefined &&
+        NARRATE_VERB_RE.test(leadingGerund) &&
+        statusLine.length < 240 &&
+        !statusLine.includes('\n') &&
+        !/[.!?]\s+\S/.test(statusLine);
+      const narratedButNoAction =
+        statusLineNoAction || (
+          !hasToolCalls(response) &&
+          !hasCodeFence &&
+          stripped.length > 0 &&
+          stripped.length < 240 &&
+          NARRATE_INTENT_RE.test(tail) &&
+          NARRATE_VERB_RE.test(tail));
       // Performative narrated call: "I call read_file with path=README.md".
       // The generic gate above caps stripped.length at 240 to avoid false
       // positives on real answers that merely contain narrate verbs — but
