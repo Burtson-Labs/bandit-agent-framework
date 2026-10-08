@@ -485,7 +485,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/stealth-core-runtime
       undici:
-        specifier: 7.29.1
+        specifier: '>=7.29.0 <8.0.0'
         version: 7.29.1
     devDependencies:
       vitest:

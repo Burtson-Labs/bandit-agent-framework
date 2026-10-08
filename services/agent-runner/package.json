@@ -21,7 +21,7 @@
     "@burtson-labs/agent-core": "workspace:*",
     "@burtson-labs/host-kit": "workspace:*",
     "@burtson-labs/stealth-core-runtime": "workspace:*",
-    "undici": "7.29.1"
+    "undici": "^7.29.1"
   },
   "devDependencies": {
     "vitest": "^4.0.10"
