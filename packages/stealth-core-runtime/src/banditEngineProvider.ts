@@ -52,6 +52,14 @@ export interface ProviderSettings {
   /** Extra HTTP headers — e.g. `HTTP-Referer` + `X-Title` for OpenRouter
    * attribution, custom org headers, etc. Content-Type is always forced. */
   openaiHeaders?: Record<string, string>;
+  /**
+   * The fetch used for every model request. Defaults to the global fetch.
+   * Hosts that send requests to a caller-chosen URL (the agent-runner with a
+   * user's own endpoint) inject a fetch that enforces their egress policy
+   * at connect time — the only place a DNS answer can be checked without a
+   * rebinding window.
+   */
+  fetchImpl?: typeof fetch;
 }
 
 const DEFAULT_BANDIT_COMPLETIONS_URL = 'https://api.burtson.ai/completions';
@@ -333,7 +341,8 @@ export function buildOllamaErrorHint(status: number, model: string, baseUrl: str
 function createDirectOllamaProvider(
   baseUrl: string,
   defaultModel: string,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  fetchImpl?: typeof fetch
 ): ChatProvider {
   // Caller-supplied headers (Authorization, Cloudflare Access, etc.) are
   // merged once here; Content-Type always wins to avoid breaking the API.
@@ -408,7 +417,7 @@ function createDirectOllamaProvider(
           method: 'POST',
           headers: mergedHeaders,
           body: JSON.stringify(payload)
-        });
+        }, { fetchImpl });
 
         if (!response.ok) {
           const detail = await safeReadText(response);
@@ -460,7 +469,7 @@ export async function createProvider(settings: ProviderSettings): Promise<ChatPr
   if (settings.kind === 'bandit') {
     const apiUrl = normalizeBanditApiUrl(settings.apiUrl);
     const apiKey = settings.apiKey?.trim();
-    return createDirectBanditProvider(apiUrl, apiKey);
+    return createDirectBanditProvider(apiUrl, apiKey, settings.fetchImpl);
   }
 
   if (settings.kind === 'ollama') {
@@ -470,7 +479,7 @@ export async function createProvider(settings: ProviderSettings): Promise<ChatPr
       : settings.ollamaUrl;
     const baseUrl = normalizeUrl(rawUrl, DEFAULT_OLLAMA_URL);
     const model = settings.ollamaModel?.trim() || DEFAULT_OLLAMA_MODEL;
-    return createDirectOllamaProvider(baseUrl, model, settings.ollamaHeaders);
+    return createDirectOllamaProvider(baseUrl, model, settings.ollamaHeaders, settings.fetchImpl);
   }
 
   if (settings.kind === 'openai-compatible') {
@@ -481,7 +490,7 @@ export async function createProvider(settings: ProviderSettings): Promise<ChatPr
     const baseUrl = rawBase.replace(/\/+$/, '');
     const apiUrl = `${baseUrl}/chat/completions`;
     const apiKey = settings.openaiApiKey?.trim();
-    return createDirectOpenAICompatibleProvider(apiUrl, apiKey, settings.openaiHeaders);
+    return createDirectOpenAICompatibleProvider(apiUrl, apiKey, settings.openaiHeaders, settings.fetchImpl);
   }
 
   throw new Error(`Unsupported provider kind: ${settings.kind}`);
@@ -503,7 +512,8 @@ export async function createProvider(settings: ProviderSettings): Promise<ChatPr
 function createDirectOpenAICompatibleProvider(
   apiUrl: string,
   apiKey: string | undefined,
-  extraHeaders: Record<string, string> | undefined
+  extraHeaders: Record<string, string> | undefined,
+  fetchImpl?: typeof fetch
 ): ChatProvider {
   return {
     chat(request: AIChatRequest): AsyncIterable<AIChatResponse> {
@@ -516,7 +526,7 @@ function createDirectOpenAICompatibleProvider(
             headers: buildOpenAICompatibleHeaders(apiKey, extraHeaders),
             body: JSON.stringify(payload),
             signal: controller.signal
-          });
+          }, { fetchImpl });
           if (!response.ok) {
             const detail = await safeReadText(response);
             throw new Error(`openai-compatible request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}`);
@@ -566,7 +576,11 @@ function buildOpenAICompatibleHeaders(
   return headers;
 }
 
-function createDirectBanditProvider(apiUrl: string, apiKey: string | undefined): ChatProvider {
+function createDirectBanditProvider(
+  apiUrl: string,
+  apiKey: string | undefined,
+  fetchImpl?: typeof fetch
+): ChatProvider {
   return {
     chat(request: AIChatRequest): AsyncIterable<AIChatResponse> {
       const controller = new AbortController();
@@ -583,7 +597,7 @@ function createDirectBanditProvider(apiUrl: string, apiKey: string | undefined):
             headers: buildHeaders(apiKey),
             body: JSON.stringify(payload),
             signal: controller.signal
-          });
+          }, { fetchImpl });
 
           if (!response.ok) {
             const detail = await safeReadText(response);
@@ -1227,15 +1241,16 @@ async function safeReadText(response: Response): Promise<string> {
 async function fetchWithRetry(
   apiUrl: string,
   init: RequestInit,
-  opts?: { retries?: number; baseMs?: number }
+  opts?: { retries?: number; baseMs?: number; fetchImpl?: typeof fetch }
 ): Promise<Response> {
+  const doFetch = opts?.fetchImpl ?? fetch;
   const retries = opts?.retries ?? 3;
   const baseMs = opts?.baseMs ?? 500;
   const transientNetworkRe = /fetch failed|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|network error/i;
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(apiUrl, init);
+      const response = await doFetch(apiUrl, init);
       if (response.status >= 500 && response.status <= 599) {
         if (attempt < retries) {
           // Drain and discard the body so the connection can be reused

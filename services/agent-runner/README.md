@@ -12,8 +12,12 @@ else crosses in either direction.
 
 ```
 POST /v1/turns    TurnRequest → NDJSON RunnerEvent stream
-GET  /healthz     { ok, protocol }
+GET  /healthz     { ok, protocol, capabilities }
 ```
+
+`capabilities` lists additive behaviours this build implements
+(`egress-policy`). A caller that depends on a field an older runner would
+silently ignore — `provider.egress` above all — checks for it here first.
 
 Stream rule the gateway relies on: `turn.completed` / `turn.error` is
 always the final line; a stream that ends without one is a failed turn,
@@ -77,6 +81,7 @@ What the runner enforces on its own, regardless of what is in front:
 | --- | --- |
 | Workspace jail | `workspacePath` must resolve inside `AGENT_RUNNER_WORKSPACE_ROOT` both lexically and after `realpath`. No root configured = every turn is refused. |
 | Provider egress | `provider.baseUrl` must be http(s), and must match `AGENT_RUNNER_ALLOWED_PROVIDER_HOSTS` when that is set. |
+| User endpoints (SSRF) | A provider sent with `egress: "public-only"` (a URL a user typed, such as the web Providers tab's custom Ollama URL) must resolve to public addresses only — no loopback, private, CGNAT, link-local/metadata, NAT64/6to4 or other special ranges — or the turn is refused with `400 EGRESS_BLOCKED`. The provider's connections re-check the address at connect time (DNS rebinding) and redirects are refused. `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE` is the only way through. |
 | Tool policy | Every tool call passes the permission gate; a security floor (destructive commands, credential paths, writes outside the workspace) applies in every mode. |
 | Request size | Bodies over the cap are refused with `413` and the connection is torn down rather than buffered. |
 | Cancellation | A caller that disconnects aborts the turn — the loop stops and no further tool call executes. |
@@ -93,6 +98,7 @@ What the runner enforces on its own, regardless of what is in front:
 | `AGENT_RUNNER_PERMISSION_MODE` | `standard` | `standard` (deny the critical risk tier), `read-only` (reads and searches only), `unrestricted` (tier checks off — isolated sandboxes only; the security floor still applies). |
 | `AGENT_RUNNER_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` \| `silent`. |
 | `AGENT_RUNNER_MAX_BODY_BYTES` | `1000000` | Largest request body buffered before a `413`. |
+| `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE` | unset (none) | Comma-separated CIDRs and hostnames a `public-only` (user-supplied) provider endpoint may reach even though they are not public. A hostname entry trusts whatever it resolves to. A malformed CIDR refuses startup. |
 | `RUNNER_GRAPH` | enabled | Set `0` to disable graph decomposition and run every turn as a plain loop. |
 
 ### Logs and correlation

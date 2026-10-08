@@ -22,6 +22,7 @@ import type { AIMessage } from '@burtson-labs/stealth-core-runtime';
 import type { ChatFn, ToolLoopMessage } from '@burtson-labs/agent-core';
 import { DeterministicProviderClient } from '@burtson-labs/agent-core';
 import type { TurnProvider } from './contract.js';
+import { createPublicOnlyFetch, NO_ALLOWANCE, type EgressAllowance } from './egress.js';
 
 /**
  * Scripted provider for seam proofs and load tests: each chat() call pops
@@ -38,7 +39,21 @@ class ScriptedChat {
   }
 }
 
-function settingsFor(spec: TurnProvider): ProviderSettings {
+function settingsFor(spec: TurnProvider, opts: ChatFnOptions): ProviderSettings {
+  // A user-chosen endpoint gets the egress-checking fetch (connect-time
+  // address check, no redirects); operator endpoints use the global fetch.
+  const fetchImpl =
+    spec.kind !== 'deterministic' && spec.egress === 'public-only'
+      ? createPublicOnlyFetch(opts.egressAllowance ?? NO_ALLOWANCE)
+      : undefined;
+  return { ...baseSettingsFor(spec), ...(fetchImpl ? { fetchImpl } : {}) };
+}
+
+export interface ChatFnOptions {
+  egressAllowance?: EgressAllowance;
+}
+
+function baseSettingsFor(spec: TurnProvider): ProviderSettings {
   switch (spec.kind) {
     case 'ollama':
       // Ollama Cloud auth: the runtime's ollama path reads ollamaHeaders —
@@ -71,7 +86,7 @@ function toAIMessages(messages: ToolLoopMessage[]): AIMessage[] {
 }
 
 /** The loop's ChatFn for a given provider spec. */
-export async function chatFnFor(spec: TurnProvider): Promise<ChatFn> {
+export async function chatFnFor(spec: TurnProvider, opts: ChatFnOptions = {}): Promise<ChatFn> {
   if (spec.kind === 'deterministic') {
     if (spec.script?.length) {
       const scripted = new ScriptedChat(spec.script);
@@ -87,7 +102,7 @@ export async function chatFnFor(spec: TurnProvider): Promise<ChatFn> {
     };
   }
 
-  const settings = settingsFor(spec);
+  const settings = settingsFor(spec, opts);
   const provider = await createProvider(settings);
   const model = spec.kind === 'ollama' || spec.kind === 'openai-compat' ? spec.model : '';
 

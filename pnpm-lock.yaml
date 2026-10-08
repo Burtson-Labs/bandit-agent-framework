@@ -484,6 +484,9 @@ importers:
       '@burtson-labs/stealth-core-runtime':
         specifier: workspace:*
         version: link:../../packages/stealth-core-runtime
+      undici:
+        specifier: 7.29.1
+        version: 7.29.1
     devDependencies:
       vitest:
         specifier: '>=4.1.11 <5.0.0'

@@ -28,7 +28,8 @@
 import * as http from 'node:http';
 import type { Readable } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { ContractError, PROTOCOL_VERSION, parseTurnRequest } from './contract.js';
+import { ContractError, PROTOCOL_VERSION, RUNNER_CAPABILITIES, parseTurnRequest } from './contract.js';
+import { assertPublicEgress, NO_ALLOWANCE, type Resolver } from './egress.js';
 import { runTurn } from './turn.js';
 import { DEFAULT_MAX_BODY_BYTES, loadRunnerConfig, type RunnerConfig } from './config.js';
 import { createLogger, REQUEST_ID_HEADER, resolveRequestId, type Logger } from './logger.js';
@@ -114,6 +115,8 @@ export interface RunnerServerDeps {
   runTurn?: typeof runTurn;
   /** Idle time before a keepalive is written on a turn stream. Defaults to 15 s. */
   keepaliveIntervalMs?: number;
+  /** Test seam: DNS for the user-endpoint egress check. Defaults to the system resolver. */
+  resolve?: Resolver;
 }
 
 export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps = {}): http.Server {
@@ -160,7 +163,7 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
     void (async () => {
       if (method === 'GET' && route === '/healthz') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, protocol: PROTOCOL_VERSION }));
+        res.end(JSON.stringify({ ok: true, protocol: PROTOCOL_VERSION, capabilities: RUNNER_CAPABILITIES }));
         return;
       }
 
@@ -182,6 +185,11 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
           // and hand the turn the CANONICAL workspace path so the jail root
           // is the realpath the containment check approved.
           validateProvider(turn.provider, config.allowedProviderHosts);
+          // A user-chosen endpoint must resolve to public addresses only
+          // (no pod/service/node networks, loopback or metadata). The
+          // provider's fetch re-checks at connect time; this is what gives
+          // the caller a clear reason up front.
+          await assertPublicEgress(turn.provider, config.egressAllowance ?? NO_ALLOWANCE, deps.resolve);
           turn = { ...turn, workspacePath: resolveWorkspacePath(turn.workspacePath, config.workspaceRoot) };
         } catch (err) {
           const ce = err instanceof ContractError ? err : new ContractError('BAD_REQUEST', String(err));
@@ -223,6 +231,7 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
           await executeTurn(turn, emit, {
             permissionMode: config.permissionMode,
             signal: cancel.signal,
+            egressAllowance: config.egressAllowance,
           });
         } catch (err) {
           const message = String(err instanceof Error ? err.message : err);

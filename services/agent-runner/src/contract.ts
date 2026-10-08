@@ -21,6 +21,14 @@
 
 export const PROTOCOL_VERSION = 1 as const;
 
+/**
+ * Additive capabilities this runner build implements, advertised on
+ * `GET /healthz`. A caller relying on a field an older runner would
+ * silently ignore (e.g. `provider.egress`) must check for it here first —
+ * ignoring a security field is not a safe degradation.
+ */
+export const RUNNER_CAPABILITIES = ['egress-policy'] as const;
+
 /** POST /v1/turns request body. */
 export interface TurnRequest {
   protocol: typeof PROTOCOL_VERSION;
@@ -40,6 +48,18 @@ export interface TurnRequest {
   maxIterations?: number;
 }
 
+/**
+ * Who chose a provider's endpoint, and so what it may reach. Absent = the
+ * operator configured it (cluster daemon, Ollama Cloud) and it is trusted.
+ * `'public-only'` = a USER supplied it (the Providers tab's custom Ollama
+ * URL): the runner refuses unless every address it resolves to is public,
+ * re-checks at connect time, and refuses redirects — see `egress.ts`.
+ * Additive within protocol 1: an older runner ignores the field, so the
+ * gateway must only send user URLs to a runner that reports
+ * `egressPolicy` on /healthz.
+ */
+export type ProviderEgress = 'public-only';
+
 export type TurnProvider =
   | { kind: 'deterministic'; script?: string[] }
   | {
@@ -50,6 +70,7 @@ export type TurnProvider =
        *  layer already sends it as an Authorization header. Omit for a
        *  local/cluster daemon. */
       apiKey?: string;
+      egress?: ProviderEgress;
     }
   | {
       kind: 'openai-compat';
@@ -58,6 +79,7 @@ export type TurnProvider =
       baseUrl: string;
       apiKey: string;
       model: string;
+      egress?: ProviderEgress;
     };
 
 /**

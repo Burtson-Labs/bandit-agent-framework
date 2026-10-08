@@ -36,6 +36,7 @@ import {
   type ToolExecutionContext,
 } from '@burtson-labs/agent-core';
 import { chatFnFor } from './providers.js';
+import type { EgressAllowance } from './egress.js';
 import { buildToolGate, parsePermissionMode, type PermissionMode } from './toolGate.js';
 import type { RunnerEvent, TurnRequest } from './contract.js';
 
@@ -243,6 +244,8 @@ export async function runTurn(
     /** Cancellation from the HTTP request (COMP-004). Aborting it stops the
      *  loop, the graph, and every subsequent tool call. */
     signal?: AbortSignal;
+    /** Private targets a `public-only` provider may still reach. */
+    egressAllowance?: EgressAllowance;
   },
 ): Promise<void> {
   const { taskId } = req;
@@ -340,7 +343,7 @@ export async function runTurn(
     },
   });
 
-  const chat = deps?.chat ?? (await chatFnFor(req.provider));
+  const chat = deps?.chat ?? (await chatFnFor(req.provider, { egressAllowance: deps?.egressAllowance }));
 
   // ── Graph route ────────────────────────────────────────────────────
   // Decomposable prompts run as a DAG: planner proposes nodes (one extra

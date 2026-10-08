@@ -139,7 +139,7 @@ describe('auth (SEC-001)', () => {
     const res = await fetch(`${url}/healthz`);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, protocol: 1 });
+    expect(await res.json()).toEqual({ ok: true, protocol: 1, capabilities: ['egress-policy'] });
   });
 
   it('runs unauthenticated when no token is configured (loopback dev mode)', async () => {
@@ -185,6 +185,60 @@ describe('request validation at the seam (SEC-002)', () => {
     );
 
     expect(res.status).toBe(400);
+  });
+
+  it('refuses a user-supplied endpoint that resolves into the cluster, before the turn starts', async () => {
+    const { root, ws } = workspace();
+    let ran = false;
+    const { url } = await start(
+      { workspaceRoot: root },
+      {
+        runTurn: async (req, emit) => {
+          ran = true;
+          await stubTurn(req, emit);
+        },
+        resolve: async () => ['10.43.0.10'],
+      },
+    );
+
+    const res = await post(
+      url,
+      turnBody(ws, {
+        provider: { kind: 'ollama', baseUrl: 'http://my-ollama.example:11434', model: 'm', egress: 'public-only' },
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe('EGRESS_BLOCKED');
+    expect(body.message).toMatch(/10\.43\.0\.10/);
+    expect(ran).toBe(false);
+  });
+
+  it('runs a user-supplied endpoint that resolves public', async () => {
+    const { root, ws } = workspace();
+    const { url } = await start({ workspaceRoot: root }, { runTurn: stubTurn, resolve: async () => ['34.1.2.3'] });
+
+    const res = await post(
+      url,
+      turnBody(ws, {
+        provider: { kind: 'ollama', baseUrl: 'https://my-ollama.example', model: 'm', egress: 'public-only' },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('leaves operator-configured cluster providers alone', async () => {
+    const { root, ws } = workspace();
+    const { url } = await start({ workspaceRoot: root }, { runTurn: stubTurn, resolve: async () => ['10.43.0.10'] });
+
+    const res = await post(
+      url,
+      turnBody(ws, { provider: { kind: 'ollama', baseUrl: 'http://ollama-k8s.ollama.svc.cluster.local:11434', model: 'm' } }),
+    );
+
+    expect(res.status).toBe(200);
   });
 
   it('answers a protocol mismatch with 426 rather than guessing', async () => {

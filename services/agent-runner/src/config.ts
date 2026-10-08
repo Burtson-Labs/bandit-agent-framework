@@ -12,6 +12,7 @@
  */
 import { parseLogLevel, type LogLevelSetting } from './logger.js';
 import { parsePermissionMode, type PermissionMode } from './toolGate.js';
+import { parseEgressAllowance, type EgressAllowance } from './egress.js';
 
 export interface RunnerConfig {
   port: number;
@@ -32,6 +33,9 @@ export interface RunnerConfig {
   /** Largest request body the runner will buffer, in bytes (TD-004).
    *  Default 1 MB. */
   maxBodyBytes: number;
+  /** Private targets a user-supplied (`egress: 'public-only'`) endpoint
+   *  may still reach — `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE`. Empty default. */
+  egressAllowance?: EgressAllowance;
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
@@ -91,5 +95,6 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
     permissionMode: parsePermissionMode(env.AGENT_RUNNER_PERMISSION_MODE),
     logLevel: parseLogLevel(env.AGENT_RUNNER_LOG_LEVEL),
     maxBodyBytes,
+    egressAllowance: parseEgressAllowance(env.AGENT_RUNNER_EGRESS_ALLOW_PRIVATE),
   };
 }
