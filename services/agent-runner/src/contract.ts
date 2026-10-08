@@ -112,6 +112,9 @@ export type RunnerEvent =
       hitLimit?: boolean;
       iterations?: number;
       toolCalls?: number;
+      /** Which tool channel the turn used — `native` (the model's own tool
+       *  calling) or `text` (Bandit's tool block). See toolChannel.ts. */
+      toolChannel?: 'native' | 'text';
     }
   | {
       /** Graph execution: the accepted plan, one event, nodes in spec order. */

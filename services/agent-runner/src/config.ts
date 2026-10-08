@@ -13,6 +13,7 @@
 import { parseLogLevel, type LogLevelSetting } from './logger.js';
 import { parsePermissionMode, type PermissionMode } from './toolGate.js';
 import { parseEgressAllowance, type EgressAllowance } from './egress.js';
+import { parseNativeToolsMode, type NativeToolsMode } from './toolChannel.js';
 
 export interface RunnerConfig {
   port: number;
@@ -36,6 +37,9 @@ export interface RunnerConfig {
   /** Private targets a user-supplied (`egress: 'public-only'`) endpoint
    *  may still reach — `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE`. Empty default. */
   egressAllowance?: EgressAllowance;
+  /** Native tool-calls gate (`AGENT_RUNNER_NATIVE_TOOLS`): `off` (default,
+   *  text channel for every turn) or `auto` (per model capabilities). */
+  nativeToolsMode?: NativeToolsMode;
 }
 
 export type RunnerEnv = Record<string, string | undefined>;
@@ -96,5 +100,6 @@ export function loadRunnerConfig(env: RunnerEnv = process.env): RunnerConfig {
     logLevel: parseLogLevel(env.AGENT_RUNNER_LOG_LEVEL),
     maxBodyBytes,
     egressAllowance: parseEgressAllowance(env.AGENT_RUNNER_EGRESS_ALLOW_PRIVATE),
+    nativeToolsMode: parseNativeToolsMode(env.AGENT_RUNNER_NATIVE_TOOLS),
   };
 }

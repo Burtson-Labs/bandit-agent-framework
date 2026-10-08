@@ -10,15 +10,15 @@
  * A fresh HTTP client here would rediscover each of those lessons as a
  * production incident.
  *
- * v1 drives the XML tool path (no `tools` field sent). Enabling the
- * native channel is a follow-up gated on modelCapabilities'
- * supportsToolCalling probe, and changes nothing in the runner contract.
+ * The text (XML) tool channel is the default; the native channel is
+ * gated per model by toolChannel.ts (AGENT_RUNNER_NATIVE_TOOLS=auto) and
+ * changes nothing in the runner contract.
  */
 import {
   createProvider,
   type ProviderSettings,
 } from '@burtson-labs/stealth-core-runtime';
-import type { AIMessage } from '@burtson-labs/stealth-core-runtime';
+import type { AIChatRequest, AIMessage } from '@burtson-labs/stealth-core-runtime';
 import type { ChatFn, ToolLoopMessage } from '@burtson-labs/agent-core';
 import { DeterministicProviderClient } from '@burtson-labs/agent-core';
 import type { TurnProvider } from './contract.js';
@@ -39,18 +39,28 @@ class ScriptedChat {
   }
 }
 
+/**
+ * The fetch every request to this provider goes through. A user-chosen
+ * endpoint gets the egress-checking fetch (connect-time address check, no
+ * redirects); operator endpoints use the global fetch. Exported so the
+ * capability probe obeys the same policy as the turn.
+ */
+export function providerFetchFor(spec: TurnProvider, opts: ChatFnOptions = {}): typeof fetch | undefined {
+  return spec.kind !== 'deterministic' && spec.egress === 'public-only'
+    ? createPublicOnlyFetch(opts.egressAllowance ?? NO_ALLOWANCE)
+    : undefined;
+}
+
 function settingsFor(spec: TurnProvider, opts: ChatFnOptions): ProviderSettings {
-  // A user-chosen endpoint gets the egress-checking fetch (connect-time
-  // address check, no redirects); operator endpoints use the global fetch.
-  const fetchImpl =
-    spec.kind !== 'deterministic' && spec.egress === 'public-only'
-      ? createPublicOnlyFetch(opts.egressAllowance ?? NO_ALLOWANCE)
-      : undefined;
+  const fetchImpl = opts.fetchImpl ?? providerFetchFor(spec, opts);
   return { ...baseSettingsFor(spec), ...(fetchImpl ? { fetchImpl } : {}) };
 }
 
 export interface ChatFnOptions {
   egressAllowance?: EgressAllowance;
+  /** A fetch already built for this provider (shared with the capability
+   *  probe); built from `egressAllowance` when absent. */
+  fetchImpl?: typeof fetch;
 }
 
 function baseSettingsFor(spec: TurnProvider): ProviderSettings {
@@ -106,11 +116,16 @@ export async function chatFnFor(spec: TurnProvider, opts: ChatFnOptions = {}): P
   const provider = await createProvider(settings);
   const model = spec.kind === 'ollama' || spec.kind === 'openai-compat' ? spec.model : '';
 
-  return async function* providerChat(messages) {
+  return async function* providerChat(messages, tools) {
     const stream = provider.chat({
       model,
       messages: toAIMessages(messages),
       stream: true,
+      // Native channel: the loop passes the registry's schemas on every
+      // call when nativeTools is on (see toolChannel.ts); the provider
+      // sends them as the request's `tools` field and translates the
+      // model's tool_calls back into inline markup. Absent = text channel.
+      ...(tools && tools.length > 0 ? { tools: tools as AIChatRequest['tools'] } : {}),
     });
     for await (const chunk of stream) {
       // `thinking` stays out of the transcript by design; the loop only

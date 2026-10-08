@@ -232,6 +232,7 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
             permissionMode: config.permissionMode,
             signal: cancel.signal,
             egressAllowance: config.egressAllowance,
+            nativeToolsMode: config.nativeToolsMode,
           });
         } catch (err) {
           const message = String(err instanceof Error ? err.message : err);
@@ -280,6 +281,7 @@ if (require.main === module) {
       protocol: PROTOCOL_VERSION,
       auth: config.token ? 'bearer' : 'none',
       permissionMode: config.permissionMode,
+      nativeTools: config.nativeToolsMode ?? 'off',
       // Loud, because an unauthenticated runner is only ever acceptable on
       // loopback and someone reading the logs should see that spelled out.
       ...(config.token ? {} : { warning: 'AGENT_RUNNER_TOKEN unset: unauthenticated dev mode, loopback bind only' }),

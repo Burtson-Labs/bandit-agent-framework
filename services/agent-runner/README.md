@@ -99,6 +99,7 @@ What the runner enforces on its own, regardless of what is in front:
 | `AGENT_RUNNER_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` \| `silent`. |
 | `AGENT_RUNNER_MAX_BODY_BYTES` | `1000000` | Largest request body buffered before a `413`. |
 | `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE` | unset (none) | Comma-separated CIDRs and hostnames a `public-only` (user-supplied) provider endpoint may reach even though they are not public. A hostname entry trusts whatever it resolves to. A malformed CIDR refuses startup. |
+| `AGENT_RUNNER_NATIVE_TOOLS` | `off` | `off`: every turn uses the text tool channel (Bandit's tool block). `auto`: per model — native tool calling when the model takes tools (Ollama `/api/show` capabilities first, the runtime's capability table when Ollama cannot be asked) and its behavior profile prefers the native envelope; openai-compatible servers go native. The same rule as the desktop IDE and the CLI. `turn.completed.toolChannel` reports which channel ran. A typo refuses startup. |
 | `RUNNER_GRAPH` | enabled | Set `0` to disable graph decomposition and run every turn as a plain loop. |
 
 ### Logs and correlation
@@ -124,5 +125,4 @@ workspace root, and a network policy that admits traffic only from the
 component in front and permits egress only to the configured provider
 hosts.
 
-Next increments, in order: gateway delegation behind a flag in
-StealthRuntimeService, per-turn sandboxing.
+Next increment: per-turn sandboxing.

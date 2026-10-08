@@ -37,6 +37,8 @@ import {
 } from '@burtson-labs/agent-core';
 import { chatFnFor } from './providers.js';
 import type { EgressAllowance } from './egress.js';
+import { providerFetchFor } from './providers.js';
+import { parseNativeToolsMode, resolveToolChannel, type NativeToolsMode } from './toolChannel.js';
 import { buildToolGate, parsePermissionMode, type PermissionMode } from './toolGate.js';
 import type { RunnerEvent, TurnRequest } from './contract.js';
 
@@ -84,7 +86,7 @@ function emitTerminal(
   assistantText: string,
   hitLimit: boolean,
   emit: (e: RunnerEvent) => void,
-  stats: { iterations: number; toolCalls: number } = { iterations: 0, toolCalls: 0 },
+  stats: { iterations: number; toolCalls: number; toolChannel?: 'native' | 'text' } = { iterations: 0, toolCalls: 0 },
 ): void {
   if (artifacts === 0 && requiresWorkspaceMutation(req.prompt)) {
     emit({
@@ -112,6 +114,7 @@ function emitTerminal(
     hitLimit,
     iterations: stats.iterations,
     toolCalls: stats.toolCalls,
+    ...(stats.toolChannel ? { toolChannel: stats.toolChannel } : {}),
   });
 }
 
@@ -246,6 +249,11 @@ export async function runTurn(
     signal?: AbortSignal;
     /** Private targets a `public-only` provider may still reach. */
     egressAllowance?: EgressAllowance;
+    /** Native tool-calls gate. Defaults to AGENT_RUNNER_NATIVE_TOOLS, then
+     *  `off`. */
+    nativeToolsMode?: NativeToolsMode;
+    /** Test seam: force the channel instead of resolving it. */
+    nativeTools?: boolean;
   },
 ): Promise<void> {
   const { taskId } = req;
@@ -284,8 +292,24 @@ export async function runTurn(
 
   const registry = createCoreToolRegistry();
   const maxIterations = req.maxIterations ?? 10;
+
+  // One fetch per turn for this provider: the capability probe and the
+  // turn's requests share it, so both obey the same egress policy.
+  const providerFetch = providerFetchFor(req.provider, { egressAllowance: deps?.egressAllowance });
+  const nativeTools =
+    deps?.nativeTools ??
+    (
+      await resolveToolChannel(
+        req.provider,
+        deps?.nativeToolsMode ?? parseNativeToolsMode(process.env.AGENT_RUNNER_NATIVE_TOOLS),
+        providerFetch ?? fetch,
+      )
+    ).native;
+  const toolChannel = nativeTools ? 'native' : 'text';
+
   const loop = createToolUseLoop(registry, ctx, {
     maxIterations,
+    nativeTools,
     // The tool budget scales with the iteration budget: a 40-iteration turn
     // that reads a few files per round hit the flat 120 cap long before its
     // iterations ran out, and the cap ends the turn with hitLimit just like
@@ -343,7 +367,8 @@ export async function runTurn(
     },
   });
 
-  const chat = deps?.chat ?? (await chatFnFor(req.provider, { egressAllowance: deps?.egressAllowance }));
+  const chat =
+    deps?.chat ?? (await chatFnFor(req.provider, { egressAllowance: deps?.egressAllowance, fetchImpl: providerFetch }));
 
   // ── Graph route ────────────────────────────────────────────────────
   // Decomposable prompts run as a DAG: planner proposes nodes (one extra
@@ -381,6 +406,7 @@ export async function runTurn(
                 systemPrompt: RUNNER_SYSTEM_PROMPT,
                 loopOptions: {
                   maxIterations: Math.max(4, Math.floor((req.maxIterations ?? 10) / 2)),
+                  nativeTools,
                   // wrapLoopAsNode composes this with the node's envelope
                   // gate — envelope first, runner policy second.
                   beforeToolExecute: toolGate,
@@ -445,7 +471,7 @@ ${(body ?? '').toString().slice(0, 2000)}`);
         emit({ type: 'turn.error', taskId, code: 'GRAPH_ALL_NODES_FAILED', message: `all ${failed} nodes failed` });
         return;
       }
-      emitTerminal(req, artifacts, finalText, false, emit, { iterations: 0, toolCalls });
+      emitTerminal(req, artifacts, finalText, false, emit, { iterations: 0, toolCalls, toolChannel });
       return;
     }
   }
@@ -462,5 +488,6 @@ ${(body ?? '').toString().slice(0, 2000)}`);
   emitTerminal(req, artifacts, result.finalResponse, result.hitLimit, emit, {
     iterations: result.iterations,
     toolCalls,
+    toolChannel,
   });
 }
