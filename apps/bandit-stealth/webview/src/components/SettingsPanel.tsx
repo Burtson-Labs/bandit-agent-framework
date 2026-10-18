@@ -1,10 +1,9 @@
-import type { JSX } from "react";
+import { useRef, type JSX, type KeyboardEvent } from "react";
 import clsx from "clsx";
 import type {
   Cog6ToothIcon} from "@heroicons/react/24/outline";
 import {
   ArrowLeftIcon,
-  BeakerIcon,
   BriefcaseIcon,
   CheckBadgeIcon,
   PuzzlePieceIcon,
@@ -136,13 +135,11 @@ interface SettingsTabDef {
   Icon: typeof Cog6ToothIcon;
 }
 
-// Tabs render as icon + tooltip-on-hover so the strip never wraps,
-// even when the panel is in a narrow side-by-side layout. The label
-// still drives the accessible name + tooltip text — sighted users
-// hover, screen readers read the aria-label, keyboard users get the
-// title attribute. Provider tabs (Account requires bandit cloud) are
-// filtered at render time, not here.
-const SETTINGS_TABS: SettingsTabDef[] = [
+// Tabs render as icon + label and wrap onto a second row in a narrow
+// side bar, the way the desktop IDE's settings rail does. (They were
+// icon-only, which made users hover each one to find a section.) The
+// Account tab is filtered at render time when the provider isn't Bandit.
+export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: "account", label: "Account", Icon: UserCircleIcon },
   { id: "providers", label: "Providers", Icon: ServerStackIcon },
   { id: "connections", label: "Connections", Icon: PuzzlePieceIcon },
@@ -225,7 +222,26 @@ export function SettingsPanel({
   hasTavilyKey
 }: SettingsPanelProps): JSX.Element {
   const canSaveKey = !maskStoredKey && apiKeyDraft.trim().length > 0;
-  const activeTabLabel = SETTINGS_TABS.find((tab) => tab.id === activeTab)?.label ?? "Settings";
+  // Hide the Account tab when the active provider isn't Bandit — that tab
+  // is purely Bandit-cloud state (profile, credits, API key).
+  const visibleTabs = SETTINGS_TABS.filter((tab) => tab.id !== "account" || providerKind === "bandit");
+  const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>());
+
+  // WAI-ARIA tabs keyboard model: arrows move between tabs (wrapping),
+  // Home/End jump to the ends. Selection follows focus.
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const index = visibleTabs.findIndex((tab) => tab.id === activeTab);
+    let next = -1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {next = (index + 1) % visibleTabs.length;}
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {next = (index - 1 + visibleTabs.length) % visibleTabs.length;}
+    else if (event.key === "Home") {next = 0;}
+    else if (event.key === "End") {next = visibleTabs.length - 1;}
+    if (next < 0) {return;}
+    event.preventDefault();
+    const target = visibleTabs[next];
+    onSelectTab(target.id);
+    tabRefs.current.get(target.id)?.focus();
+  };
 
   const renderAppearance = (): JSX.Element => (
     <div className="settings-card">
@@ -497,32 +513,35 @@ export function SettingsPanel({
         onRefresh={onRefreshAccountProfile}
       />
       <div className="settings-card">
-        <h3>Usage</h3>
-        <p className="settings-note">
-          Session (5-hour) and weekly (7-day) rolling limits for Bandit cloud. Admins see usage but aren't enforced.
-        </p>
-        <div className="settings-actions settings-actions--end">
-          <button type="button" className="stealth-button" onClick={onOpenUsage}>
+        <div className="settings-preference">
+          <div>
+            <h3>Usage</h3>
+            <p className="settings-note">
+              Session (5-hour) and weekly (7-day) limits for Bandit cloud.
+            </p>
+          </div>
+          <button type="button" className="stealth-button stealth-button--ghost" onClick={onOpenUsage}>
             View usage
           </button>
         </div>
       </div>
       <div className="settings-card">
         <h3>Bandit Cloud sign-in</h3>
-        <p className="settings-note">Sign in with your Burtson Labs account — a device key is issued and stored in VS Code secret storage. You can revoke it later from the Burtson Labs Account page without affecting your other sessions.</p>
-        <div className="settings-actions settings-actions--end">
-          <button
-            type="button"
-            className="stealth-button"
-            onClick={onSignInWithBurtson}
-            disabled={hasStoredApiKey}
-          >
-            {hasStoredApiKey ? "Signed in" : "Sign in with Burtson Labs"}
-          </button>
-        </div>
-        <details style={{ marginTop: "0.75rem" }}>
-          <summary style={{ cursor: "pointer", fontSize: "0.85rem", opacity: 0.75 }}>Or paste an API key manually</summary>
-          <div style={{ marginTop: "0.6rem" }}>
+        <p className="settings-note">
+          {hasStoredApiKey
+            ? "Signed in. The device key is in VS Code secret storage; revoke it from your Burtson Labs account page."
+            : "Sign in with your Burtson Labs account. A device key is issued and kept in VS Code secret storage."}
+        </p>
+        {!hasStoredApiKey && (
+          <div className="settings-actions">
+            <button type="button" className="stealth-button" onClick={onSignInWithBurtson}>
+              Sign in with Burtson Labs
+            </button>
+          </div>
+        )}
+        <details className="settings-details">
+          <summary>Paste an API key instead</summary>
+          <div className="settings-details__body">
             <p className="settings-note">For users who already have a Bandit Cloud key — keys are stored in VS Code secret storage on this device.</p>
             <div className="settings-input-row">
               <input
@@ -959,81 +978,70 @@ export function SettingsPanel({
               : renderAppearance();
 
   return (
-    <section className="settings-panel" aria-label={`${activeTabLabel} settings`}>
+    <section className="settings-panel" aria-label="Settings">
       <header className="settings-panel__header">
         <button
           type="button"
-          className="stealth-button stealth-button--ghost"
+          className="icon-button"
           onClick={onClose}
           disabled={disableClose}
-          title="Return to your conversation"
-          style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+          aria-label="Back to conversation"
+          title="Back to conversation"
         >
-          <ArrowLeftIcon aria-hidden="true" style={{ width: 14, height: 14 }} />
-          <span>Conversation</span>
+          <ArrowLeftIcon aria-hidden="true" />
         </button>
-        <h2 style={{ margin: 0 }}>{activeTabLabel}</h2>
-        <span aria-hidden="true" />
+        <h2>Settings</h2>
       </header>
       {requireKey && (
         <div className="settings-panel__notice">
           <p>Connect a valid API key to continue using Bandit Stealth.</p>
         </div>
       )}
-      <div className="settings-tabs settings-tabs--icons" role="tablist" aria-label="Settings sections">
-        {SETTINGS_TABS
-          // Hide the Account tab when the active provider isn't Bandit —
-          // that tab is purely Bandit-cloud state (profile, credits, API
-          // key). Ollama-only users don't need it and it's the biggest
-          // source of "why am I looking at a Bandit API key field?"
-          // confusion. Stays visible and selectable on Bandit.
-          .filter((tab) => tab.id !== "account" || providerKind === "bandit")
-          .map((tab) => (
+      <div
+        className="settings-tabs"
+        role="tablist"
+        aria-label="Settings sections"
+        onKeyDown={handleTabKeyDown}
+      >
+        {visibleTabs.map((tab) => {
+          const selected = activeTab === tab.id;
+          return (
             <button
               key={tab.id}
+              ref={(node) => {
+                if (node) {tabRefs.current.set(tab.id, node);}
+                else {tabRefs.current.delete(tab.id);}
+              }}
+              id={`settings-tab-${tab.id}`}
               type="button"
-              className={clsx("settings-tab settings-tab--icon", activeTab === tab.id && "is-active")}
+              className={clsx("settings-tab", selected && "is-active")}
               role="tab"
-              aria-selected={activeTab === tab.id}
-              aria-label={tab.label}
-              title={tab.label}
-              data-has-tooltip="true"
-              data-tooltip={tab.label}
+              aria-selected={selected}
+              aria-controls="settings-tabpanel"
+              tabIndex={selected ? 0 : -1}
               onClick={() => onSelectTab(tab.id)}
             >
               <tab.Icon aria-hidden="true" />
-              <span className="settings-tab__label-active">{tab.label}</span>
+              <span>{tab.label}</span>
             </button>
-          ))}
+          );
+        })}
       </div>
-      <div className="settings-panel__content">{tabContent}</div>
+      <div
+        className="settings-panel__content"
+        id="settings-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${activeTab}`}
+      >
+        {tabContent}
+      </div>
       <footer className="settings-panel__footer">
-        <span className="settings-panel__footer-brand">
-          Bandit Stealth
-          {brandLogoSrc && (
-            <img
-              src={brandLogoSrc}
-              alt="Bandit logo"
-              className="settings-panel__footer-logo"
-              decoding="async"
-              loading="lazy"
-            />
-          )}
-        </span>
-        <span className="settings-panel__footer-divider" aria-hidden="true">
-          ·
-        </span>
-        <span className="settings-panel__footer-credit">
-          Developed by
-          <BeakerIcon aria-hidden="true" />
-          Burtson Labs
-        </span>
-        {extensionVersion && (
-          <>
-            <span className="settings-panel__footer-divider" aria-hidden="true">·</span>
-            <span className="settings-panel__footer-version">v{extensionVersion}</span>
-          </>
+        {brandLogoSrc && (
+          <img src={brandLogoSrc} alt="" className="settings-panel__footer-logo" decoding="async" loading="lazy" />
         )}
+        <span>
+          Bandit Stealth{extensionVersion ? ` ${extensionVersion}` : ""} · Burtson Labs
+        </span>
       </footer>
     </section>
   );

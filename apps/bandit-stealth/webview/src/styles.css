@@ -3,7 +3,14 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* VS Code's UI font and size, so the panel reads like the rest of the
+     workbench (and follows the user's window.zoom / font settings). */
+  font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+}
+
+body {
+  font-size: var(--vscode-font-size, 13px);
+  line-height: 1.4;
 }
 
 :root {
@@ -198,8 +205,8 @@ body.bandit-theme-midnight {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1rem 1.25rem 1.25rem;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem 0.75rem;
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
@@ -208,61 +215,42 @@ body.bandit-theme-midnight {
 .stealth-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 0.25rem;
+  gap: 0.5rem;
+  min-height: 28px;
+  padding: 0;
   flex-wrap: nowrap;
-  min-width: 0;
-}
-
-.stealth-toolbar__brand {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  flex-shrink: 0;
-}
-
-.stealth-toolbar__logo {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-}
-
-.stealth-toolbar__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  flex: 1;
   min-width: 0;
 }
 
 .stealth-toolbar__title {
   margin: 0;
-  font-size: 0.95rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  font-size: var(--vscode-font-size, 13px);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .stealth-toolbar__actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 2px;
   flex: 0 0 auto;
-  flex-shrink: 0;
 }
 
+/* Square ghost icon button, matching VS Code's toolbar actions: 26px hit
+   area, 16px glyph, hover fill from the theme's toolbar hover colour. */
 .icon-button {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--bandit-text-muted-rgb), 0.4);
-  background: rgba(var(--bandit-surface-rgb), 0.65);
-  color: inherit;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vscode-icon-foreground, currentColor);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -270,23 +258,23 @@ body.bandit-theme-midnight {
 }
 
 .icon-button svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
-.icon-button.active {
-  border-color: rgba(var(--bandit-accent-rgb), 0.65);
-  background: rgba(var(--bandit-accent-rgb), 0.15);
+.icon-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
-/* Muted state — used by toolbar icons to signal "this mode isn't
-   reachable from where you are right now" (e.g. clock + edit while
-   settings is open). Stays visible so the layout doesn't shift, but
-   visually de-emphasised and pointer-events neutralised via the
-   button's own `disabled` attribute. */
-.icon-button.is-muted {
-  opacity: 0.32;
-  cursor: not-allowed;
+.icon-button.active,
+.icon-button[aria-pressed="true"] {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31)));
+  border-color: var(--vscode-inputOption-activeBorder, transparent);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .stealth-action {
@@ -296,8 +284,6 @@ body.bandit-theme-midnight {
   background: rgba(var(--bandit-surface-rgb), 0.6);
   color: inherit;
   font-size: 0.85rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -403,178 +389,105 @@ body.bandit-theme-midnight {
   outline-offset: 2px;
 }
 
+/* ── Settings ─────────────────────────────────────────────────────────
+   Flat on the side bar like VS Code's own views: no outer card, sections
+   separated by hairlines, VS Code buttons and inputs, 13px type. The
+   desktop IDE's settings rail (labelled tabs that wrap) is the model. */
 .settings-panel {
-  border: 1px solid rgba(var(--bandit-border-rgb), 0.6);
-  border-radius: 18px;
-  padding: 1.25rem 1.5rem 1.5rem;
-  background: rgba(var(--bandit-panel-rgb), 0.9);
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
   min-height: 0;
-  /* Cap the panel to the viewport so the Account tab's stacked cards
-     (profile, usage, voice, API key, etc.) scroll within instead of
-     overflowing under the footer. The viewport minus ~3rem gives the
-     outer .stealth-shell padding room. The body — .settings-panel__content
-     — owns the scroll so the header/tabs/footer stay fixed. */
-  max-height: calc(100vh - 2rem);
+  flex: 1 1 auto;
+  /* The content area owns the scroll so the header, tabs and footer stay
+     put. */
+  max-height: calc(100vh - 1.25rem);
   overflow: hidden;
 }
 
 .settings-panel__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  /* Hard floor on the header height so the row below (the icon-tab
-     strip) can never visually nest under the Conversation pill on
-     narrow side-panels, which is what the Account tab was hitting
-     when the inner content forced the panel to its narrowest layout. */
-  min-height: 2.6rem;
-  margin-bottom: 0.6rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid rgba(var(--bandit-border-rgb), 0.25);
-}
-
-.settings-panel__eyebrow {
-  margin: 0;
-  font-size: 0.68rem;
-  letter-spacing: 0.35em;
-  text-transform: uppercase;
-  opacity: 0.7;
+  gap: 0.35rem;
+  min-height: 28px;
+  min-width: 0;
 }
 
 .settings-panel__header h2 {
-  margin: 0.2rem 0 0;
-  font-size: 1.1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  margin: 0;
+  font-size: var(--vscode-font-size, 13px);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-panel__notice {
-  border-radius: 10px;
-  background: rgba(var(--bandit-error-rgb), 0.15);
-  border: 1px solid rgba(var(--bandit-error-rgb), 0.35);
-  padding: 0.85rem;
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
+  border-radius: 3px;
+  background: var(--vscode-inputValidation-errorBackground, rgba(var(--bandit-error-rgb), 0.15));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, rgba(var(--bandit-error-rgb), 0.5));
+  padding: 0.4rem 0.6rem;
 }
 
+.settings-panel__notice p {
+  margin: 0;
+}
+
+/* Section switcher: icon + label, wraps onto more rows when narrow. */
 .settings-tabs {
-  /* Was inline-flex with wide letter-spacing — 4 tabs (Account,
-     Providers, Workspace, Appearance) overflowed the parent container
-     on narrow sidebars (observed 2026-04-22: Appearance tab poked
-     through the card's rounded border). Switch to flex + wrap so tabs
-     drop to a second row when needed, and tighten per-tab whitespace
-     so all four fit single-row at typical widths. */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  border-bottom: 1px solid rgba(var(--bandit-border-rgb), 0.4);
+  gap: 2px;
   padding-bottom: 0.4rem;
-  max-width: 100%;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.5));
+  min-width: 0;
 }
 
 .settings-tab {
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 24px;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  color: inherit;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.72rem;
-  padding: 0.3rem 0.55rem;
-  border-radius: 999px;
-  cursor: pointer;
-  opacity: 0.65;
+  color: var(--vscode-foreground, inherit);
+  font: inherit;
+  font-size: 12px;
   white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.settings-tab svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.settings-tab:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
 .settings-tab.is-active {
-  background: rgba(var(--bandit-accent-rgb), 0.15);
-  border: 1px solid rgba(var(--bandit-accent-rgb), 0.5);
   opacity: 1;
-}
-
-/* Icon-mode tab strip — used by the settings panel to keep tabs in
-   a single row even on narrow side panels. The active tab name is
-   already shown as the panel header on the right ("ACCOUNT", etc),
-   so the tabs themselves are pure icons + tooltip; no labels. With
-   labels gone every tab is ~30px so 6 tabs fit easily — we no
-   longer need an x-axis scrollbar at all. The previous version
-   left `overflow-x: auto` on which made browsers paint a janky
-   1-2px scroll nub even when there was no overflow. Switched to
-   `nowrap` + `min-width: 0` and let tabs that genuinely don't fit
-   (impossible for icon-only) wrap rather than scroll. */
-.settings-tabs--icons {
-  flex-wrap: nowrap;
-  /* `visible` so the tooltip rendered above each icon (a `::after`
-     pseudo-element on the button) isn't clipped by the strip's own
-     box. Was `hidden` to kill a phantom scrollbar — with icon-only
-     tabs the strip never overflows (six 30px icons fit any sidebar
-     width), so we don't need clipping anymore. The tooltip from the
-     active tab was getting cut off without this. */
-  overflow: visible;
-  padding-top: 0.5rem;
-  padding-bottom: 0.7rem;
-  margin-top: 0.4rem;
-  margin-bottom: 0.5rem;
-  min-width: 0;
-}
-.settings-tabs--icons::-webkit-scrollbar { display: none; }
-.settings-tab--icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.4rem 0.55rem;
-  flex: 0 0 auto;
-}
-.settings-tab--icon svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-/* Force the active pill to icon-width — overrides the .settings-tab
-   base styles that pad based on label width, which was leaving the
-   active "ACCOUNT" pill twice as wide as the rest because the
-   sr-only label still fed into flex sizing pre-render. */
-.settings-tab--icon.is-active {
-  padding: 0.4rem 0.55rem;
-  gap: 0;
-}
-/* Active-tab label is rendered for accessibility (screen readers
-   still announce the selection) but visually hidden — the panel
-   header already shows the verbose name. */
-.settings-tab--icon .settings-tab__label-active {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+  background: var(--vscode-list-activeSelectionBackground, rgba(var(--bandit-accent-rgb), 0.18));
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground, inherit));
 }
 
 .settings-panel__content {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  /* Nudge the scrollbar inside the panel's padding so content text
-     doesn't slide under a scrollbar gutter when cards first hydrate. */
-  padding-right: 0.35rem;
-  margin-right: -0.35rem;
 }
 
-/* Subtle scrollbar that matches the panel chrome — the default OS
-   scrollbar is too loud against the dark panel background, and the
-   webview gets stuck with a platform default unless we style it. */
 .settings-panel__content::-webkit-scrollbar {
   width: 10px;
 }
@@ -582,235 +495,223 @@ body.bandit-theme-midnight {
   background: transparent;
 }
 .settings-panel__content::-webkit-scrollbar-thumb {
-  background: rgba(var(--bandit-border-rgb), 0.55);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
 }
 .settings-panel__content::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--bandit-accent-rgb), 0.55);
-  background-clip: padding-box;
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
 
 .settings-panel__footer {
-  margin-top: auto;
-  padding-top: 0.5rem;
-  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.75;
-  text-align: center;
-  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.5));
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, rgba(var(--bandit-text-muted-rgb), 0.9));
+  min-width: 0;
 }
 
-.settings-panel__footer svg {
-  width: 1.1rem;
-  height: 1.1rem;
-}
-
-.settings-panel__footer-brand,
-.settings-panel__footer-credit {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+.settings-panel__footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-panel__footer-logo {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
-}
-
-.settings-panel__footer-divider {
-  opacity: 0.65;
-}
-
-.settings-panel__footer-credit svg {
-  width: 0.95rem;
-  height: 0.95rem;
-}
-
-.settings-panel__footer-version {
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-  font-size: 0.85em;
-  opacity: 0.6;
-  letter-spacing: 0.02em;
-}
-
-.settings-card {
-  border-radius: 16px;
-  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
-  background: rgba(var(--bandit-card-rgb), 0.6);
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.settings-card--muted {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
   opacity: 0.8;
 }
 
-.settings-card--error {
-  border-color: rgba(var(--bandit-error-rgb), 0.7);
-  background: rgba(var(--bandit-error-rgb), 0.15);
+/* A settings "card" is a section: heading, note, controls, then a
+   hairline before the next one. */
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.5));
+  min-width: 0;
 }
 
-.settings-card-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+.settings-card:last-child {
+  border-bottom: none;
 }
 
-.stealth-button {
-  border: 1px solid rgba(var(--bandit-accent-rgb), 0.9);
-  background: rgba(var(--bandit-accent-rgb), 0.95);
-  color: var(--bandit-button-contrast);
-  border-radius: 999px;
-  padding: 0.4rem 1.1rem;
+.settings-card h3 {
+  margin: 0;
+  font-size: var(--vscode-font-size, 13px);
   font-weight: 600;
-  font-size: 0.92rem;
+}
+
+.settings-card p {
+  margin: 0;
+}
+
+.settings-card--muted {
+  color: var(--vscode-descriptionForeground, inherit);
+}
+
+.settings-card--error h3 {
+  color: var(--vscode-errorForeground, rgb(var(--bandit-error-rgb)));
+}
+
+.settings-card-grid,
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.settings-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground, rgba(var(--bandit-text-muted-rgb), 0.9));
+}
+
+.settings-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground, inherit);
+  width: fit-content;
+}
+
+.settings-details__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+/* VS Code buttons: 26px tall, 2px radius, theme button colours. Ghost is
+   VS Code's secondary button. */
+.stealth-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  transition: background 150ms ease, color 150ms ease;
+  gap: 0.3rem;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 4px 11px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  background: var(--vscode-button-background, rgb(var(--bandit-accent-rgb)));
+  color: var(--vscode-button-foreground, var(--bandit-button-contrast));
+  font: inherit;
+  font-size: var(--vscode-font-size, 13px);
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stealth-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .stealth-button:hover:not(:disabled) {
-  background: rgba(var(--bandit-accent-rgb), 1);
+  background: var(--vscode-button-hoverBackground, rgba(var(--bandit-accent-rgb), 0.85));
 }
 
 .stealth-button:disabled {
   opacity: 0.5;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .stealth-button--ghost {
-  background: transparent;
-  border-color: rgba(var(--bandit-border-rgb), 0.6);
-  color: rgb(var(--bandit-text-primary-rgb));
+  background: var(--vscode-button-secondaryBackground, rgba(var(--bandit-border-rgb), 0.35));
+  color: var(--vscode-button-secondaryForeground, rgb(var(--bandit-text-primary-rgb)));
 }
 
 .stealth-button--ghost:hover:not(:disabled) {
-  background: rgba(var(--bandit-border-rgb), 0.15);
+  background: var(--vscode-button-secondaryHoverBackground, rgba(var(--bandit-border-rgb), 0.55));
 }
 
-.stealth-button--danger {
-  background: rgba(var(--bandit-error-rgb), 0.15);
-  border-color: rgba(var(--bandit-error-rgb), 0.6);
-  color: rgb(var(--bandit-error-rgb));
+.stealth-button--danger,
+.stealth-button--ghost.stealth-button--danger {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-errorForeground, rgb(var(--bandit-error-rgb)));
 }
 
 .stealth-button--danger:hover:not(:disabled) {
-  background: rgba(var(--bandit-error-rgb), 0.25);
+  background: var(--vscode-button-secondaryHoverBackground, rgba(var(--bandit-error-rgb), 0.2));
 }
 
-.settings-account-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.settings-account-card__avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: rgba(var(--bandit-accent-rgb), 0.18);
+/* Account: one row — initials, name + email, refresh — then badges. */
+.settings-account__row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: rgb(var(--bandit-accent-rgb));
+  gap: 0.6rem;
+  min-width: 0;
 }
 
-.settings-account-card__avatar svg {
-  width: 38px;
-  height: 38px;
-}
-
-.settings-account-card__heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.8rem;
-  flex-wrap: wrap;
-}
-
-.settings-account-card__title {
-  margin: 0;
-  font-size: 1rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.settings-account-card__subtitle {
-  margin: 0.15rem 0 0;
-  font-size: 0.82rem;
-  opacity: 0.8;
-}
-
-.settings-account-card__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  margin-top: 0.35rem;
-  align-items: flex-start;
-}
-
-.settings-account-card__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.settings-label {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(var(--bandit-text-muted-rgb), 0.9);
-}
-
-.settings-value {
-  margin: 0.15rem 0 0;
-  font-size: 0.95rem;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-}
-
-.settings-admin-pill {
+.settings-account__avatar {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.65rem;
-  border-radius: 999px;
-  background: rgba(var(--bandit-success-rgb), 0.18);
-  border: 1px solid rgba(var(--bandit-success-rgb), 0.55);
-  color: rgb(var(--bandit-success-rgb));
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  justify-content: center;
+  background: var(--vscode-badge-background, rgba(var(--bandit-accent-rgb), 0.3));
+  color: var(--vscode-badge-foreground, inherit);
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.settings-admin-pill svg {
-  width: 0.95rem;
-  height: 0.95rem;
+.settings-account__identity {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.settings-admin-pill--badge {
-  font-size: 0.68rem;
-  letter-spacing: 0.15em;
-  padding: 0.2rem 0.85rem;
+.settings-account__name,
+.settings-account__email {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-account-card__actions {
+.settings-account__name {
+  font-weight: 600;
+}
+
+.settings-account__email {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, inherit);
+}
+
+.settings-account__meta {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, inherit);
+}
+
+.settings-account__key {
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--vscode-foreground, inherit);
+  overflow-wrap: anywhere;
+}
+
+/* VS Code count/badge style. */
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--vscode-badge-background, rgba(var(--bandit-border-rgb), 0.6));
+  color: var(--vscode-badge-foreground, inherit);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 .settings-preference {
@@ -818,12 +719,20 @@ body.bandit-theme-midnight {
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
-  padding: 0.45rem 0;
-  border-top: 1px solid rgba(var(--bandit-border-rgb), 0.35);
+  padding: 0.35rem 0;
+  min-width: 0;
 }
 
-.settings-preference:first-of-type {
-  border-top: none;
+.settings-preference > div {
+  min-width: 0;
+}
+
+.settings-preference > .stealth-button {
+  flex: 0 0 auto;
+}
+
+.settings-preference + .settings-preference {
+  border-top: 1px solid var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.35));
 }
 
 .settings-preference p {
@@ -832,73 +741,57 @@ body.bandit-theme-midnight {
 
 .settings-actions {
   display: flex;
-  gap: 0.6rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 .settings-actions--end {
-  justify-content: flex-end;
-}
-/* Compact inline label used above an input inside a settings-card. The
-   parent card is a flex column with gap: 0.65rem — so we don't set our
-   own vertical margins, otherwise they stack on top of the flex gap and
-   push rows so far apart they visually overflow the card (observed
-   2026-04-22 on the Ollama Endpoint card). Negative margin-bottom pulls
-   the label tight to its input instead. */
-.settings-inline-label {
-  display: block;
-  margin: 0 0 -0.4rem 0;
-  font-size: 0.78em;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  opacity: 0.7;
+  justify-content: flex-start;
 }
 
-/* Provider switcher — two-button segmented control used on the Providers
-   settings tab. Same visual vocabulary as the existing .stealth-button
-   but expressive enough to show "active" state clearly so users know
-   which backend is selected before they read the label. */
+.settings-inline-label {
+  display: block;
+  margin: 0.2rem 0 -0.15rem;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Provider switcher: a compact radio list. */
 .provider-switcher {
   display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 2px;
 }
 .provider-switcher__option {
-  flex: 1 1 180px;
-  min-width: 180px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
-  padding: 0.7rem 0.95rem;
-  border-radius: 12px;
-  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
-  background: rgba(var(--bandit-panel-rgb), 0.35);
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
   color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 .provider-switcher__option:hover:not(.is-active) {
-  border-color: rgba(var(--bandit-accent-rgb), 0.55);
-  background: rgba(var(--bandit-panel-rgb), 0.55);
+  background: var(--vscode-list-hoverBackground, rgba(var(--bandit-border-rgb), 0.25));
 }
 .provider-switcher__option.is-active {
-  border-color: rgba(var(--bandit-accent-rgb), 0.9);
-  background: rgba(var(--bandit-accent-rgb), 0.12);
-  box-shadow: 0 0 0 1px rgba(var(--bandit-accent-rgb), 0.35) inset;
-}
-.provider-switcher__option:active {
-  transform: scale(0.99);
+  background: var(--vscode-list-activeSelectionBackground, rgba(var(--bandit-accent-rgb), 0.15));
+  color: var(--vscode-list-activeSelectionForeground, inherit);
+  border-color: var(--vscode-focusBorder, rgba(var(--bandit-accent-rgb), 0.6));
 }
 .provider-switcher__label {
   font-weight: 600;
-  font-size: 0.95em;
 }
 .provider-switcher__sub {
-  font-size: 0.78em;
-  opacity: 0.65;
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, inherit);
+  overflow-wrap: anywhere;
 }
 
 .stealth-chat-feed {
@@ -970,8 +863,6 @@ body.bandit-theme-midnight {
 .summary-card__title {
   margin: 0;
   font-size: 0.85rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
 }
 
@@ -1063,8 +954,6 @@ body.bandit-theme-midnight {
 .files-summary-card__title {
   margin: 0;
   font-size: 0.88rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
 }
 
@@ -1086,8 +975,6 @@ body.bandit-theme-midnight {
   border: none;
   background: none;
   color: rgba(var(--bandit-accent-rgb), 0.9);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   font-size: 0.78rem;
   display: inline-flex;
   align-items: center;
@@ -1181,7 +1068,6 @@ body.bandit-theme-midnight {
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   font-size: 0.72rem;
-  letter-spacing: 0.04em;
   color: rgba(var(--bandit-accent-rgb), 1);
   background: rgba(var(--bandit-accent-rgb), 0.12);
   border: 1px solid rgba(var(--bandit-accent-rgb), 0.3);
@@ -1214,7 +1100,6 @@ body.bandit-theme-midnight {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.02em;
 }
 
 .stealth-shell .composer-queued-pill__attachments {
@@ -1276,12 +1161,10 @@ body.bandit-theme-midnight {
   background: rgba(245, 158, 11, 0.16);
   border: 1px solid rgba(245, 158, 11, 0.45);
   font-size: 0.74rem;
-  letter-spacing: 0.04em;
 }
 .stealth-shell .composer-shell-banner strong {
   color: rgb(245, 158, 11);
   font-weight: 700;
-  letter-spacing: 0.1em;
 }
 .stealth-shell .composer-shell-banner span {
   color: rgba(var(--bandit-text-secondary-rgb), 0.92);
@@ -1412,23 +1295,6 @@ body.bandit-theme-midnight {
   box-sizing: border-box;
 }
 
-/* The edit-automatically toggle ("Ask before edit" / "Auto edit") lives
-   in .composer-actions on the opposite end of the row. Match the same
-   height + padding so it aligns with the footer chips visually across
-   the composer, not just within the footer-slot cluster. */
-.stealth-shell .composer-actions .composer-edit-auto,
-.stealth-shell .composer-actions .composer-edit-auto-toggle,
-.stealth-shell .composer-actions .composer-mode-pill {
-  height: 1.75rem;
-  padding: 0 0.7rem;
-  display: inline-flex;
-  align-items: center;
-  font-size: 0.7rem;
-  line-height: 1;
-  border-radius: 999px;
-  box-sizing: border-box;
-}
-
 .stealth-shell .composer-footer-slot .mode-chip--status .status-pill__label {
   font-size: 0.7rem;
   line-height: 1;
@@ -1437,28 +1303,6 @@ body.bandit-theme-midnight {
 .stealth-shell .composer-footer-slot .mode-chip--status .status-pill__icon {
   width: 0.78rem;
   height: 0.78rem;
-}
-
-/* At narrow composer widths, collapse "Ask before edit" / "Edit
-   automatically" down to just the icon. Keeps the footer row on a
-   single line in the VS Code side panel instead of wrapping the
-   send button onto a second row. */
-@container composer-input (max-width: 420px) {
-  .stealth-shell .composer-actions .composer-edit-auto .composer-edit-auto__label {
-    display: none;
-  }
-  .stealth-shell .composer-actions .composer-edit-auto {
-    padding: 0 0.45rem;
-  }
-  /* Collapse the mode pill to its color dot too — the boundary stays
-     visible (the dot's color still signals the mode) without pushing the
-     send button onto a second row. */
-  .stealth-shell .composer-actions .composer-mode-pill .composer-mode-pill__label {
-    display: none;
-  }
-  .stealth-shell .composer-actions .composer-mode-pill {
-    padding: 0 0.45rem;
-  }
 }
 
 /* Allow the controls row to wrap as a whole when the composer panel is
@@ -1627,8 +1471,6 @@ body.bandit-theme-midnight {
 
 .live-step-message__badge {
   font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   padding: 0.05rem 0.35rem;
   border-radius: 999px;
   border: 1px solid rgba(var(--live-step-accent-rgb), 0.35);
@@ -1709,8 +1551,6 @@ body.bandit-theme-midnight {
 .subgoal-progress__eyebrow {
   margin: 0;
   font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
 }
 
@@ -1743,8 +1583,6 @@ body.bandit-theme-midnight {
 
 .subgoal-progress__percent {
   font-size: 0.85rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
 }
 
@@ -1827,8 +1665,6 @@ body.bandit-theme-midnight {
 
 .subgoal-progress__status {
   font-size: 0.74rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
 }
 
@@ -1852,14 +1688,11 @@ body.bandit-theme-midnight {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .completed-changes-panel__delta {
   margin: 0.1rem 0 0;
   font-size: 0.82rem;
-  letter-spacing: 0.05em;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
   display: inline-flex;
   gap: 0.4rem;
@@ -1884,8 +1717,6 @@ body.bandit-theme-midnight {
   background: none;
   color: rgba(var(--bandit-accent-rgb), 0.9);
   font-size: 0.78rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1975,7 +1806,6 @@ body.bandit-theme-midnight {
   align-items: baseline;
   gap: 0.35rem;
   font-size: 0.78rem;
-  letter-spacing: 0.05em;
 }
 
 .completed-change__chevron {
@@ -2039,9 +1869,7 @@ body.bandit-theme-midnight {
 
 .history-panel__eyebrow {
   margin: 0;
-  letter-spacing: 0.3em;
   font-size: 0.65rem;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
 }
 
@@ -2065,8 +1893,6 @@ body.bandit-theme-midnight {
   border: none;
   background: transparent;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
   font-size: 0.7rem;
   padding: 0.35rem 0.85rem;
   border-radius: 999px;
@@ -2246,8 +2072,6 @@ body.bandit-theme-midnight {
 
 .history-panel__badge {
   font-size: 0.65rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
   border-radius: 999px;
   border: 1px solid rgba(var(--bandit-accent-rgb), 0.5);
   padding: 0.1rem 0.55rem;
@@ -2296,8 +2120,6 @@ body.bandit-theme-midnight {
   margin: 0 0 0.2rem;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
   font-size: 0.66rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
 }
 
 .trace-panel__header h2 {
@@ -2446,8 +2268,6 @@ body.bandit-theme-midnight {
   border-radius: 999px;
   padding: 0.12rem 0.45rem;
   font-size: 0.64rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
   white-space: nowrap;
 }
@@ -2527,8 +2347,6 @@ body.bandit-theme-midnight {
   margin: 0 0 0.45rem;
   color: rgba(var(--bandit-text-muted-rgb), 0.9);
   font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
 }
 
 .trace-block p {
@@ -2620,42 +2438,62 @@ body.bandit-theme-midnight {
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: rgba(var(--bandit-text-muted-rgb), 0.8);
-  gap: 0.8rem;
+  color: var(--vscode-descriptionForeground, rgba(var(--bandit-text-muted-rgb), 0.9));
+  gap: 0.5rem;
+  padding: 0 0.5rem;
 }
 
 .stealth-landing__icon {
-  width: 96px;
-  height: 96px;
-  opacity: 0.25;
+  width: 40px;
+  height: 40px;
+  opacity: 0.45;
 }
 
 .stealth-landing__icon img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  opacity: 0.9;
-  filter: drop-shadow(0 12px 32px rgba(14, 116, 144, 0.4));
 }
 
 .stealth-landing h2 {
   margin: 0;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  font-size: 0.85rem;
+  font-size: var(--vscode-font-size, 13px);
+  font-weight: 600;
+  color: var(--vscode-foreground, inherit);
 }
 
 .stealth-landing p {
   margin: 0;
-  font-size: 0.78rem;
-  letter-spacing: 0.05em;
+  max-width: 300px;
+  line-height: 1.45;
 }
 
-.stealth-landing__hint {
-  color: rgba(var(--bandit-text-muted-rgb), 0.7);
-  font-size: 0.72rem;
-  max-width: 280px;
-  line-height: 1.5;
+/* Starter prompts: quiet, full-width-ish rows like VS Code's welcome
+   view links, not pills. They fill the composer; nothing is sent. */
+.stealth-landing__suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 0.5rem;
+}
+
+.stealth-landing__suggestion {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.5)));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground, inherit);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stealth-landing__suggestion:hover {
+  background: var(--vscode-list-hoverBackground, rgba(var(--bandit-border-rgb), 0.25));
 }
 
 .stealth-landing__setup {
@@ -2732,8 +2570,6 @@ body.bandit-theme-midnight {
   color: inherit;
   padding: 0.3rem 0.75rem;
   font-size: 0.78rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -3002,8 +2838,6 @@ body.bandit-theme-midnight {
   align-items: center;
   justify-content: space-between;
   font-size: 0.85rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.8);
 }
 
@@ -3197,8 +3031,6 @@ body.bandit-theme-midnight {
 }
 .composer-settings-models__label {
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb, 140, 150, 160), 0.85);
 }
 .composer-settings-models__row {
@@ -3215,7 +3047,6 @@ body.bandit-theme-midnight {
   color: inherit;
   cursor: pointer;
   font-size: 0.75rem;
-  letter-spacing: 0.02em;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .composer-settings-models__pill:hover {
@@ -3302,7 +3133,6 @@ body.bandit-theme-midnight {
   justify-content: center;
   gap: 0.22rem;
   font-size: 0.64rem;
-  letter-spacing: 0.01em;
 }
 
 .context-menu {
@@ -3372,7 +3202,6 @@ body.bandit-theme-midnight {
   padding: 0.2rem 0.6rem;
   border: 1px solid rgba(var(--bandit-accent-rgb), 0.2);
   font-size: 0.7rem;
-  letter-spacing: 0.08em;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -3480,11 +3309,12 @@ body.bandit-theme-midnight {
 .settings-input-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
-.settings-input-row > input {
-  flex: 1 1 14rem;
+.settings-panel .settings-input-row > input {
+  flex: 1 1 10rem;
+  width: auto;
   min-width: 0;
 }
 .settings-input-row > .stealth-button {
@@ -3501,19 +3331,17 @@ body.bandit-theme-midnight {
 }
 
 .api-key-status {
-  border-radius: 999px;
-  border: 1px solid rgba(var(--bandit-accent-rgb), 0.3);
-  padding: 0.2rem 0.6rem;
-  font-size: 0.75rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, inherit);
 }
 
 .api-key-status svg {
-  width: 16px;
-  height: 16px;
-  color: rgba(var(--bandit-accent-rgb), 0.9);
+  width: 14px;
+  height: 14px;
+  color: var(--vscode-testing-iconPassed, rgb(var(--bandit-success-rgb)));
 }
 
 .stealth-overlay__panel button {
@@ -3530,111 +3358,101 @@ body.bandit-theme-midnight {
   width: 100%;
   height: 1px;
   border: none;
-  background: rgba(var(--bandit-accent-rgb), 0.2);
-  margin: 1.25rem 0;
-}
-
-.settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  background: var(--vscode-panel-border, rgba(var(--bandit-border-rgb), 0.5));
+  margin: 0.75rem 0;
 }
 
 .settings-section button {
   align-self: flex-start;
 }
 
-.settings-note {
-  margin: 0;
-  color: rgba(var(--bandit-text-muted-rgb), 0.85);
-  font-size: 0.9rem;
-}
-
-/* Form-row layout for the Voice settings tab — label above input,
-   small spacing between rows. Mirrors the rest of the panel's
-   minimal density without a custom background per row. */
+/* Form rows (Voice tab and friends): label above a VS Code input. */
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  margin-top: 0.85rem;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+  min-width: 0;
 }
 .settings-field label {
-  font-size: 0.78rem;
-  color: rgba(var(--bandit-text-muted-rgb), 0.85);
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 600;
 }
-.settings-field input,
-.settings-field select {
-  background: rgba(var(--bandit-bg-elev-rgb), 0.6);
-  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  color: inherit;
-  font-size: 0.86rem;
-  /* Hold the form control to its container width even when option
-     labels are wider than the panel — without this the native
-     <select> dropdown stretched the form-control to the longest
-     option's intrinsic width and shoved the right edge past the
-     panel border on narrow side-panel layouts. The dropdown popup
-     is still browser-controlled (and may wrap or scroll on its
-     own); only the closed control is constrained. */
+
+/* Every text field and select in the settings page uses VS Code's input
+   tokens. (The field rule previously read an undefined
+   --bandit-bg-elev-rgb, so fields rendered with no background.) */
+.settings-panel input[type="text"],
+.settings-panel input[type="password"],
+.settings-panel input:not([type]),
+.settings-panel select {
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  box-sizing: border-box;
+  height: 26px;
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-dropdown-border, rgba(var(--bandit-border-rgb), 0.7)));
+  border-radius: 2px;
+  background: var(--vscode-input-background, rgba(var(--bandit-card-rgb), 0.8));
+  color: var(--vscode-input-foreground, inherit);
+  font: inherit;
+  font-size: var(--vscode-font-size, 13px);
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
 }
-.settings-field input:focus,
-.settings-field select:focus {
-  outline: none;
-  border-color: rgba(var(--bandit-accent-rgb), 0.7);
+.settings-panel select {
+  background: var(--vscode-dropdown-background, var(--vscode-input-background, rgba(var(--bandit-card-rgb), 0.8)));
+  color: var(--vscode-dropdown-foreground, inherit);
+  border-color: var(--vscode-dropdown-border, var(--vscode-input-border, rgba(var(--bandit-border-rgb), 0.7)));
+}
+.settings-panel input::placeholder {
+  color: var(--vscode-input-placeholderForeground, rgba(var(--bandit-text-muted-rgb), 0.85));
+}
+.settings-panel input:focus,
+.settings-panel select:focus {
+  outline: 1px solid var(--vscode-focusBorder, rgb(var(--bandit-focus-ring-rgb)));
+  outline-offset: -1px;
 }
 
 .theme-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.35rem;
+  gap: 0.3rem;
 }
 
 .theme-chip {
-  border: 1px solid rgba(var(--bandit-border-rgb), 0.5);
-  border-radius: 999px;
-  padding: 0.35rem 0.9rem;
-  background: rgba(var(--bandit-panel-rgb), 0.55);
-  color: inherit;
-  font-size: 0.85rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   display: inline-flex;
-  gap: 0.35rem;
   align-items: center;
+  gap: 0.35rem;
+  height: 24px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border, transparent));
+  border-radius: 2px;
+  background: var(--vscode-button-secondaryBackground, rgba(var(--bandit-panel-rgb), 0.55));
+  color: var(--vscode-button-secondaryForeground, inherit);
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
-.theme-chip:is(:hover, :focus) {
-  border-color: rgba(var(--bandit-accent-rgb), 0.8);
-  outline: none;
+.theme-chip:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(var(--bandit-border-rgb), 0.4));
 }
 
 .theme-chip.is-active {
-  border-color: rgba(var(--bandit-accent-rgb), 0.85);
-  background: rgba(var(--bandit-accent-rgb), 0.15);
+  background: var(--vscode-button-background, rgb(var(--bandit-accent-rgb)));
+  color: var(--vscode-button-foreground, var(--bandit-button-contrast));
 }
 
 .theme-chip__badge {
-  font-size: 0.68rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: rgba(var(--bandit-accent-rgb), 0.15);
+  font-size: 11px;
+  opacity: 0.8;
 }
 
 .theme-note {
-  margin-top: 0.4rem;
+  margin-top: 0.2rem;
 }
 
 .link-button--danger {
@@ -3658,9 +3476,7 @@ body.bandit-theme-midnight {
 
 .plan-eval-card__eyebrow {
   margin: 0;
-  text-transform: uppercase;
   font-size: 0.7rem;
-  letter-spacing: 0.12em;
   color: rgba(var(--bandit-text-muted-rgb), 0.85);
 }
 
@@ -3671,8 +3487,6 @@ body.bandit-theme-midnight {
 
 .plan-eval-card__confidence {
   font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.85);
 }
 
@@ -3700,8 +3514,6 @@ body.bandit-theme-midnight {
   flex-wrap: wrap;
   gap: 0.65rem;
   font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: rgba(var(--bandit-text-muted-rgb), 0.85);
 }
 
@@ -3903,7 +3715,6 @@ body.bandit-theme-midnight {
 }
 .background-task-tile__label {
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 .background-task-tile__summary-text {
   color: var(--vscode-descriptionForeground, #888);
@@ -4117,4 +3928,197 @@ body.bandit-theme-midnight {
   color: var(--vscode-foreground, #ddd);
   background: rgba(var(--bandit-accent-rgb, 14, 99, 156), 0.16);
   border-color: rgba(var(--bandit-accent-rgb, 14, 99, 156), 0.5);
+}
+
+/* ── Composer, VS Code style ─────────────────────────────────────────
+   Input-coloured box with the focus border on focus, 24px square icon
+   buttons, the mode and edit-approval controls as compact VS Code
+   dropdown-style buttons, and a 26px primary send button. Scoped to
+   .stealth-shell so it wins over agent-ui's shared composer styles. */
+.stealth-shell .composer {
+  background: var(--vscode-input-background, rgba(var(--bandit-panel-rgb), 0.65));
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(var(--bandit-border-rgb), 0.55)));
+  border-radius: 6px;
+  padding: 6px;
+  min-height: 0;
+  color: var(--vscode-input-foreground, inherit);
+}
+
+.stealth-shell .composer:focus-within {
+  border-color: var(--vscode-focusBorder, rgba(var(--bandit-accent-rgb), 0.7));
+}
+
+/* agent-ui forces a slate composer in light themes with !important;
+   match it so light VS Code themes get their own input colours. */
+.stealth-shell.agent-ui-theme-light .composer {
+  background: var(--vscode-input-background, #ffffff) !important;
+  border-color: var(--vscode-input-border, var(--vscode-widget-border, #cecece)) !important;
+  color: var(--vscode-input-foreground, inherit) !important;
+  box-shadow: none !important;
+}
+
+.stealth-shell.agent-ui-theme-light .composer:focus-within {
+  border-color: var(--vscode-focusBorder, #005fb8) !important;
+}
+
+.stealth-shell .composer-textarea {
+  font: inherit;
+  font-size: var(--vscode-font-size, 13px);
+  line-height: 1.45;
+}
+
+.stealth-shell .composer-textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, rgba(var(--bandit-text-muted-rgb), 0.85));
+}
+
+.stealth-shell .composer-controls {
+  gap: 4px;
+  row-gap: 4px;
+  padding-right: 32px;
+  align-items: center;
+}
+
+.stealth-shell .composer-icon-button,
+.stealth-shell .composer-auto-context {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--vscode-icon-foreground, rgba(var(--bandit-text-primary-rgb), 0.8));
+}
+
+.stealth-shell .composer-icon-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--vscode-icon-foreground, inherit);
+}
+
+.stealth-shell .composer-icon-button .composer-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.stealth-shell .composer-attach-button {
+  margin-right: 0;
+}
+
+.stealth-shell .composer-controls .composer-mode-pill,
+.stealth-shell .composer-controls .composer-edit-auto {
+  height: 22px;
+  padding: 0 6px;
+  gap: 5px;
+  border-radius: 2px;
+  border: 1px solid var(--vscode-dropdown-border, rgba(var(--bandit-border-rgb), 0.6));
+  background: var(--vscode-dropdown-background, transparent);
+  color: var(--vscode-dropdown-foreground, inherit);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.stealth-shell .composer-controls .composer-mode-pill:hover:not(:disabled),
+.stealth-shell .composer-controls .composer-edit-auto:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--vscode-dropdown-foreground, inherit);
+  border-color: var(--vscode-dropdown-border, rgba(var(--bandit-border-rgb), 0.8));
+}
+
+/* The dot carries the mode colour; the button itself stays neutral. */
+.stealth-shell .composer-controls .composer-mode-pill .composer-mode-pill__dot {
+  width: 7px;
+  height: 7px;
+  background: var(--vscode-descriptionForeground, currentColor);
+}
+.stealth-shell .composer-controls .composer-mode-pill.is-plan .composer-mode-pill__dot {
+  background: var(--vscode-charts-blue, #3794ff);
+}
+.stealth-shell .composer-controls .composer-mode-pill.is-auto .composer-mode-pill__dot {
+  background: var(--vscode-testing-iconPassed, #73c991);
+}
+.stealth-shell .composer-controls .composer-mode-pill.is-dangerous .composer-mode-pill__dot {
+  background: var(--vscode-errorForeground, #f85149);
+}
+
+.stealth-shell .composer-controls .composer-edit-auto.is-active {
+  border-color: var(--vscode-focusBorder, rgba(var(--bandit-accent-rgb), 0.7));
+}
+
+.stealth-shell .composer-actions {
+  right: 6px;
+  bottom: 6px;
+}
+
+.stealth-shell .composer-actions .send-button,
+.stealth-chat-panel .composer-actions .send-button {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 4px;
+  background: var(--vscode-button-background, rgb(var(--bandit-accent-rgb)));
+  color: var(--vscode-button-foreground, var(--bandit-button-contrast));
+  box-shadow: none;
+}
+
+.stealth-shell .composer-actions .send-button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, rgba(var(--bandit-accent-rgb), 0.85));
+}
+
+.stealth-shell .composer-actions .send-button:disabled {
+  opacity: 0.4;
+}
+
+.stealth-shell .composer-actions .send-button .composer-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Bandit's own themes ──────────────────────────────────────────────
+   The rules above read VS Code's theme tokens. When the user picks one
+   of Bandit's themes in Settings → Appearance instead of following VS
+   Code, point those tokens at the Bandit palette for this panel only. */
+.stealth-shell:not(.agent-ui-theme-vscode) {
+  --vscode-foreground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-descriptionForeground: rgba(var(--bandit-text-muted-rgb), 0.95);
+  --vscode-icon-foreground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-focusBorder: rgb(var(--bandit-focus-ring-rgb));
+  --vscode-button-background: rgb(var(--bandit-accent-rgb));
+  --vscode-button-foreground: var(--bandit-button-contrast);
+  --vscode-button-hoverBackground: rgba(var(--bandit-accent-rgb), 0.85);
+  --vscode-button-border: transparent;
+  --vscode-button-secondaryBackground: rgba(var(--bandit-border-rgb), 0.45);
+  --vscode-button-secondaryForeground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-button-secondaryHoverBackground: rgba(var(--bandit-border-rgb), 0.7);
+  --vscode-input-background: rgb(var(--bandit-card-rgb));
+  --vscode-input-foreground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-input-border: rgba(var(--bandit-border-rgb), 0.9);
+  --vscode-input-placeholderForeground: rgba(var(--bandit-text-muted-rgb), 0.9);
+  --vscode-dropdown-background: rgb(var(--bandit-card-rgb));
+  --vscode-dropdown-foreground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-dropdown-border: rgba(var(--bandit-border-rgb), 0.9);
+  --vscode-toolbar-hoverBackground: rgba(var(--bandit-border-rgb), 0.45);
+  --vscode-list-hoverBackground: rgba(var(--bandit-border-rgb), 0.3);
+  --vscode-list-activeSelectionBackground: rgba(var(--bandit-accent-rgb), 0.22);
+  --vscode-list-activeSelectionForeground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-panel-border: rgba(var(--bandit-border-rgb), 0.6);
+  --vscode-widget-border: rgba(var(--bandit-border-rgb), 0.6);
+  --vscode-badge-background: rgba(var(--bandit-border-rgb), 0.8);
+  --vscode-badge-foreground: rgb(var(--bandit-text-primary-rgb));
+  --vscode-textLink-foreground: rgb(var(--bandit-code-accent-rgb));
+  --vscode-errorForeground: rgb(var(--bandit-error-rgb));
+  --vscode-testing-iconPassed: rgb(var(--bandit-success-rgb));
+}
+
+/* ── Keyboard focus ───────────────────────────────────────────────────
+   VS Code's focus ring on every interactive control, keyboard only. */
+.stealth-shell :is(button, [role="tab"], summary, a, select, input, textarea):focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, rgb(var(--bandit-focus-ring-rgb)));
+  outline-offset: 1px;
+}
+
+.stealth-shell .composer-textarea:focus-visible {
+  outline: none;
+}
+
+/* Letter-spaced capitals came from the shared agent-ui styles too;
+   VS Code's UI doesn't track out text, so neither do we. */
+.stealth-shell,
+.stealth-shell * {
+  letter-spacing: normal;
 }

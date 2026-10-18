@@ -1,7 +1,22 @@
 import type { JSX } from "react";
-import { ShieldCheckIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import type { AccountProfile, AccountProfileStatus } from "../types/webview";
 
+/** Up to two initials for the avatar; falls back to the email's first letter. */
+export function accountInitials(profile: Pick<AccountProfile, "firstName" | "lastName" | "email">): string {
+  const fromName = [profile.firstName, profile.lastName]
+    .map((part) => part?.trim().charAt(0) ?? "")
+    .join("")
+    .toUpperCase();
+  if (fromName) {return fromName;}
+  return (profile.email?.trim().charAt(0) ?? "?").toUpperCase();
+}
+
+/**
+ * The signed-in account as one compact row: initials, name, email, plan
+ * and admin badges, then credits and the masked key underneath. The key
+ * is only ever shown in the masked form the host sends.
+ */
 export function AccountProfileCard({
   profile,
   status,
@@ -16,75 +31,71 @@ export function AccountProfileCard({
   if (status === "loading") {
     return (
       <div className="settings-card settings-card--muted">
-        <p>Validating your API key…</p>
+        <p className="settings-note">Checking your API key…</p>
       </div>
     );
   }
   if (error) {
     return (
-      <div className="settings-card settings-card--error">
-        <h3>Validation error</h3>
-        <p>{error}</p>
-        <button type="button" className="stealth-button" onClick={onRefresh}>
-          Try again
-        </button>
+      <div className="settings-card settings-card--error" role="alert">
+        <h3>Couldn't load your account</h3>
+        <p className="settings-note">{error}</p>
+        <div className="settings-actions">
+          <button type="button" className="stealth-button stealth-button--ghost" onClick={onRefresh}>
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
   if (!profile || profile.valid === false) {
     return (
-      <div className="settings-card settings-card--muted">
-        <h3>No account detected</h3>
-        <p>Enter a valid Bandit API key to link your account and unlock credits.</p>
-        <button type="button" className="stealth-button" onClick={onRefresh}>
-          Validate key
-        </button>
+      <div className="settings-card">
+        <h3>No account linked</h3>
+        <p className="settings-note">Sign in or add a Bandit API key below to link your account.</p>
+        <div className="settings-actions">
+          <button type="button" className="stealth-button stealth-button--ghost" onClick={onRefresh}>
+            Check again
+          </button>
+        </div>
       </div>
     );
   }
   const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
   const displayName = fullName || profile.email || "Bandit user";
   const creditsLabel =
-    typeof profile.credits === "number" ? profile.credits.toLocaleString() : undefined;
+    typeof profile.credits === "number" ? profile.credits.toLocaleString() : "—";
   const hasKey = typeof profile.maskedKey === "string" && profile.maskedKey.length > 0;
+  const plan = profile.plan?.trim();
   return (
-    <div className="settings-card settings-account-card">
-      <div className="settings-account-card__avatar" aria-hidden="true">
-        <UserCircleIcon />
-      </div>
-      <div className="settings-account-card__body">
-        <div className="settings-account-card__heading">
-          <div>
-            <p className="settings-account-card__title">{displayName}</p>
-            {profile.email && <p className="settings-account-card__subtitle">{profile.email}</p>}
-          </div>
-          {profile.isAdmin && (
-            <span className="settings-admin-pill settings-admin-pill--badge">
-              <ShieldCheckIcon aria-hidden="true" />
-              Admin key
-            </span>
+    <div className="settings-card settings-account">
+      <div className="settings-account__row">
+        <span className="settings-account__avatar" aria-hidden="true">
+          {accountInitials(profile)}
+        </span>
+        <div className="settings-account__identity">
+          <p className="settings-account__name" title={displayName}>{displayName}</p>
+          {fullName && profile.email && (
+            <p className="settings-account__email" title={profile.email}>{profile.email}</p>
           )}
         </div>
-        <div className="settings-account-card__stats">
-          <div className="settings-account-card__stat">
-            <p className="settings-label">Credits</p>
-            <p className="settings-value">{creditsLabel ?? "—"}</p>
-          </div>
-          <div className="settings-account-card__stat">
-            <p className="settings-label">API key</p>
-            <p className="settings-value">{hasKey ? profile.maskedKey : "Not set"}</p>
-          </div>
-        </div>
-        {hasKey && (
-          <div className="settings-note">
-            Keys are stored securely inside VS Code. Refresh if you generated a new key outside Bandit.
-          </div>
-        )}
-      </div>
-      <div className="settings-account-card__actions">
-        <button type="button" className="stealth-button stealth-button--ghost" onClick={onRefresh}>
-          Refresh
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onRefresh}
+          aria-label="Refresh account"
+          title="Refresh account (use after creating a new key outside Bandit)"
+        >
+          <ArrowPathIcon aria-hidden="true" />
         </button>
+      </div>
+      <div className="settings-account__meta">
+        {plan && <span className="settings-badge">{plan}</span>}
+        {profile.isAdmin && <span className="settings-badge">Admin key</span>}
+        <span>Credits {creditsLabel}</span>
+        <span>
+          Key <code className="settings-account__key">{hasKey ? profile.maskedKey : "not set"}</code>
+        </span>
       </div>
     </div>
   );
