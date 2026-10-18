@@ -2,7 +2,7 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
-## Unreleased
+## 1.7.453 (2026-10-18)
 
 - **New conversation, history and settings live in the view's title bar.** They are VS Code title-bar buttons now, with trace logs and Open in Terminal under the `…` menu, and the view title shows the conversation name or the page you're on. The in-panel circle buttons are gone, so the settings button can no longer be cut off in a narrow side bar.
 - **The panel follows your VS Code theme and font.** Buttons, inputs, badges, focus rings and text use VS Code's theme colours and UI font in light, dark and high-contrast themes and in Cursor. Headings and labels are sentence case instead of spaced capitals.

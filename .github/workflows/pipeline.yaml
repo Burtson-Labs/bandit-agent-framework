@@ -310,9 +310,10 @@ jobs:
           body: |
             ## Highlights
 
-            - Webview decomposition **Arc W1 complete** — every pre-App and post-App component split out of `App.tsx`, helpers and shared types moved into `webview/src/state/`, `webview/src/util/`, and `webview/src/types/`. `App.tsx` 7,180 → 4,096 LOC (-3,084, -43%) across 28 commits.
-            - **OSS-readiness package prep** — workspace packages consolidated under one `@burtson-labs/*` npm scope, `LICENSE` shipped in every tarball, `@burtson-labs/core-chat` ships ESM, CI publishes restored against npmjs.org. No user-facing behavior change in the extension or CLI.
-            - **CLI fix** — idle composer no longer stacks duplicate frames across display sleep/wake or workspace switches.
+            - A cleaner panel that matches VS Code and Cursor: history, new conversation and settings move into the view's own title bar, the text uses the editor's font and theme colours, and spaced-out capitals are gone.
+            - Settings get a labelled section list, compact rows and VS Code-sized buttons; the account shows on one line with the key still masked.
+            - A quieter empty state with three starter prompts.
+            - Fixes: Set API Key opens Settings again, settings fields have a background, and the account card no longer clips in a narrow sidebar.
 
             ## Install
 
