@@ -648,7 +648,7 @@ class Store:
     def choose_take(self, owner: str, production_id: str, shot_id: str, take_id: str) -> dict:
         self._owned("shots", owner, shot_id, production_id)
         take = self.db.takes.find_one({"_id": take_id, "shotId": shot_id})
-        if not take:
+        if not take or take.get("deleted"):
             raise ProductionsError(404, "take not found")
         self.db.takes.update_many({"shotId": shot_id, "status": {"$in": ["ready", "chosen"]}},
                                   {"$set": {"status": "alternate"}})
@@ -685,7 +685,7 @@ class Store:
 
     def take(self, owner: str, production_id: str, take_id: str) -> dict:
         take = self.db.takes.find_one({"_id": take_id, "productionId": production_id, "owner": owner})
-        if not take:
+        if not take or take.get("deleted"):
             raise ProductionsError(404, "take not found")
         return take
 
@@ -879,7 +879,7 @@ class Store:
         value["id"] = doc["_id"]
         value["status"] = derive_status(doc, jobs, takes)
         value["estimateSeconds"] = per_take(self._render_request(doc, production))
-        value["takes"] = [public_take(t) for t in takes]
+        value["takes"] = [public_take(t) for t in takes if not t.get("deleted")]
         value["jobs"] = [public_job(j) for j in jobs]
         return value
 

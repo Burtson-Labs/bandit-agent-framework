@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest import mock
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -40,9 +41,17 @@ class SegmentPlanTests(unittest.TestCase):
         self.assertEqual(quality.segments, (81, 81))
         self.assertEqual(quality.duration_seconds, 10.0)
 
+    def test_five_minutes_are_model_sized_sections_with_exact_duration(self):
+        for model in ("video-fast", "video-quality"):
+            for duration in (11, 61, 299, 300):
+                p = plan(model=model, duration_seconds=duration)
+                self.assertAlmostEqual(p.duration_seconds, duration, places=1)
+                self.assertTrue(all(vw.MIN_SEGMENT_FRAMES <= n <= p.model.segment_frames and n % 4 == 1
+                                    for n in p.segments))
+
     def test_duration_is_clamped(self):
         self.assertEqual(plan(duration_seconds=0.5).duration_seconds, 2.0)
-        self.assertEqual(plan(duration_seconds=45).duration_seconds, 10.0)
+        self.assertEqual(plan(duration_seconds=400).duration_seconds, 300.0)
 
     def test_interpolation_multiplier(self):
         self.assertEqual(vw.interpolation_multiplier(16, 24), 3)
@@ -572,3 +581,60 @@ class SourceNormalizationTests(unittest.TestCase):
                 with self.assertRaises(HTTPException) as caught:
                     main.normalize_source_video(path, work)
                 self.assertEqual(caught.exception.status_code, 400)
+
+
+@unittest.skipUnless(__import__('shutil').which('ffmpeg'), 'ffmpeg not installed')
+class LongVideoTests(unittest.TestCase):
+    def test_five_minute_join_is_exact_and_each_gpu_request_is_bounded(self):
+        import tempfile
+        import subprocess
+        from dataclasses import replace
+        with tempfile.TemporaryDirectory() as work:
+            fixture = f'{work}/fixture.mp4'
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=64x64:rate=24',
+                            '-t', '5.05', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', fixture], check=True)
+            with open(fixture, 'rb') as handle:
+                raw = handle.read()
+            p = replace(plan(duration_seconds=300), gen_width=64, gen_height=64, out_width=64, out_height=64)
+            job = main.Job(id='long-test', owner='tester', kind='video', request={'variants': 1})
+            seen = []
+            async def render(client, active, section_plan, variant, **kwargs):
+                seen.append(section_plan)
+                self.assertEqual(len(section_plan.segments), 1)
+                self.assertLessEqual(section_plan.duration_seconds, 5)
+                return raw
+            async def upload(*args):
+                return 'continuation.png'
+            with mock.patch.object(main, 'run_video_prompt', render), mock.patch.object(main, 'upload_comfy_bytes', upload):
+                joined = asyncio.run(main.run_long_video(None, job, p, 0))
+            target = f'{work}/joined.mp4'
+            with open(target, 'wb') as handle:
+                handle.write(joined)
+            info = main.probe_video(target)
+            self.assertAlmostEqual(info['duration'], 300, delta=1/24)
+            self.assertEqual(len(seen), 60)
+            self.assertIsNone(seen[0].start_image)
+            self.assertEqual(seen[1].start_image, 'continuation.png')
+            self.assertEqual(seen[-1].seed, p.seed + 59)
+
+    def test_cancel_stops_before_next_section(self):
+        job = main.Job(id='cancel-long', owner='tester', kind='video', request={'variants': 1})
+        calls = []
+        async def render(client, active, section_plan, variant, **kwargs):
+            calls.append(section_plan)
+            active.cancelRequested = True
+            return b''
+        with mock.patch.object(main, 'run_video_prompt', render):
+            result = asyncio.run(main.run_long_video(None, job, plan(duration_seconds=300), 0))
+        self.assertEqual(result, b'')
+        self.assertEqual(job.status, 'cancelled')
+        self.assertEqual(len(calls), 1)
+
+    def test_request_and_estimate_accept_300_but_reject_301(self):
+        self.assertEqual(main.VideoRequest(prompt='slow sunrise', durationSeconds=300).durationSeconds, 300)
+        estimate = asyncio.run(main.estimate_video(main.EstimateRequest(durationSeconds=300)))
+        self.assertTrue(estimate['valid'])
+        self.assertEqual(estimate['durationSeconds'], 300)
+        for cls in (main.VideoRequest, main.EstimateRequest):
+            with self.assertRaises(ValidationError):
+                cls(prompt='slow sunrise', durationSeconds=301)

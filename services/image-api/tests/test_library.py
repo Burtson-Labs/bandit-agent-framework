@@ -28,6 +28,9 @@ def png(size=(1024, 1024)) -> bytes:
 
 
 class FakeStore:
+    def delete(self, key):
+        self.objects.pop(key, None)
+
     def __init__(self):
         self.objects: dict[str, tuple[bytes, str]] = {}
         self.modified: dict[str, datetime] = {}
@@ -318,6 +321,18 @@ class EndpointTests(unittest.TestCase):
         main.jobs.clear()
         main.references.clear()
 
+    def test_delete_endpoint_checks_ownership_and_removes_live_asset_access(self):
+        with mock.patch.object(main, "watch_sync", None):
+            with self.assertRaises(HTTPException) as forbidden:
+                asyncio.run(main.delete_library_item("job0001video", x_burtson_owner="intruder"))
+            self.assertEqual(forbidden.exception.status_code, 404)
+            main.jobs["job0001video"] = main.Job(id="job0001video", owner=OWNER, status="completed", request={})
+            self.assertEqual(asyncio.run(main.delete_library_item("job0001video", x_burtson_owner=OWNER)),
+                             {"deleted": "job0001video"})
+            self.assertNotIn("job0001video", main.jobs)
+            with self.assertRaises(HTTPException):
+                asyncio.run(main.get_asset("job0001video", 0, x_burtson_owner=OWNER))
+
     def test_list_and_patch(self):
         listing = asyncio.run(main.list_library(**LIST_DEFAULTS, x_burtson_owner=OWNER))
         self.assertEqual(len(listing["items"]), 1)
@@ -482,3 +497,55 @@ class ReaperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PermanentDeletionTests(unittest.TestCase):
+    def setUp(self):
+        self.store = FakeStore()
+        self.library = lib.Library(self.store)
+        self.metadata = video_metadata()
+        seed_video(self.store)
+        self.store.put(f"{DAY}/job0001video/metadata.json", json.dumps(self.metadata).encode(), "application/json")
+        self.library.record(self.metadata, tenant_dir=f"{DAY}/job0001video")
+
+    def test_delete_purges_files_and_never_returns_after_restart_or_backfill(self):
+        self.library.delete_item(OWNER, "job0001video")
+        self.assertEqual(self.library.list(OWNER, include_hidden=True)["total"], 0)
+        self.assertEqual([key for key in self.store.objects if "/items/job0001video/" in key],
+                         [self.library.item_key(OWNER, "job0001video", "item.json")])
+        self.assertFalse(any(f"{DAY}/job0001video/" in k for k in self.store.objects))
+        restarted = lib.Library(self.store)
+        # Simulate a delayed completion writing the old metadata again.
+        seed_video(self.store)
+        self.assertIsNone(restarted.record(self.metadata, tenant_dir=f"{DAY}/job0001video"))
+        restarted.backfill(OWNER)
+        self.assertEqual(restarted.list(OWNER)["total"], 0)
+        with self.assertRaises(lib.LibraryError):
+            restarted.read_file(OWNER, "job0001video", "video-01.mp4")
+        restarted.delete_item(OWNER, "job0001video") # idempotent retry
+
+    def test_one_take_deletion_preserves_other_takes_and_blocks_reingestion(self):
+        self.library.delete_item(OWNER, "job0001video", 0)
+        item = self.library.get_item(OWNER, "job0001video")
+        self.assertEqual([o["index"] for o in item["outputs"]], [1])
+        self.assertEqual(self.library.read_file(OWNER, item["id"], "video-02.mp4")[0], b"mp4")
+        self.assertTrue(self.library.asset_deleted(OWNER, item["id"], "video-01.mp4"))
+        self.assertFalse(self.library.asset_deleted(OWNER, item["id"]))
+        self.library.record(self.metadata, tenant_dir=f"{DAY}/job0001video")
+        self.assertEqual(len(self.library.get_item(OWNER, item["id"])["outputs"]), 1)
+        self.library.delete_item(OWNER, item["id"], 1)
+        self.assertEqual(self.library.list(OWNER)["total"], 0)
+
+    def test_wrong_owner_cannot_delete(self):
+        with self.assertRaises(lib.LibraryError):
+            self.library.delete_item("other", "job0001video")
+        self.assertEqual(self.library.list(OWNER)["total"], 1)
+
+    def test_failed_storage_purge_is_invisible_and_retried(self):
+        with mock.patch.object(self.store, "delete", side_effect=RuntimeError("storage unavailable")):
+            with self.assertRaises(RuntimeError):
+                self.library.delete_item(OWNER, "job0001video")
+        restarted = lib.Library(self.store)
+        self.assertEqual(restarted.list(OWNER)["total"], 0)
+        restarted.retry_deletions(lib.safe_owner(OWNER))
+        self.assertFalse(any(key.endswith("video-01.mp4") for key in self.store.objects))
