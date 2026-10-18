@@ -7,7 +7,7 @@
  *                        [--min-quality none|completed|edited|completed-or-unknown-with-tools]
  *                        [--include-handbacks] [--external-paths placeholder|drop] [--dry-run]
  *   bandit train inspect <dir> [--grep text] [--sample N]
- *   bandit train upload  <dir> [--api https://training.burtson.ai]
+ *   bandit train upload  <dir> [--api <training-endpoint>]   (or BANDIT_TRAINING_API)
  *
  * Raw data never leaves this machine: collect scrubs locally (scrub-v1) and only the
  * scrubbed dataset is uploaded. Every run ends with a self-check that greps the output
@@ -380,9 +380,13 @@ async function inspect(argv: string[]): Promise<number> {
 
 async function upload(argv: string[], cwd: string): Promise<number> {
   const dir = argv.find(a => !a.startsWith('--'));
-  const api = (argv.includes('--api') ? argv[argv.indexOf('--api') + 1] : process.env.BANDIT_TRAINING_API ?? 'https://training.burtson.ai').replace(/\/+$/, '');
+  const api = ((argv.includes('--api') ? argv[argv.indexOf('--api') + 1] : process.env.BANDIT_TRAINING_API) ?? '').trim().replace(/\/+$/, '');
   if (!dir) {
-    process.stdout.write('usage: bandit train upload <dir> [--api https://training.burtson.ai]\n');
+    process.stdout.write('usage: bandit train upload <dir> [--api <training-endpoint>]\n');
+    return 1;
+  }
+  if (!api) {
+    process.stderr.write('no training endpoint configured: pass --api <url> or set BANDIT_TRAINING_API.\n');
     return 1;
   }
   const { manifest, examples } = await readDataset(dir);
@@ -448,7 +452,7 @@ export async function runTrainCommand(argv: string[], cwd: string, version: stri
     '                       [--window-tokens N] [--window-mode chunks|tail] [--min-quality none|completed|edited|completed-or-unknown-with-tools]\n' +
     '                       [--include-handbacks] [--dry-run]\n' +
     '  bandit train inspect <dir> [--grep text] [--sample N]\n' +
-    '  bandit train upload  <dir> [--api https://training.burtson.ai]\n'
+    '  bandit train upload  <dir> [--api <training-endpoint>]   (or set BANDIT_TRAINING_API)\n'
   );
   return sub ? 1 : 0;
 }

@@ -465,15 +465,6 @@ importers:
         specifier: '>=4.1.11 <5.0.0'
         version: 4.1.11(@types/node@20.19.24)(happy-dom@20.14.3)(vite@6.4.3(@types/node@20.19.24)(yaml@2.9.0))
 
-  services/agent-orchestrator:
-    dependencies:
-      '@burtson-labs/agent-adapters-node':
-        specifier: workspace:*
-        version: link:../../packages/agent-adapters/node
-      '@burtson-labs/agent-core':
-        specifier: workspace:*
-        version: link:../../packages/agent-core
-
   services/agent-runner:
     dependencies:
       '@burtson-labs/agent-core':
@@ -492,18 +483,6 @@ importers:
       vitest:
         specifier: '>=4.1.11 <5.0.0'
         version: 4.1.11(@types/node@20.19.24)(happy-dom@20.14.3)(vite@6.4.3(@types/node@20.19.24)(yaml@2.9.0))
-
-  services/gateway-api:
-    dependencies:
-      '@burtson-labs/agent-adapters-provider':
-        specifier: workspace:*
-        version: link:../../packages/agent-adapters/provider
-      '@burtson-labs/agent-core':
-        specifier: workspace:*
-        version: link:../../packages/agent-core
-      '@burtson-labs/stealth-core-runtime':
-        specifier: workspace:*
-        version: link:../../packages/stealth-core-runtime
 
 packages:
 

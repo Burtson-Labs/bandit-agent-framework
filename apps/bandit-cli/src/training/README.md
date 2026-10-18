@@ -9,9 +9,14 @@ templates served by Ollama, vLLM and llama.cpp). Only the scrubbed dataset is up
 bandit train collect --dry-run            # stats only
 bandit train collect                      # → ~/.bandit/training/<datasetId>/
 bandit train inspect <dir> --sample 5     # spot-check + self-check
-bandit train upload <dir>                 # → training-api (refuses if the self-check fails)
+bandit train upload <dir> --api <url>     # → your training endpoint (refuses if the self-check fails)
 bandit eval --trace-out ~/.bandit/training/banditbench-traces   # verifiable-reward traces
 ```
+
+`upload` needs a training endpoint: pass `--api <url>` or set `BANDIT_TRAINING_API`. There is
+no default. It sends the dataset as a multipart `POST <url>/api/datasets` with
+`Authorization: Bearer $BANDIT_TRAINING_TOKEN` (or your `bandit login` key). The training
+service itself is not part of this repo.
 
 Sources: `~/.bandit/sessions` (CLI REPL, joined to host-kit turn logs for model/status/
 labels), Stealth web turn logs (`.bandit/turns/<ISO>-<r5>.jsonl`; `provider: "import"`
