@@ -154,15 +154,15 @@ class Library:
     def __init__(self, store: ObjectStore):
         self.store = store
         self._cache: dict[str, dict] = {}
-        self._locks: dict[str, threading.Lock] = {}
+        self._locks: dict[str, threading.RLock] = {}
         self._guard = threading.Lock()
         # Set by the watch sync: fetches a take's file from watch once the local copy was dropped.
         self.remote_file: Any = None
 
     # --- index ------------------------------------------------------------
-    def _lock(self, owner_key: str) -> threading.Lock:
+    def _lock(self, owner_key: str) -> threading.RLock:
         with self._guard:
-            return self._locks.setdefault(owner_key, threading.Lock())
+            return self._locks.setdefault(owner_key, threading.RLock())
 
     @staticmethod
     def _prefix(owner_key: str) -> str:
@@ -213,7 +213,7 @@ class Library:
 
     def _owned_item(self, index: dict, owner: str, job_id: str) -> dict:
         item = index["items"].get(job_id)
-        if item is None:
+        if item is None or item.get("deleted"):
             raise LibraryError(404, "history item not found")
         if item.get("owner") not in (None, owner):
             raise LibraryError(403, "history item belongs to another user")
@@ -232,7 +232,7 @@ class Library:
         owner_key = safe_owner(owner)
         with self._lock(owner_key):
             index = self._load(owner_key)
-            mine = [item for item in index["items"].values() if item.get("owner") in (None, owner)]
+            mine = [item for item in index["items"].values() if item.get("owner") in (None, owner) and not item.get("deleted")]
             projects = sorted(index["projects"].values(), key=lambda project: project["name"].lower())
         visible = [item for item in mine if include_hidden or not item.get("hidden")]
         by_project: dict[str, int] = {}
@@ -314,7 +314,7 @@ class Library:
         owner_key = safe_owner(owner)
         with self._lock(owner_key):
             item = self._load(owner_key)["items"].get(job_id)
-        if item is None or item.get("owner") not in (None, owner):
+        if item is None or item.get("deleted") or item.get("deletedOutputs") or item.get("owner") not in (None, owner):
             return None
         files = item.get("assetFiles") or []
         if index < 0 or index >= len(files):
@@ -358,6 +358,71 @@ class Library:
 
     def drop_raw(self, owner_key: str, job_id: str, name: str) -> None:
         self.store.delete(f"{self._prefix(owner_key)}/items/{job_id}/{name}")
+
+    def delete_item(self, owner: str, job_id: str, output_index: int | None = None) -> dict:
+        """Purge assets but retain a minimal deletion receipt to prevent backfill resurrection.
+
+        Commit the receipt before removing objects. A failed purge is retried by
+        reconciliation or by repeating DELETE; it never restores visibility.
+        """
+        owner_key = safe_owner(owner)
+        with self._lock(owner_key):
+            index = self._load(owner_key)
+            item = index["items"].get(job_id)
+            if item is None or item.get("owner") not in (None, owner):
+                raise LibraryError(404, "history item not found")
+            if output_index is not None and not item.get("deleted"):
+                outputs = item.get("outputs") or []
+                removed = [o for o in outputs if o["index"] == output_index]
+                remaining = [o for o in outputs if o["index"] != output_index]
+                if remaining:
+                    names = {o.get(k) for o in removed for k in ("file", "poster", "thumb", "mp3")}
+                    names.discard(None)
+                    names.add("metadata.json")
+                    item["outputs"] = remaining
+                    item["deletedOutputs"] = sorted(set(item.get("deletedOutputs", [])) | {output_index})
+                    item["assetFiles"] = [name for name in item.get("assetFiles", []) if name not in names]
+                    item["purgeFiles"] = sorted(set(item.get("purgeFiles", [])) | names)
+                    self._put_item(owner_key, item)
+                    self._purge_deleted(owner_key, item)
+                    return {"deleted": job_id, "output": output_index}
+            # Keep no prompt, input, thumbnail or playable file on the receipt.
+            item = {"id": job_id, "owner": owner, "deleted": True, "purgePending": True}
+            self._put_item(owner_key, item)
+            index["items"][job_id] = item
+            self._purge_deleted(owner_key, item)
+            return {"deleted": job_id}
+
+    def _purge_deleted(self, owner_key: str, item: dict) -> None:
+        job_id = item["id"]
+        names = set(item.get("purgeFiles") or [])
+        full = bool(item.get("deleted"))
+        prefix = f"{self._prefix(owner_key)}/items/{job_id}/"
+        for key, _ in list(self.store.list(prefix)):
+            if key != prefix + "item.json" and (full or key[len(prefix):] in names):
+                self.store.delete(key)
+        # Temporary job outputs must go too; shared reference uploads belong to
+        # other jobs as well, so only delete files inside this job's directory.
+        for key, _ in list(self.store.list(f"{TENANT_PREFIX}{owner_key}/")):
+            if posixpath.basename(posixpath.dirname(key)) == job_id and (full or posixpath.basename(key) in names):
+                self.store.delete(key)
+        item.pop("purgeFiles", None)
+        item.pop("purgePending", None)
+        self._put_item(owner_key, item)
+
+    def retry_deletions(self, owner_key: str) -> None:
+        with self._lock(owner_key):
+            for item in self._load(owner_key)["items"].values():
+                if item.get("purgePending") or item.get("purgeFiles"):
+                    self._purge_deleted(owner_key, item)
+
+    def asset_deleted(self, owner: str, job_id: str, name: str | None = None) -> bool:
+        with self._lock(safe_owner(owner)):
+            item = self._load(safe_owner(owner))["items"].get(job_id) or {}
+            if item.get("owner") not in (None, owner):
+                return False
+            return bool(item.get("deleted") or (name is not None and item.get("deletedOutputs") and
+                        name not in (item.get("assetFiles") or [])))
 
     # --- user state ---------------------------------------------------------
     def update_item(self, owner: str, job_id: str, changes: dict) -> dict:
@@ -425,7 +490,18 @@ class Library:
             return {"deleted": project_id, "itemsUnassigned": moved}
 
     # --- ingestion ----------------------------------------------------------
-    def record(self, metadata: dict, *, status: str = "completed", tenant_dir: str | None = None,
+    def record(self, metadata: dict, **kwargs) -> dict | None:
+        owner = metadata.get("owner") or "unknown"
+        with self._lock(safe_owner(owner)):
+            previous = self._load(safe_owner(owner))["items"].get(metadata.get("jobId"))
+            if previous and previous.get("deleted"):
+                self._purge_deleted(safe_owner(owner), previous)
+                return None
+            if previous and previous.get("deletedOutputs"):
+                return public_item(previous)
+            return self._record(metadata, **kwargs)
+
+    def _record(self, metadata: dict, *, status: str = "completed", tenant_dir: str | None = None,
                input_keys: dict[str, str] | None = None, started_at: str | None = None,
                completed_at: str | None = None) -> dict | None:
         """Copy a finished job's files into the library and index it.

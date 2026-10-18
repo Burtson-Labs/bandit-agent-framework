@@ -54,8 +54,7 @@ ASSET_TTL = timedelta(hours=ASSET_TTL_HOURS)
 REAPER_INTERVAL_SECONDS = max(60, int(os.getenv("REAPER_INTERVAL_SECONDS", "900")))
 MAX_UPLOAD_BYTES = max(1, int(os.getenv("MAX_UPLOAD_MIB", "12"))) * 1024 * 1024
 MAX_IMAGE_PIXELS = max(1_000_000, int(os.getenv("MAX_IMAGE_PIXELS", "25000000")))
-# Ceiling per video variant, including model load. A 10 s 1080p quality clip
-# with the full 20-step schedule is the slowest legal request.
+# Ceiling per short variant or individual section of a long video, including model load.
 VIDEO_VARIANT_TIMEOUT_SECONDS = max(300, int(os.getenv("VIDEO_VARIANT_TIMEOUT_SECONDS", "3600")))
 VIDEO_CRF = os.getenv("VIDEO_CRF", "17")
 # How long a queued job waits for the GPU worker (Anton claims on submit).
@@ -143,8 +142,8 @@ class VideoRequest(BaseModel):
     model: Literal["video-fast", "video-quality"] = "video-quality"
     aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["480p", "720p", "1080p"] = "720p"
-    # Clamped to what the workflow supports (2-10 s; >5 s chains two passes).
-    durationSeconds: float = Field(default=5.0, gt=0, le=60)
+    # Text/image generation supports 2–300 s; editing modes retain their own limits.
+    durationSeconds: float = Field(default=5.0, gt=0, le=300)
     fps: Literal[24, 30] = 24
     camera: vw.CameraMotion = "auto"
     # Adds explicit "keep logos/lettering unchanged" guidance. Defaults on when
@@ -292,6 +291,13 @@ async def startup() -> None:
     start_watch_sync()
 
 
+def delete_production_objects(prefix: str) -> None:
+    if not prefix.startswith("v1/productions/"):
+        raise ValueError("unexpected production storage prefix")
+    for key, _ in list(library.store.list(prefix.rstrip("/") + "/")):
+        library.store.delete(key)
+
+
 def start_watch_sync() -> None:
     global watch_sync
     if not WATCH_SERVICE_KEY:
@@ -302,6 +308,7 @@ def start_watch_sync() -> None:
         library, ws.WatchClient(WATCH_URL, WATCH_SERVICE_KEY),
         productions_db=(lambda: store.db) if store is not None else None,
         read_production_object=lambda key: (production_object(key) or (None,))[0],
+        delete_production_objects=delete_production_objects,
         drop_after_days=WATCH_DROP_LOCAL_MP4_DAYS, interval_seconds=WATCH_SYNC_SECONDS,
     )
     watch_sync.start()
@@ -901,6 +908,8 @@ async def get_asset(job_id: str, index: int, x_burtson_owner: str = Header(defau
     keys = job.assetKeys or [image["key"] for image in job.images]
     if index < 0 or index >= len(keys):
         raise HTTPException(404, "image asset not found")
+    if await asyncio.to_thread(library.asset_deleted, x_burtson_owner[:200], job_id, os.path.basename(keys[index])):
+        raise HTTPException(404, "asset was permanently deleted")
     obj = await asyncio.to_thread(s3_client().get_object, Bucket=BUCKET, Key=keys[index])
     body = await asyncio.to_thread(obj["Body"].read)
     return Response(content=body, media_type=obj.get("ContentType", "image/png"))
@@ -1175,7 +1184,8 @@ async def execute_video(job: Job) -> None:
             take_started = time.monotonic()
             job.samplingStartedAt = None
             try:
-                raw = await run_video_prompt(client, job, plan, variant)
+                raw = await (run_long_video(client, job, plan, variant) if len(plan.segments) > 2
+                             else run_video_prompt(client, job, plan, variant))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1268,7 +1278,7 @@ class EstimateRequest(BaseModel):
     model: Literal["video-fast", "video-quality"] = "video-quality"
     aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["480p", "720p", "1080p"] = "720p"
-    durationSeconds: float = Field(default=5.0, gt=0, le=60)
+    durationSeconds: float = Field(default=5.0, gt=0, le=300)
     fps: Literal[24, 30] = 24
     variants: int = Field(default=1, ge=1, le=4)
     accelerated: bool | None = None
@@ -1431,13 +1441,70 @@ async def video_queue(jobId: str | None = None, x_burtson_owner: str = Header(de
     return result
 
 
-async def run_video_prompt(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan, variant: int) -> bytes:
+async def run_long_video(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan, variant: int) -> bytes:
+    """Keep only one native section on the GPU; join encoded sections on disk."""
+    with tempfile.TemporaryDirectory(prefix="burtson-long-video-") as work:
+        start = plan.start_image
+        parts = []
+        for index, frames in enumerate(plan.segments):
+            if job.cancelRequested:
+                job.status = "cancelled"
+                return b""
+            section = replace(plan, segments=(frames,), start_image=start,
+                              kind="i2v" if start else "t2v", seed=plan.seed + index)
+            raw = await run_video_prompt(client, job, section, variant, section=(index, len(plan.segments)))
+            if job.cancelRequested or job.status == "cancelled":
+                job.status = "cancelled"
+                return b""
+            source = os.path.join(work, "section.mp4")
+            with open(source, "wb") as handle:
+                handle.write(raw)
+            del raw
+            info = await asyncio.to_thread(probe_video, source)
+            if not info.get("frames") or (info.get("duration") or 0) < section.duration_seconds - 1 / plan.output_fps:
+                raise RuntimeError(f"Video section {index + 1} is incomplete; retry generation")
+            target = os.path.join(work, f"part-{index:03d}.mp4")
+            # Each native pass includes its final frame, which starts the next pass.
+            # Keep exactly its duration here, so joins do not add duplicate frames.
+            await asyncio.to_thread(run_ffmpeg, [
+                "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
+                "-an", "-vf", f"fps={plan.output_fps},setsar=1", "-t", str(section.duration_seconds),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "12", "-pix_fmt", "yuv420p", target])
+            parts.append(target)
+            if index + 1 < len(plan.segments):
+                last = os.path.join(work, "last.png")
+                await asyncio.to_thread(run_ffmpeg, [
+                    "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
+                    "-vf", f"select='eq(n,{info['frames'] - 1})'", "-frames:v", "1", last])
+                with open(last, "rb") as handle:
+                    start = await upload_comfy_bytes(client, f"{job.id}-continuation.png", handle.read(), "image/png")
+        if job.cancelRequested:
+            job.status = "cancelled"
+            return b""
+        manifest = os.path.join(work, "parts.txt")
+        with open(manifest, "w") as handle:
+            handle.write("".join(f"file 'part-{index:03d}.mp4'\n" for index in range(len(parts))))
+        joined = os.path.join(work, "joined.mp4")
+        await asyncio.to_thread(run_ffmpeg, [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+            "-i", manifest, "-c", "copy", "-movflags", "+faststart", joined])
+        with open(joined, "rb") as handle:
+            return handle.read()
+
+
+async def run_video_prompt(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan, variant: int, *,
+                           section: tuple[int, int] | None = None) -> bytes:
     workflow = vw.wan_video_workflow(plan, filename_prefix=f"burtson-video/{job.id}-{variant + 1}")
     samplers = vw.sampler_nodes(plan)
     total_steps = sum(steps for _, steps in samplers) or 1
     base = {"variant": variant + 1, "variants": job.request["variants"]}
-    job.progress = {**base, "stage": "loading_model", "percent": 0}
-    watcher = asyncio.create_task(watch_progress(job, samplers, total_steps, base))
+    low, high = (0.0, 90.0)
+    if section:
+        index, count = section
+        base.update(section=index + 1, sections=count)
+        low, high = 90 * index / count, 90 * (index + 1) / count
+    job.progress = {**base, "stage": "loading_model", "percent": round(low)}
+    watcher = asyncio.create_task(watch_progress(job, samplers, total_steps, base, (low, high)))
     try:
         submitted = await client.post(f"{COMFY_URL}/prompt", json={"prompt": workflow, "client_id": job.id})
         if submitted.status_code >= 400:
@@ -2087,12 +2154,33 @@ async def sync_library(x_burtson_owner: str = Header(default="unknown")) -> dict
     """Copy the caller's not-yet-recorded finished jobs into history now."""
     owner = x_burtson_owner[:200]
     failed = await asyncio.to_thread(library.backfill, owner)
+    if watch_sync is not None:
+        watch_sync.kick()
     return {"failed": len(failed)}
 
 
 @app.get("/api/library/items/{job_id}")
 async def get_library_item(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
     return await asyncio.to_thread(library_call, library.get_item, x_burtson_owner[:200], job_id)
+
+
+@app.delete("/api/library/items/{job_id}")
+async def delete_library_item(job_id: str, x_burtson_owner: str = Header(default="unknown")) -> dict:
+    owner = x_burtson_owner[:200]
+    try:
+        if watch_sync is not None:
+            result = await asyncio.to_thread(library_call, watch_sync.delete_history_item, owner, job_id)
+        else:
+            deleted = await asyncio.to_thread(library.asset_deleted, owner, job_id)
+            item = {} if deleted else await asyncio.to_thread(library_call, library.get_item, owner, job_id)
+            if any((o.get("watch") or {}).get("state") == "present" for o in item.get("outputs", [])):
+                raise HTTPException(503, "Media is not connected. Please retry when it is available.")
+            result = await asyncio.to_thread(library_call, library.delete_item, owner, job_id)
+    except ws.WatchError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    if jobs.get(job_id) is not None and jobs[job_id].owner == owner:
+        jobs.pop(job_id, None)
+    return result
 
 
 @app.patch("/api/library/items/{job_id}")

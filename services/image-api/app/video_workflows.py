@@ -42,7 +42,7 @@ VideoMode = Literal["restyle", "motion", "extend"]
 Control = Literal["edges", "depth", "pose"]
 
 MIN_DURATION_SECONDS = 2.0
-MAX_DURATION_SECONDS = 10.0
+MAX_DURATION_SECONDS = 300.0
 OUTPUT_FPS = (24, 30)
 MIN_SEGMENT_FRAMES = 17
 # Source videos are normalised to this rate at upload (VACE's native rate).
@@ -251,7 +251,7 @@ def _legal(frames: int, model: VideoModel) -> int:
 def segment_frames(model: VideoModel, duration_seconds: float) -> tuple[int, ...]:
     """Split a requested duration into model-native segments of 4k+1 frames.
 
-    Wan generates about five seconds per pass. Longer clips chain a second pass
+    Wan generates about five seconds per pass. Longer clips chain additional passes
     that starts from the first pass's last frame; the duplicated join frame is
     dropped, so total frames = sum(segments) - (segments - 1).
     """
@@ -259,8 +259,18 @@ def segment_frames(model: VideoModel, duration_seconds: float) -> tuple[int, ...
     wanted = round(duration * model.native_fps) + 1
     if wanted <= model.segment_frames:
         return (_legal(wanted, model),)
-    first = model.segment_frames
-    return (first, _legal(wanted - first + 1, model))
+    segments = []
+    remaining = wanted - 1
+    while remaining > model.segment_frames - 1:
+        segments.append(model.segment_frames)
+        remaining -= model.segment_frames - 1
+    # Redistribute a short tail so every pass meets the model minimum.
+    if remaining < MIN_SEGMENT_FRAMES - 1:
+        borrow = MIN_SEGMENT_FRAMES - 1 - remaining
+        segments[-1] -= borrow
+        remaining += borrow
+    segments.append(_legal(remaining + 1, model))
+    return tuple(segments)
 
 
 def interpolation_multiplier(native_fps: int, output_fps: int) -> int:
@@ -367,13 +377,13 @@ def plan_video(
         if available < MIN_SEGMENT_FRAMES:
             raise ValueError("the source video must be at least about one second long")
         if mode == "extend":
-            new = round(min(max(duration_seconds, 1.0), MAX_DURATION_SECONDS) * SOURCE_FPS)
+            new = round(min(max(duration_seconds, 1.0), MAX_SOURCE_SECONDS) * SOURCE_FPS)
             segments = (_legal(EXTEND_CONTEXT_FRAMES + new, spec),)
             source_frames = available
         else:
             source_start = max(0, min(round(source_start_seconds * SOURCE_FPS), available - MIN_SEGMENT_FRAMES))
             remaining = available - source_start
-            wanted = min(round(min(max(duration_seconds, MIN_DURATION_SECONDS), MAX_DURATION_SECONDS)
+            wanted = min(round(min(max(duration_seconds, MIN_DURATION_SECONDS), MAX_SOURCE_SECONDS)
                                * SOURCE_FPS) + 1, remaining)
             frames = min(spec.segment_frames, 4 * ((wanted - 1) // 4) + 1)
             segments = (max(MIN_SEGMENT_FRAMES, frames),)

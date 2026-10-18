@@ -28,6 +28,16 @@ class FakeWatch:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["X-Watch-Service-Key"] == "k"
+        if request.url.path.endswith("/delete"):
+            if self.fail_next:
+                self.fail_next -= 1
+                return httpx.Response(503)
+            for tag in json.loads(request.content)["importedFrom"]:
+                if tag in self.items:
+                    self.delete(tag)
+                else:
+                    self.deleted[tag] = {"importedFrom": tag}
+            return httpx.Response(200, json={})
         if request.url.path.endswith("/lookup"):
             body = json.loads(request.content)
             items = []
@@ -100,6 +110,49 @@ class WatchSyncTests(unittest.TestCase):
         seed_video(self.store)
         self.library.record(video_metadata(), tenant_dir=f"{DAY}/job0001video")
 
+    def test_delete_in_history_removes_media_and_cannot_reimport(self):
+        self.sync.run_once()
+        self.sync.delete_history_item(OWNER, "job0001video")
+        self.assertEqual(self.watch.items, {})
+        self.assertEqual(len(self.watch.deleted), 2)
+        self.assertEqual(self.library.list(OWNER)["total"], 0)
+        self.assertEqual(self.sync.run_once()["imported"], 0)
+        self.sync.delete_history_item(OWNER, "job0001video")
+
+    def test_media_failure_keeps_history_retryable(self):
+        self.sync.run_once()
+        self.watch.fail_next = 1
+        with self.assertRaises(ws.WatchError):
+            self.sync.delete_history_item(OWNER, "job0001video")
+        self.assertEqual(len(self.outputs()), 2)
+        self.sync.delete_history_item(OWNER, "job0001video")
+        self.assertEqual(self.library.list(OWNER)["total"], 0)
+
+    def test_remaining_take_is_deleted_in_media_after_partial_deletion(self):
+        self.sync.run_once()
+        self.watch.delete("studio:job0001video:take1")
+        self.sync.run_once()
+        self.sync.delete_history_item(OWNER, "job0001video")
+        self.assertEqual(self.watch.items, {})
+
+    def test_media_deletion_purges_production_files_and_clears_chosen_take(self):
+        prefix = "v1/productions/user-123/pr1/takes/take1"
+        self.store.put(prefix + "/video-01.mp4", b"production", "video/mp4")
+        self.db.takes.insert_one({"_id": "take1", "owner": OWNER, "productionId": "pr1", "shotId": "shot1",
+                                  "status": "chosen", "prefix": prefix, "takeIndex": 0,
+                                  "files": {"video": "video-01.mp4"}})
+        self.db.shots.insert_one({"_id": "shot1", "chosenTakeId": "take1"})
+        def purge(path):
+            for key, _ in list(self.store.list(path + "/")):
+                self.store.delete(key)
+        self.sync.delete_production_objects = purge
+        self.sync.run_once()
+        self.watch.delete("studio:take1:take1")
+        self.sync.run_once()
+        self.assertIsNone(self.db.takes.find_one({"_id": "take1"}))
+        self.assertIsNone(self.db.shots.find_one({"_id": "shot1"})["chosenTakeId"])
+        self.assertIsNone(self.store.get(prefix + "/video-01.mp4"))
+
     def outputs(self, job_id="job0001video"):
         return self.library.get_item(OWNER, job_id)["outputs"]
 
@@ -165,7 +218,7 @@ class WatchSyncTests(unittest.TestCase):
         stats = self.sync.run_once()
         self.assertEqual(stats["deleted"], 1)
         self.assertEqual(self.outputs()[0]["watch"]["title"], "Renamed by the owner")
-        self.assertEqual(self.outputs()[1]["watch"]["state"], "deleted")
+        self.assertEqual([o["index"] for o in self.outputs()], [0])
         # A deleted take is never imported again.
         self.clock.now += timedelta(days=1)
         self.sync.run_once()

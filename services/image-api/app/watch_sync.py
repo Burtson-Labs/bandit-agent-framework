@@ -22,7 +22,8 @@ a job is recorded):
 2. imports what is still missing; network errors and 5xx back off
    1/5/15/30/60 min, a refusal (400/403/413) is recorded and not retried;
 3. refreshes the state of imported takes: the current title in watch, or
-   ``deleted`` when the owner deleted it there (deleted takes are never re-imported);
+   ``deleted`` when the owner deleted it there; purge the matching Studio take and files
+   (deleted takes are never re-imported);
 4. drops the local History MP4 once the watch copy has been confirmed for
    ``WATCH_DROP_LOCAL_MP4_DAYS`` days (0 keeps it). Thumbnails, posters, inputs
    and metadata stay in MinIO (Remix needs them); playback of a dropped take is
@@ -78,6 +79,16 @@ class WatchClient:
             for item in response.json().get("items") or []:
                 found[item["importedFrom"]] = item
         return found
+
+    def delete(self, owner: str, tags: list[str]) -> None:
+        if not tags:
+            return
+        try:
+            response = self._client.post("/api/internal/studio/delete", json={"ownerId": owner, "importedFrom": tags})
+        except httpx.HTTPError as exc:
+            raise WatchError("Media is unavailable; please retry deletion") from exc
+        if response.status_code != 200:
+            raise WatchError(f"Media deletion answered {response.status_code}; please retry")
 
     def import_file(self, metadata: dict, file_name: str, body: bytes, content_type: str) -> tuple[int, dict]:
         files = {
@@ -237,11 +248,13 @@ def watch_state(found: dict, *, now: datetime) -> dict:
 class WatchSync:
     def __init__(self, library, client: WatchClient, *, productions_db: Callable[[], Any] | None = None,
                  read_production_object: Callable[[str], bytes | None] | None = None,
+                 delete_production_objects: Callable[[str], None] | None = None,
                  drop_after_days: float = 7, interval_seconds: float = 60, clock: Callable[[], datetime] = now_utc):
         self.library = library
         self.client = client
         self.productions_db = productions_db or (lambda: None)
         self.read_production_object = read_production_object
+        self.delete_production_objects = delete_production_objects
         self.drop_after = timedelta(days=drop_after_days) if drop_after_days > 0 else None
         self.interval = interval_seconds
         self.clock = clock
@@ -302,8 +315,18 @@ class WatchSync:
         finally:
             self._run_lock.release()
 
+    def delete_history_item(self, owner: str, job_id: str) -> dict:
+        # Serialize with imports so an in-flight sync cannot recreate the item.
+        with self._run_lock:
+            if self.library.asset_deleted(owner, job_id):
+                return self.library.delete_item(owner, job_id)
+            item = self.library.get_item(owner, job_id)
+            self.client.delete(owner, [history_tag(job_id, output) for output in item.get("outputs") or []])
+            return self.library.delete_item(owner, job_id)
+
     # --- History -----------------------------------------------------------------
     def _sync_history(self, owner_key: str, stats: dict) -> None:
+        self.library.retry_deletions(owner_key)
         now = self.clock()
         pending: list[tuple[dict, dict, str]] = []
         imported: list[tuple[dict, dict, str]] = []
@@ -317,7 +340,10 @@ class WatchSync:
                 watch = output.get("watch") or {}
                 if watch.get("state") == "present":
                     imported.append((item, output, tag))
-                elif watch.get("state") in ("deleted", "refused"):
+                elif watch.get("state") == "deleted":
+                    self.library.delete_item(item["owner"], item["id"], output["index"])
+                    continue
+                elif watch.get("state") == "refused":
                     continue
                 elif item.get("hidden") or output.get("hidden"):
                     continue  # discarded in History; imported if it is ever un-hidden
@@ -330,6 +356,8 @@ class WatchSync:
 
         def save(item: dict, output: dict, **changes: Any) -> None:
             self.library.set_output_state(owner_key, item["id"], output["index"], **changes)
+            if (changes.get("watch") or {}).get("state") == "deleted":
+                self.library.delete_item(item["owner"], item["id"], output["index"])
 
         self._import_pending(owner, pending, stats, now, save=save,
                              load=lambda item, output: self._history_file(owner_key, item, output),
@@ -362,15 +390,26 @@ class WatchSync:
     # --- Productions ------------------------------------------------------------
     def _sync_productions(self, db, stats: dict) -> None:
         now = self.clock()
-        takes = list(db.takes.find({"status": {"$ne": "rejected"}, "prefix": {"$exists": True}}))
+        takes = list(db.takes.find({"prefix": {"$exists": True}}))
         by_owner: dict[str, dict[str, list]] = {}
+        def purge(take: dict) -> None:
+            if self.delete_production_objects is None:
+                return
+            db.takes.update_one({"_id": take["_id"]}, {"$set": {"deleted": True}})
+            db.shots.update_many({"chosenTakeId": take["_id"]}, {"$set": {"chosenTakeId": None}})
+            self.delete_production_objects(take["prefix"])
+            db.takes.delete_one({"_id": take["_id"]})
+
         for take in takes:
             watch = take.get("watch") or {}
+            if watch.get("state") == "deleted" or take.get("deleted"):
+                purge(take)
+                continue
             bucket = by_owner.setdefault(take.get("owner") or "", {"pending": [], "imported": []})
             tag = production_tag(take)
             if watch.get("state") == "present":
                 bucket["imported"].append((take, take, tag))
-            elif watch.get("state") in ("deleted", "refused") or not self._due(watch, now):
+            elif take.get("status") == "rejected" or watch.get("state") == "refused" or not self._due(watch, now):
                 continue
             else:
                 bucket["pending"].append((take, take, tag))
@@ -387,6 +426,8 @@ class WatchSync:
             watch = {**(take.get("watch") or {}), **(changes.get("watch") or {})}
             take["watch"] = watch
             db.takes.update_one({"_id": take["_id"]}, {"$set": {"watch": watch}})
+            if watch.get("state") == "deleted":
+                purge(take)
 
         def load(take: dict, _output: dict) -> tuple[str, bytes, str] | None:
             name = (take.get("files") or {}).get("video")

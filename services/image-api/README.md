@@ -122,8 +122,9 @@ kept/dropped/none, subjects); History keeps each person's photo as
 `input-person-N.png`, and watch titles them "Swap people · Replace · 2 people".
 
 Request fields: `prompt`, `model`, `aspect` (`16:9`, `9:16`, `1:1`), `resolution`
-(`480p`, `720p`, `1080p`), `durationSeconds` (clamped to 2-10 s; over ~5 s a
-second pass continues from the first pass's last frame), `fps` (24 or 30),
+(`480p`, `720p`, `1080p`), `durationSeconds` (2–300 s for text/image generation;
+long videos render one native section at a time, continue from the previous
+last frame, and concatenate encoded sections on disk), `fps` (24 or 30),
 `camera` (motion hint mapped to prompt text), `preserveText` (explicit
 logo/lettering guidance; defaults on with a start image), `accelerated`
 (`video-quality` only: Lightning 4-step LoRAs vs the full 20-step schedule),
@@ -243,8 +244,14 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
   jobs whose copy failed and uploads that queued/running jobs still use, so
   nothing is reaped before it is persisted. The bucket lifecycle rule runs one
   day behind the app TTL as a backstop only.
-- Hiding is a soft delete. The only library file the service ever deletes is a
-  take's MP4, and only after watch has confirmed its copy (see below).
+- Hiding is reversible. Permanent deletion removes the item's Media copies,
+  local outputs, thumbnails, copied inputs and temporary job files. A minimal
+  item receipt (owner/id/deleted) prevents backfill from recreating it; failed
+  storage cleanup is retried. Deleting one take in Media preserves other takes
+  in the same History item. Shared input uploads retain their normal TTL.
+- Long videos can take hours and appearance may drift between sections. The
+  300-second joining path is tested with synthetic clips; full-length AI
+  generation quality is not yet benchmarked. Existing editing limits remain.
 - `GET /api/images/jobs/{id}/assets/{index}` falls back to the library once the
   in-memory job is gone, so result links keep working after a restart.
 - Reference records are persisted beside the upload
@@ -258,6 +265,7 @@ lifecycle plus the app reaper). Finished jobs are kept separately, per user, in
 | `GET /api/library` | `GET /image/library` | one page, newest first: `q`, `kind`, `model`, `status` (`completed`/`failed`), `since`, `view` (`all`/`favorites`/`unassigned`/`project:<id>`), `includeHidden`, `limit` (≤ 200), `cursor`; returns `items`, `nextCursor`, `total`, `counts`, `models`, `projects` |
 | `POST /api/library/sync` | `POST /image/library/sync` | record the caller's unrecorded jobs now |
 | `GET /api/library/items/{id}` | `GET /image/library/items/{id}` | one item |
+| `DELETE /api/library/items/{id}` | `DELETE /image/library/items/{id}` | permanently delete all takes and their Media copies; requires Media deletion support |
 | `PATCH /api/library/items/{id}` | `PATCH /image/library/items/{id}` | `favorite`, `hidden`, `projectId` (null clears), `outputs: [{index, favorite?, hidden?}]` |
 | `GET /api/library/items/{id}/files/{name}` | `GET /image/library/items/{id}/files/{name}` | `video-NN.mp4`, `poster-NN.jpg`, `image-NN.png`, `thumb-NN.jpg`, `input-*.png/mp4`, `metadata.json` |
 | `POST /api/library/projects` | `POST /image/library/projects` | create `{name}` |
@@ -282,7 +290,8 @@ takes to one collection per production (`studio:production:{id}`), titled
   (header `X-Watch-Service-Key` from the `watch-studio-import` secret), backs off
   1/5/15/30/60 min on errors, and refreshes imported takes: the current title
   in watch, or `deleted` when the owner deleted it there. Deleted takes are never
-  imported again. Hidden History takes wait until un-hidden.
+  imported again; their Studio files and entries are purged, including production
+  takes. A chosen production take is cleared. Hidden History takes wait until un-hidden.
 - State is on the take: `outputs[n].watch` in History (`state` present /
   deleted / pending / refused, `videoId`, `url`, `title`, `collectionName`,
   `importedAt`), `watch` on a Productions take.

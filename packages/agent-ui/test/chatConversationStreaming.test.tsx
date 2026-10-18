@@ -55,5 +55,7 @@ describe('ChatConversation while streaming', () => {
     const elapsed = performance.now() - started;
     process.stdout.write(`[stall] 60 state posts over 80 messages: ${renders} markdown renders, ${elapsed.toFixed(0)} ms\n`);
     expect(renders).toBeLessThanOrEqual(60);
-  });
+    // This asserts render counts, not runner speed. Allow the 4,800-message
+    // DOM workload to finish on shared CI CPUs without weakening that budget.
+  }, 15_000);
 });
