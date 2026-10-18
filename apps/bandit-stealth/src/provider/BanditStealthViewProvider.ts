@@ -174,6 +174,7 @@ import type {
 } from '../agentTypes';
 import type {
   IncomingMessage,
+  ViewAction,
   OutgoingMessage,
   TraceListMode
 } from '../messages';
@@ -184,7 +185,12 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   public readonly conversations: ConversationService;
   private isBusy = false;
   private pendingPrompt: string | undefined;
-  private pendingOpenSettings = false;
+  /** A title-bar action that arrived before the webview had mounted;
+   *  sent once the webview asks for state (it is listening by then). */
+  private pendingViewAction: ViewAction | undefined;
+  /** True once the current webview has posted `requestState`, i.e. its
+   *  message listener is attached. Reset on every resolveWebviewView. */
+  private webviewReady = false;
   private activeStream: AsyncIterator<AIChatResponse> | undefined;
   // Per-turn cancellation. Created at the start of each tool-use-loop chat
   // turn (the simple non-agent chat path uses `activeStream` instead).
@@ -581,12 +587,32 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   }
 
   public async showApiKeyOverlay(): Promise<void> {
-    this.pendingOpenSettings = true;
-    await this.reveal();
-    if (this.view) {
-      this.postMessage({ type: 'openSettings' });
-      this.pendingOpenSettings = false;
+    await this.runViewAction('openSettings');
+  }
+
+  /**
+   * Run one of the view's title-bar actions (new conversation, history,
+   * settings, trace logs). Reveals the view, then forwards the action to
+   * the webview, or queues it until the webview has mounted.
+   */
+  public async runViewAction(action: ViewAction): Promise<void> {
+    if (!this.view || !this.webviewReady) {
+      this.pendingViewAction = action;
     }
+    await this.reveal();
+    if (this.view && this.webviewReady) {
+      this.pendingViewAction = undefined;
+      this.postMessage({ type: 'viewAction', action });
+    }
+  }
+
+  /** Show what the webview is displaying next to the view title. */
+  private setViewDescription(title: string): void {
+    if (!this.view) {return;}
+    const trimmed = title.trim();
+    // "New conversation" is the default state; repeating it in the title
+    // bar adds noise without telling the user anything.
+    this.view.description = trimmed && trimmed.toLowerCase() !== 'new conversation' ? trimmed : undefined;
   }
 
   public async setPendingPrompt(prompt: string): Promise<void> {
@@ -623,6 +649,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.webviewReady = false;
     view.webview.options = {
       enableScripts: true
     };
@@ -705,7 +732,17 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
   private async handleMessage(message: IncomingMessage): Promise<void> {
     if (message.type === 'requestState') {
+      this.webviewReady = true;
       await this.syncState();
+      if (this.pendingViewAction) {
+        const action = this.pendingViewAction;
+        this.pendingViewAction = undefined;
+        this.postMessage({ type: 'viewAction', action });
+      }
+      return;
+    }
+    if (message.type === 'viewTitle') {
+      this.setViewDescription(typeof message.title === 'string' ? message.title : '');
       return;
     }
 
@@ -3704,11 +3741,6 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
     this.pendingPrompt = undefined;
     this.postMessage({ type: 'state', state });
-
-    if (this.pendingOpenSettings) {
-      this.postMessage({ type: 'openSettings' });
-      this.pendingOpenSettings = false;
-    }
   }
 
   /** Invalidation hook fired from the config-change listener in

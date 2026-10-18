@@ -4,107 +4,75 @@ import {
   ClockIcon,
   Cog6ToothIcon,
   DocumentTextIcon,
-  PencilSquareIcon
+  PlusIcon
 } from "@heroicons/react/24/outline";
+import type { ViewAction } from "../state/viewActions";
 
 export interface TopBarProps {
-  /** Title text shown to the left of the icon buttons. */
-  toolbarTitle: string;
-  /** Tooltip for the settings button when not in settings mode. */
-  settingsButtonTooltip: string;
-  /** Which top-level page is active (drives the muted/disabled state of the icon buttons). */
+  /** What the view is showing, in sentence case ("New conversation", "Settings"…). */
+  title: string;
+  /** Which top-level page is active. */
   activePage: "workspace" | "settings";
-  /** Whether the history drawer is open. */
+  /** Whether the history list is open. */
   showHistory: boolean;
-  /** Whether the settings page is the active overlay. */
-  isSettingsPage: boolean;
-  /** Whether the trace logs panel is the active overlay. */
+  /** Whether the trace logs panel is open. */
   tracePanelOpen: boolean;
-  /** Click handlers — one per icon button. */
-  onToggleHistory: () => void;
-  onOpenTracePanel: () => void;
-  onNewConversation: () => void;
-  onOpenSettings: () => void;
-  onHideSettings: () => void;
+  onAction: (action: ViewAction) => void;
 }
 
 /**
- * Top-of-shell toolbar with the four mutually-exclusive icon buttons:
- * history, trace logs, new conversation, and settings. Only one of
- * history / new-conversation / settings can be the active mode at a
- * time; the buttons for the inactive modes fade + become unclickable
- * while another mode is open so the user isn't presented with three
- * "where am I?" affordances simultaneously. Clicking the currently
- * active button toggles back to conversation.
+ * In-webview toolbar, used only when the host does not put these actions
+ * in VS Code's view title bar (the extension does, via contributes.menus
+ * `view/title`; see bootConfig.nativeTitleActions).
+ *
+ * Square 26px ghost buttons in VS Code's toolbar style. Every button stays
+ * enabled: choosing one closes whichever surface is open (see
+ * state/viewActions.ts). The title shrinks with an ellipsis and the
+ * buttons never wrap or clip, down to a 220px-wide view.
  */
 export function TopBar(props: TopBarProps): JSX.Element {
-  const {
-    toolbarTitle,
-    settingsButtonTooltip,
-    activePage,
-    showHistory,
-    isSettingsPage,
-    tracePanelOpen,
-    onToggleHistory,
-    onOpenTracePanel,
-    onNewConversation,
-    onOpenSettings,
-    onHideSettings
-  } = props;
+  const { title, activePage, showHistory, tracePanelOpen, onAction } = props;
+  const settingsOpen = activePage === "settings";
   return (
-    <div className="stealth-toolbar">
-      <div className="stealth-toolbar__text">
-        <h1 className="stealth-toolbar__title">{toolbarTitle}</h1>
-      </div>
+    <div className="stealth-toolbar" role="toolbar" aria-label="Bandit Stealth">
+      <h1 className="stealth-toolbar__title" title={title}>{title}</h1>
       <div className="stealth-toolbar__actions">
         <button
-          className={clsx("icon-button", showHistory && "active", (isSettingsPage || tracePanelOpen) && "is-muted")}
+          className="icon-button"
           type="button"
-          aria-label={showHistory ? "Hide history" : "Show history"}
+          aria-label="New conversation"
+          title="New conversation"
+          onClick={() => onAction("newConversation")}
+        >
+          <PlusIcon aria-hidden="true" />
+        </button>
+        <button
+          className={clsx("icon-button", showHistory && "active")}
+          type="button"
+          aria-label="Conversation history"
+          title={showHistory ? "Hide history" : "Conversation history"}
           aria-pressed={showHistory}
-          disabled={isSettingsPage || tracePanelOpen}
-          onClick={onToggleHistory}
-          data-has-tooltip="true"
-          data-tooltip={tracePanelOpen ? "Close trace logs to view history" : isSettingsPage ? "Close settings to view history" : (showHistory ? "Hide history" : "Show history")}
-          data-tooltip-position="below"
+          onClick={() => onAction("toggleHistory")}
         >
           <ClockIcon aria-hidden="true" />
         </button>
         <button
           className={clsx("icon-button", tracePanelOpen && "active")}
           type="button"
-          aria-label={tracePanelOpen ? "Close trace logs" : "Open trace logs"}
+          aria-label="Trace logs"
+          title={tracePanelOpen ? "Close trace logs" : "Trace logs"}
           aria-pressed={tracePanelOpen}
-          onClick={onOpenTracePanel}
-          data-has-tooltip="true"
-          data-tooltip={tracePanelOpen ? "Close trace logs" : "Trace logs"}
-          data-tooltip-position="below"
+          onClick={() => onAction("openTraceLogs")}
         >
           <DocumentTextIcon aria-hidden="true" />
         </button>
         <button
-          className={clsx("icon-button", (isSettingsPage || showHistory || tracePanelOpen) && "is-muted")}
+          className={clsx("icon-button", settingsOpen && "active")}
           type="button"
-          aria-label="New conversation"
-          disabled={isSettingsPage || showHistory || tracePanelOpen}
-          onClick={onNewConversation}
-          data-has-tooltip="true"
-          data-tooltip={tracePanelOpen ? "Close trace logs to start a new conversation" : isSettingsPage ? "Close settings to start a new conversation" : showHistory ? "Hide history to start a new conversation" : "New conversation"}
-          data-tooltip-position="below"
-        >
-          <PencilSquareIcon aria-hidden="true" />
-        </button>
-        <button
-          className={clsx("icon-button", activePage === "settings" && "active", (showHistory || tracePanelOpen) && "is-muted")}
-          type="button"
-          aria-label={activePage === "settings" ? "Close settings" : settingsButtonTooltip}
-          onClick={activePage === "settings" ? onHideSettings : onOpenSettings}
-          aria-pressed={activePage === "settings"}
-          disabled={showHistory || tracePanelOpen}
-          data-has-tooltip="true"
-          data-tooltip={tracePanelOpen ? "Close trace logs to open settings" : showHistory ? "Hide history to open settings" : (activePage === "settings" ? "Close settings — return to conversation" : settingsButtonTooltip)}
-          data-tooltip-align="right"
-          data-tooltip-position="below"
+          aria-label="Settings"
+          title={settingsOpen ? "Close settings" : "Settings"}
+          aria-pressed={settingsOpen}
+          onClick={() => onAction("toggleSettings")}
         >
           <Cog6ToothIcon aria-hidden="true" />
         </button>

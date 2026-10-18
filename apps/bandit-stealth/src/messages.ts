@@ -26,8 +26,18 @@ export interface AskUserQuestionPayload {
   allowFreeform?: boolean;
 }
 
+/**
+ * Actions the view's native title-bar buttons (contributes.menus
+ * `view/title`) ask the webview to perform. The webview owns which page
+ * is showing, so the host forwards the click rather than changing state.
+ */
+export type ViewAction = 'newConversation' | 'toggleHistory' | 'toggleSettings' | 'openSettings' | 'openTraceLogs';
+
 export type IncomingMessage =
   | { type: 'requestState' }
+  // The webview reports what it is showing (conversation name, Settings,
+  // History…) so the host can put it in the view's description.
+  | { type: 'viewTitle'; title: string }
   | { type: 'sendPrompt'; text: string; images?: string[]; files?: string[]; mode?: ModeKind; autoContext?: boolean }
   | { type: 'setApiKey'; value: string }
   | { type: 'signInWithBurtson' }
@@ -128,6 +138,7 @@ export type OutgoingMessage =
   | { type: 'requireApiKey' }
   | { type: 'notification'; message: string }
   | { type: 'openSettings' }
+  | { type: 'viewAction'; action: ViewAction }
   | { type: 'contextFilesAdded'; files: Array<{ path: string; preview?: string }> }
   | { type: 'imageAttachmentsAdded'; images: string[] }
   | { type: 'workspaceFileSuggestions'; entries: Array<{ path: string; isDir: boolean }> }

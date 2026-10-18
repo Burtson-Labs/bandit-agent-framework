@@ -35,6 +35,10 @@ export type WebviewMessage =
   | { type: "notification"; message: string }
   | { type: "error"; message: string }
   | { type: "requireApiKey" }
+  // View title-bar action forwarded by the host (history, new
+  // conversation, settings, trace logs). `action` is validated on receipt.
+  | { type: "viewAction"; action: string }
+  | { type: "openSettings" }
   | { type: "skillList"; skills: ComposerSkillOption[] }
   | { type: "agentPlan"; plan?: Plan | null; activeRunId?: string | null; history?: PlanRunSummary[] }
   | AgentPlanUpdateMessage

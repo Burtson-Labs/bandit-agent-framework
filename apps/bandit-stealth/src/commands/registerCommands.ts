@@ -20,6 +20,11 @@ export function registerCommands(
   return [
     vscode.commands.registerCommand('banditStealth.askBandit', () => revealWithSelection(provider)),
     vscode.commands.registerCommand('banditStealth.openChat', () => provider.reveal()),
+    // Native view title-bar actions (contributes.menus view/title).
+    vscode.commands.registerCommand('banditStealth.view.newConversation', () => provider.runViewAction('newConversation')),
+    vscode.commands.registerCommand('banditStealth.view.toggleHistory', () => provider.runViewAction('toggleHistory')),
+    vscode.commands.registerCommand('banditStealth.view.toggleSettings', () => provider.runViewAction('toggleSettings')),
+    vscode.commands.registerCommand('banditStealth.view.openTraceLogs', () => provider.runViewAction('openTraceLogs')),
     vscode.commands.registerCommand('banditStealth.setApiKey', () => provider.showApiKeyOverlay()),
     vscode.commands.registerCommand('banditStealth.resetApiKey', () => provider.clearApiKey()),
     vscode.commands.registerCommand('banditStealth.setOllamaAuthToken', () => provider.setOllamaAuthToken()),

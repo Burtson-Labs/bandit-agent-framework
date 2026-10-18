@@ -27,6 +27,8 @@ import {
 } from "./components/SettingsPanel";
 import { TaskSummaryCard } from "./components/TaskSummaryCard";
 import { TopBar } from "./components/TopBar";
+import { dispatchViewMessage } from "./messageDispatch/viewMessages";
+import { applyViewAction, viewTitleFor, type ViewAction } from "./state/viewActions";
 import { TraceLogPanel } from "./components/TraceLogPanel";
 import { applyAccountSnapshot } from "./state/applyAccountSnapshot";
 import { applyHistorySnapshot } from "./state/applyHistorySnapshot";
@@ -272,6 +274,7 @@ export function App(): JSX.Element {
   } = useToast();
   const bootConfig = useMemo(readBootConfig, []);
   const heroLogoSrc = bootConfig.logoSrc ?? fallbackLogoSrc;
+  const nativeTitleActions = bootConfig.nativeTitleActions === true;
   const [contextFiles, setContextFiles] = useState<ContextFileAttachment[]>([]);
   // File suggestions for @-mention autocomplete in the composer. Populated
   // by the extension's workspaceFileSuggestions message in response to
@@ -443,12 +446,15 @@ export function App(): JSX.Element {
   // If the provider flips to ollama while we're on the (now-hidden)
   // Account tab, snap to Providers so the user isn't staring at an
   // empty area. Fires only when the mismatch actually occurs; doesn't
-  // fight the user's tab selection otherwise.
+  // fight the user's tab selection otherwise. Only while Settings is
+  // open: at boot providerKind is still its default until the first
+  // state message lands, and snapping then sent Bandit users to the
+  // Providers tab the first time they opened Settings.
   useEffect(() => {
-    if (activeSettingsTab === "account" && providerKind !== "bandit") {
+    if (activePage === "settings" && activeSettingsTab === "account" && providerKind !== "bandit") {
       setActiveSettingsTab("providers");
     }
-  }, [activeSettingsTab, providerKind]);
+  }, [activePage, activeSettingsTab, providerKind]);
   const [activeView, setActiveView] = useState<"conversation" | "plan">("conversation");
   const [planUnread, setPlanUnread] = useState(false);
   const [planArtifactsEnabled, setPlanArtifactsEnabled] = useState(true);
@@ -1945,16 +1951,6 @@ export function App(): JSX.Element {
     [busy, contextFiles, imageAttachments, showHistory, autoContextEnabled, requestTraceList, requestTraceDetail]
   );
 
-  const handleNewConversation = useCallback(() => {
-    setTracePanelOpen(false);
-    vscode.postMessage({ type: "startNewConversation" });
-  }, []);
-
-  const handleToggleHistory = useCallback(() => {
-    setTracePanelOpen(false);
-    vscode.postMessage({ type: "showHistory", value: !showHistory });
-  }, [showHistory]);
-
   const handleSelectConversation = useCallback((id: string) => {
     vscode.postMessage({ type: "selectConversation", id });
   }, []);
@@ -2004,12 +2000,6 @@ export function App(): JSX.Element {
       requestAccountUsage();
     }
   }, [usageSnapshot]);
-
-  const handleOpenSettings = useCallback(() => {
-    setTracePanelOpen(false);
-    setActivePage("settings");
-    setActiveSettingsTab("account");
-  }, []);
 
   const handleOpenAccountSettings = useCallback(() => {
     setTracePanelOpen(false);
@@ -2300,20 +2290,13 @@ export function App(): JSX.Element {
     "stealth-layout",
     (!showConversationPanel || !showPlanPanel) && "stealth-layout--single"
   );
-  const showConversationTitle = !tracePanelOpen && !isSettingsPage && !showHistory && activeView === "conversation";
-  const fallbackToolbarTitle = isSettingsPage
-    ? "Settings"
-    : tracePanelOpen
-      ? "Trace Logs"
-      : showHistory
-      ? "Conversation History"
-      : activeView === "plan"
-        ? "Plan Execution"
-        : "Bandit Stealth";
-  const toolbarTitle = showConversationTitle
-    ? (currentConversationName ?? "New Conversation").toUpperCase()
-    : fallbackToolbarTitle.toUpperCase();
-  const settingsButtonTooltip = activePage === "settings" ? "Close settings" : "Settings";
+  const toolbarTitle = viewTitleFor({
+    page: activePage,
+    showHistory,
+    tracePanelOpen,
+    activeView,
+    conversationName: currentConversationName
+  });
   const maskedApiKeyDisplay = accountProfile?.maskedKey ?? "bai_••••••••••";
   const apiKeyInputValue = maskStoredKey ? maskedApiKeyDisplay : apiKeyDraft;
   const apiKeyInputType = maskStoredKey ? "text" : "password";
@@ -2350,6 +2333,57 @@ export function App(): JSX.Element {
     }
   }, [events, activeView, planTabsVisible]);
 
+  // Title-bar actions (VS Code view/title buttons, forwarded by the host,
+  // or the in-webview toolbar when the host has none).
+  const runViewAction = useCallback(
+    (action: ViewAction) => {
+      applyViewAction(
+        action,
+        { page: activePage, showHistory, tracePanelOpen },
+        {
+          showSettings: () => {
+            setActivePage("settings");
+            if (action === "openSettings") {
+              setActiveSettingsTab("account");
+            }
+          },
+          hideSettings: handleHideSettings,
+          setHistoryVisible: (visible) => vscode.postMessage({ type: "showHistory", value: visible }),
+          closeTracePanel: () => setTracePanelOpen(false),
+          openTracePanel: handleOpenTracePanel,
+          startNewConversation: () => vscode.postMessage({ type: "startNewConversation" })
+        }
+      );
+    },
+    [activePage, showHistory, tracePanelOpen, handleHideSettings, handleOpenTracePanel, setTracePanelOpen]
+  );
+  const runViewActionRef = useRef(runViewAction);
+  runViewActionRef.current = runViewAction;
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<WebviewMessage>) => {
+      dispatchViewMessage(event.data, { runViewAction: (action) => runViewActionRef.current(action) });
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // Tell the host what we're showing; it goes next to the view title.
+  useEffect(() => {
+    vscode.postMessage({ type: "viewTitle", title: toolbarTitle });
+  }, [toolbarTitle]);
+
+  const handleSuggestPrompt = useCallback(
+    (prompt: string) => {
+      setComposerValue(prompt);
+      requestAnimationFrame(() => {
+        const textarea = document.querySelector<HTMLTextAreaElement>(".composer-textarea");
+        textarea?.focus();
+        textarea?.setSelectionRange(prompt.length, prompt.length);
+      });
+    },
+    [setComposerValue]
+  );
+
   const handleSelectView = useCallback(
     (view: "conversation" | "plan") => {
       if (view === "plan" && !planTabsVisible) {
@@ -2374,19 +2408,15 @@ export function App(): JSX.Element {
           : ["theme-dark", "agent-ui-theme-dark"]
       )}
     >
-      <TopBar
-        toolbarTitle={toolbarTitle}
-        settingsButtonTooltip={settingsButtonTooltip}
-        activePage={activePage}
-        showHistory={showHistory}
-        isSettingsPage={isSettingsPage}
-        tracePanelOpen={tracePanelOpen}
-        onToggleHistory={handleToggleHistory}
-        onOpenTracePanel={handleOpenTracePanel}
-        onNewConversation={handleNewConversation}
-        onOpenSettings={handleOpenSettings}
-        onHideSettings={handleHideSettings}
-      />
+      {!nativeTitleActions && (
+        <TopBar
+          title={toolbarTitle}
+          activePage={activePage}
+          showHistory={showHistory}
+          tracePanelOpen={tracePanelOpen}
+          onAction={runViewAction}
+        />
+      )}
 
       {!isSettingsPage && planTabsVisible && (
         <div className="stealth-view-tabs" role="tablist" aria-label="Conversation views">
@@ -2537,7 +2567,7 @@ export function App(): JSX.Element {
                 hasArchived={hasArchivedConversations}
                 onSelect={handleSelectConversation}
                 onClear={handleClearHistory}
-                onDismiss={handleToggleHistory}
+                onDismiss={() => runViewAction("toggleHistory")}
                 onArchive={handleArchiveConversation}
                 onDelete={handleDeleteConversation}
               />
@@ -2558,6 +2588,7 @@ export function App(): JSX.Element {
                       ollamaStatus={ollamaStatus}
                       providerKind={providerKind}
                       ollamaModelMissing={ollamaModelMissing}
+                      onSuggestPrompt={handleSuggestPrompt}
                     />
                   ) : (
                     <>

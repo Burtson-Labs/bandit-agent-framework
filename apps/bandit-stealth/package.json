@@ -56,6 +56,30 @@
         "category": "Bandit Stealth"
       },
       {
+        "command": "banditStealth.view.newConversation",
+        "title": "New Conversation",
+        "category": "Bandit Stealth",
+        "icon": "$(add)"
+      },
+      {
+        "command": "banditStealth.view.toggleHistory",
+        "title": "Conversation History",
+        "category": "Bandit Stealth",
+        "icon": "$(history)"
+      },
+      {
+        "command": "banditStealth.view.toggleSettings",
+        "title": "Settings",
+        "category": "Bandit Stealth",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "banditStealth.view.openTraceLogs",
+        "title": "Trace Logs",
+        "category": "Bandit Stealth",
+        "icon": "$(output)"
+      },
+      {
         "command": "banditStealth.setApiKey",
         "title": "Set API Key",
         "category": "Bandit Stealth"
@@ -198,6 +222,33 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "banditStealth.view.newConversation",
+          "when": "view == banditStealth.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "banditStealth.view.toggleHistory",
+          "when": "view == banditStealth.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "banditStealth.view.toggleSettings",
+          "when": "view == banditStealth.chat",
+          "group": "navigation@3"
+        },
+        {
+          "command": "banditStealth.view.openTraceLogs",
+          "when": "view == banditStealth.chat",
+          "group": "1_logs@1"
+        },
+        {
+          "command": "banditStealth.openInTerminal",
+          "when": "view == banditStealth.chat",
+          "group": "2_terminal@1"
+        }
+      ],
       "editor/context": [
         {
           "command": "banditStealth.askBandit",

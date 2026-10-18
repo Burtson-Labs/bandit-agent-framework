@@ -55,7 +55,10 @@ export function buildWebviewHtml(options: BuildWebviewHtmlOptions): string {
   const stylesUri = webview.asWebviewUri(stylesFile).with({ query: `v=${assetVersion}` });
   const scriptUri = webview.asWebviewUri(scriptFile).with({ query: `v=${assetVersion}` });
   const logoUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'logo.png'));
-  const configJson = JSON.stringify({ logoSrc: logoUri.toString() }).replace(/</g, '<');
+  // nativeTitleActions: history / new conversation / settings live in the
+  // view's title bar (contributes.menus view/title), so the webview drops
+  // its own toolbar. `<` is escaped so the JSON can't close the <script>.
+  const configJson = JSON.stringify({ logoSrc: logoUri.toString(), nativeTitleActions: true }).replace(/</g, '\\u003c');
   const csp = [
     "default-src 'none'",
     `img-src ${webview.cspSource} https: data:`,
