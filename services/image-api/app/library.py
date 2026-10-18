@@ -494,8 +494,11 @@ class Library:
         owner = metadata.get("owner") or "unknown"
         with self._lock(safe_owner(owner)):
             previous = self._load(safe_owner(owner))["items"].get(metadata.get("jobId"))
-            if previous and (previous.get("deleted") or previous.get("deletedOutputs")):
-                return None if previous.get("deleted") else public_item(previous)
+            if previous and previous.get("deleted"):
+                self._purge_deleted(safe_owner(owner), previous)
+                return None
+            if previous and previous.get("deletedOutputs"):
+                return public_item(previous)
             return self._record(metadata, **kwargs)
 
     def _record(self, metadata: dict, *, status: str = "completed", tenant_dir: str | None = None,
