@@ -110,5 +110,7 @@ export function viewTitleFor(input: {
   if (input.showHistory) {return "History";}
   if (input.activeView === "plan") {return "Plan";}
   const name = input.conversationName?.trim();
-  return name ? name : "New conversation";
+  // The host's default name is "New Conversation"; keep it sentence case.
+  if (!name || name.toLowerCase() === "new conversation") {return "New conversation";}
+  return name;
 }
