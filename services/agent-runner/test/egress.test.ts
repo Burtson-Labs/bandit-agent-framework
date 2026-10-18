@@ -56,7 +56,7 @@ describe('isPublicAddress', () => {
     '10.43.0.10', // k3s service CIDR
     '10.42.1.7', // k3s pod CIDR
     '172.16.5.4',
-    '192.168.1.51', // the Pi cluster master
+    '192.168.1.51', // a LAN host
     '169.254.169.254', // cloud metadata
     '100.64.0.1',
     '0.0.0.0',
