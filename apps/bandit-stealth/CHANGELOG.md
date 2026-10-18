@@ -4,6 +4,11 @@ All notable changes to **Bandit Stealth** are listed here. Versions follow the e
 
 ## Unreleased
 
+- **New conversation, history and settings live in the view's title bar.** They are VS Code title-bar buttons now, with trace logs and Open in Terminal under the `…` menu, and the view title shows the conversation name or the page you're on. The in-panel circle buttons are gone, so the settings button can no longer be cut off in a narrow side bar.
+- **The panel follows your VS Code theme and font.** Buttons, inputs, badges, focus rings and text use VS Code's theme colours and UI font in light, dark and high-contrast themes and in Cursor. Headings and labels are sentence case instead of spaced capitals.
+- **Settings is easier to scan.** Sections have names as well as icons and can be reached with the arrow keys, the account shows as one row (name, email, plan, credits, masked key), and nothing overflows at 300px. The "Set API Key" command now opens Settings → Account, and Settings opens on Account for Bandit users instead of Providers.
+- **A quieter start page.** A smaller logo, one line of copy, and three starter prompts that fill the composer.
+
 ## 1.7.451
 
 - **Remote sessions reconnect after a silent drop.** The runner inbox now reconnects when it receives no bytes for 60 seconds (the gateway pings every few seconds), so a dropped tunnel or a laptop that slept no longer leaves the session hanging. The inbox reader also accepts CRLF line endings and ignores gateway keepalive pings.
