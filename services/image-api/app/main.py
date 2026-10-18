@@ -1460,6 +1460,9 @@ async def run_long_video(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan
             with open(source, "wb") as handle:
                 handle.write(raw)
             del raw
+            info = await asyncio.to_thread(probe_video, source)
+            if not info.get("frames") or (info.get("duration") or 0) < section.duration_seconds - 1 / plan.output_fps:
+                raise RuntimeError(f"Video section {index + 1} is incomplete; retry generation")
             target = os.path.join(work, f"part-{index:03d}.mp4")
             # Each native pass includes its final frame, which starts the next pass.
             # Keep exactly its duration here, so joins do not add duplicate frames.
@@ -1472,7 +1475,7 @@ async def run_long_video(client: httpx.AsyncClient, job: Job, plan: vw.VideoPlan
                 last = os.path.join(work, "last.png")
                 await asyncio.to_thread(run_ffmpeg, [
                     "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
-                    "-update", "1", "-fps_mode", "passthrough", last])
+                    "-vf", f"select='eq(n,{info['frames'] - 1})'", "-frames:v", "1", last])
                 with open(last, "rb") as handle:
                     start = await upload_comfy_bytes(client, f"{job.id}-continuation.png", handle.read(), "image/png")
         if job.cancelRequested:
