@@ -44,6 +44,13 @@ function isFileEditTool(name: string): boolean {
   return FILE_EDIT_TOOL_NAMES.has(name);
 }
 
+/**
+ * Appended by the provider (stealth-core-runtime
+ * OLLAMA_OUTPUT_TRUNCATED_SENTINEL) when a reply ended on the output-token
+ * limit. Must stay identical to that string.
+ */
+export const OUTPUT_TRUNCATED_SENTINEL = '[response truncated: the model hit its output token limit before finishing]';
+
 export interface ToolUseLoopOptions {
   /** Maximum number of tool call rounds before forcing a final answer. Default: 10. */
   maxIterations?: number;
@@ -513,6 +520,9 @@ export class ToolUseLoop {
     // collapses the model into the regular content channel where its
     // tool-call sampling is far more deterministic.
     let thinkingOffRecoveryAttempted = false;
+    // Output-limit truncation nudges (see OUTPUT_TRUNCATED_SENTINEL).
+    let outputTruncationNudges = 0;
+    const MAX_OUTPUT_TRUNCATION_NUDGES = 2;
     let nextCallThinkOverride: boolean | undefined = undefined;
     // Final-shot prefill recovery for qwen3.6-style "closes the reasoning
     // fence and stops" stalls. Observed Jun 2026 on a long CSS-refactor
@@ -1099,6 +1109,33 @@ export class ToolUseLoop {
       if (signal?.aborted) {
         emit('tool_loop:cancelled', { iteration: iterations, stage: 'post_stream' });
         return buildCancelledResult(messages, iterations, response);
+      }
+
+      // The provider cut the reply off at the output-token limit (Ollama
+      // done_reason "length" — the num_predict backstop or the context
+      // window). It dropped any half-written tool call and appended this
+      // sentinel. Never treat the reply as a finished answer: tell the
+      // model it was cut off and ask for smaller steps. Bounded per turn so
+      // a model that keeps overrunning still reaches the normal paths.
+      if (response.includes(OUTPUT_TRUNCATED_SENTINEL)) {
+        const partial = response.split(OUTPUT_TRUNCATED_SENTINEL).join('').trimEnd();
+        if (outputTruncationNudges < MAX_OUTPUT_TRUNCATION_NUDGES) {
+          outputTruncationNudges++;
+          emit('tool_loop:output_truncated', {
+            iteration: iterations,
+            partialLength: partial.length,
+            attempt: outputTruncationNudges
+          });
+          messages.push({ role: 'assistant', content: partial || '(reply cut off before any output)' });
+          messages.push({
+            role: 'user',
+            content:
+              AUTOMATED_NUDGE_PREFIX + 'Your previous reply was cut off: it hit the output token limit before it finished, so any tool call in it was incomplete and was NOT run. ' +
+              'Continue the task in smaller steps — keep reasoning short, and write large files in parts (create the file with the first part, then add the rest with apply_edit), or make one smaller tool call at a time.'
+          });
+          continue;
+        }
+        response = partial;
       }
 
       // Turn-level hard cap on no-tool-call responses. The individual

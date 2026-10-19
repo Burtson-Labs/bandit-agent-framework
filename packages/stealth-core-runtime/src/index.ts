@@ -10,10 +10,25 @@ export { StealthEmbeddingClient } from './embeddingClient';
 export {
   createProvider,
   buildOllamaErrorHint,
+  AGENT_NUM_PREDICT_BACKSTOP,
+  OLLAMA_OUTPUT_TRUNCATED_SENTINEL,
   type ChatProvider,
   type ProviderKind,
   type ProviderSettings
 } from './banditEngineProvider';
+export {
+  ModelOutputLoopError,
+  OutputLoopDetector,
+  findPeriodicTail,
+  isModelOutputLoopError,
+  MODEL_OUTPUT_LOOP_CODE,
+  MODEL_OUTPUT_LOOP_PREFIX,
+  THINKING_LOOP_MIN_RUN,
+  LOOP_MAX_UNIT,
+  type OutputChannel,
+  type PeriodicTailMatch,
+  type OutputLoopDetectorOptions
+} from './outputLoopDetector';
 export * from './types/bandit';
 export * from './runtime/types';
 export * from './runtime';

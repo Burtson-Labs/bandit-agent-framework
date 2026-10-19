@@ -30,6 +30,7 @@ function getErrorMessage(error: unknown): string {
 export function isRetryableLlmError(error: unknown): boolean {
   const code = getErrorCode(error);
   if (code === 'USER_ABORT') {return false;}
+  if (isModelOutputLoopError(error)) {return false;}
 
   const message = getErrorMessage(error);
   if (/\b429\b|rate limit/i.test(message)) {return false;}
@@ -40,6 +41,20 @@ export function isRetryableLlmError(error: unknown): boolean {
     /Upstream model request failed/i.test(message) ||
     /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network error|terminated|UND_ERR/i.test(message)
   );
+}
+
+/**
+ * The provider stopped a request because the model fell into degenerate
+ * repetition (stealth-core-runtime ModelOutputLoopError — matched by code or
+ * message prefix so this leaf module needs no runtime dependency). Not a
+ * transient error: replaying the identical request (same seed, same
+ * thinking setting) replays the same loop, so the generic retry ladder skips
+ * it and llmStream retries it once with thinking off instead.
+ */
+export const MODEL_OUTPUT_LOOP_CODE = 'MODEL_OUTPUT_LOOP';
+export function isModelOutputLoopError(error: unknown): boolean {
+  if (getErrorCode(error) === MODEL_OUTPUT_LOOP_CODE) {return true;}
+  return getErrorMessage(error).startsWith('Model output loop detected');
 }
 
 export function tagRetryableLlmError(error: unknown): void {

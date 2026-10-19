@@ -269,6 +269,15 @@ export interface ChatCallOptions {
    * thinking off on retry consistently produced a real tool call.
    */
   think?: boolean;
+  /**
+   * Single-shot sampling nudge: add this to the host's usual temperature
+   * for this call only. Set by the output-loop recovery (with `think:
+   * false`) so the retry does not replay the identical sample that looped.
+   * Hosts that send an explicit, user-chosen seed may ignore it.
+   */
+  temperatureBump?: number;
+  /** Why the loop changed the options for this call (telemetry / host messaging). */
+  recovery?: 'output_loop';
 }
 
 /**

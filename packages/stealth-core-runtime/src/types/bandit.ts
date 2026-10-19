@@ -66,6 +66,13 @@ export interface AIChatRequest {
    * setting. Most agent turns leave it undefined.
    */
   think?: boolean;
+  /**
+   * Cancels the request. On the direct Ollama provider aborting also stops
+   * generation server-side (Ollama cancels on disconnect), so a host whose
+   * watchdog gives up on a call — or a user pressing Esc — does not leave
+   * the model generating behind the next request. Never serialized.
+   */
+  signal?: AbortSignal;
 }
 
 export interface AIChatResponse {

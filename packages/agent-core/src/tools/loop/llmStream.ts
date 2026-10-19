@@ -25,6 +25,11 @@
  *  - Retryable error WITH zero text streamed AND (no native tools OR
  *    not yet streamed): exponential backoff retry (1.2s × 2^n, two
  *    attempts). Emits `tool_loop:llm_retry` per attempt.
+ *  - Model output loop (the provider stopped a degenerate repetition,
+ *    e.g. gemma4 repeating `<|channel>thought ` in its thinking) with zero
+ *    text streamed: ONE retry with thinking forced off and a small
+ *    temperature bump, emitting `tool_loop:output_loop_recovery`. The
+ *    identical request would loop identically under a fixed seed.
  *  - Non-retryable error OR partial text already streamed: re-throw
  *    (tagged with `UPSTREAM_MODEL` code on retryable to preserve the
  *    existing error-summarization contract for outer-layer handlers).
@@ -40,7 +45,7 @@
  * switch escalates.
  */
 import type { ChatFn, ToolLoopMessage, ChatCallOptions, NativeToolSchema } from '../tool-types';
-import { isRetryableLlmError, tagRetryableLlmError, summarizeLlmError, sleep } from './loopShared';
+import { isModelOutputLoopError, isRetryableLlmError, tagRetryableLlmError, summarizeLlmError, sleep } from './loopShared';
 
 export type StreamEmit = (type: string, payload?: unknown) => void;
 
@@ -71,7 +76,9 @@ export interface StreamAndAggregateArgs {
  * and apply its nudge on the next iteration.
  */
 export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<string> {
-  const { chat, messages, emit, iteration, tools, signal, callOptions } = args;
+  const { chat, messages, emit, iteration, tools, signal } = args;
+  let callOptions = args.callOptions;
+  let outputLoopRecoveryUsed = false;
 
   let text = '';
   // Intra-response loop guard. Tuned by observation, not theory:
@@ -189,8 +196,17 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
       }
       break;
     } catch (error) {
-      const retryable = isRetryableLlmError(error);
       const safeToReplay = text.length === 0;
+      if (isModelOutputLoopError(error) && safeToReplay && !outputLoopRecoveryUsed && !signal?.aborted) {
+        outputLoopRecoveryUsed = true;
+        callOptions = { ...(callOptions ?? {}), think: false, temperatureBump: 0.15, recovery: 'output_loop' };
+        emit('tool_loop:output_loop_recovery', {
+          iteration,
+          reason: summarizeLlmError(error)
+        });
+        continue;
+      }
+      const retryable = isRetryableLlmError(error);
       // Original gate was `!tools || tools.length === 0` — i.e. only
       // text-tools turns got the same-channel backoff ladder. Native-tools
       // turns hit a transient 500 once and jumped straight to the

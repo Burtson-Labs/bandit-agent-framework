@@ -6,6 +6,7 @@ import type {
 } from './types/bandit';
 import { resolveOllamaRuntimeOptions } from './runtime/modelCapabilities';
 import { resolveToolHistoryMode, toOllamaToolHistory, toPartsToolHistory } from './toolHistory';
+import { ModelOutputLoopError, OutputLoopDetector } from './outputLoopDetector';
 import {
   DEFAULT_STREAM_IDLE_MS,
   DEFAULT_STREAM_WARN_MS,
@@ -259,12 +260,78 @@ function collectBanditPayloadImages(request: AIChatRequest): string[] {
   return dedupeStrings([...requestImages, ...messageImages]);
 }
 
-interface OllamaChatChunk {
-  message?: { role?: string; content?: string; thinking?: string };
-  done?: boolean;
+interface OllamaToolCall {
+  function?: { name?: string; arguments?: unknown };
 }
 
-async function* streamOllamaResponse(response: Response): AsyncGenerator<AIChatResponse> {
+interface OllamaChatChunk {
+  message?: { role?: string; content?: string; thinking?: string; tool_calls?: OllamaToolCall[] };
+  done?: boolean;
+  done_reason?: string;
+}
+
+/**
+ * Appended as a final content chunk when Ollama ends a reply with
+ * `done_reason: "length"` (the num_predict / context limit cut it off).
+ * agent-core's ToolUseLoop matches this literal (OUTPUT_TRUNCATED_SENTINEL in
+ * tool-use-loop.ts) and treats the reply as truncated — never as a finished
+ * answer. Keep the two strings identical.
+ */
+export const OLLAMA_OUTPUT_TRUNCATED_SENTINEL = '[response truncated: the model hit its output token limit before finishing]';
+
+/**
+ * Backstop output cap for agent (native-tools) turns, sent as
+ * `options.num_predict` only when the caller set none. It exists to stop a
+ * runaway, never a real reply: OpenCode sends 8192; this is 4x that, because
+ * Ollama counts thinking tokens against it and a single write_file can carry a
+ * few thousand lines. A 120-line file was ~3k tokens on gemma4:12b.
+ */
+export const AGENT_NUM_PREDICT_BACKSTOP = 32_768;
+
+/**
+ * Ollama sends no bytes at all while it generates a native tool call — it
+ * buffers the call until it parses, then emits it whole (checked against
+ * Ollama 0.35.1: a 3k-token write_file arrived as one chunk after 65 s of
+ * silence). The 90 s idle guard would cut such a call off, so native-tools
+ * streams wait as long as undici's own body timeout (300 s) — the same bound
+ * the non-streaming path had through its headers timeout.
+ */
+const NATIVE_TOOLS_STREAM_IDLE_MS = 300_000;
+
+/**
+ * Same wire format the non-streaming path has always produced: one
+ * `<tool_call>{"name","params"}</tool_call>` per call, params stringified,
+ * newline-joined.
+ */
+export function ollamaToolCallsToMarkers(toolCalls: OllamaToolCall[]): string {
+  return toolCalls.map(tc => {
+    const name = tc.function?.name ?? '';
+    const args = tc.function?.arguments ?? {};
+    // Ollama returns arguments as an already-parsed object;
+    // stringify to match the wire format our parser expects.
+    // Stringify values to strings — ToolRegistry schemas
+    // declare every param as type: 'string' and our tools
+    // read String(params.path), etc.
+    const params: Record<string, string> = {};
+    if (args && typeof args === 'object') {
+      for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+        params[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+    }
+    return `<tool_call>${JSON.stringify({ name, params })}</tool_call>`;
+  }).join('\n');
+}
+
+export interface StreamOllamaOptions {
+  /** Abort the underlying request (stops generation on the server). */
+  abort?: () => void;
+  /** Request carried native tools: collect tool_calls and use the longer idle window. */
+  nativeTools?: boolean;
+  /** Override the idle window (tests). */
+  idleMs?: number;
+}
+
+export async function* streamOllamaResponse(response: Response, opts: StreamOllamaOptions = {}): AsyncGenerator<AIChatResponse> {
   const body = response.body;
   if (!body) {throw new Error('Ollama response has no body.');}
 
@@ -272,11 +339,32 @@ async function* streamOllamaResponse(response: Response): AsyncGenerator<AIChatR
   const decoder = new TextDecoder();
   let buffer = '';
   let stallWarned = false;
+  let contentSeen = false;
+  const toolCalls: OllamaToolCall[] = [];
+  const loopDetector = new OutputLoopDetector();
+  const idleMs = opts.idleMs ?? (opts.nativeTools ? NATIVE_TOOLS_STREAM_IDLE_MS : DEFAULT_STREAM_IDLE_MS);
+
+  // Terminal chunk(s): tool-call markers (same shape as the non-streaming
+  // path), or the truncation sentinel when Ollama stopped on a limit. A
+  // tool call cut off by the limit is incomplete (Ollama emits it with
+  // whatever arguments it had — a half file, a missing path), so on
+  // `length` no call is replayed: running a truncated write would corrupt
+  // the file. The loop sees the sentinel and asks for smaller steps.
+  function* finish(doneReason: string | undefined): Generator<AIChatResponse> {
+    if (doneReason === 'length') {
+      const note = contentSeen ? `\n\n${OLLAMA_OUTPUT_TRUNCATED_SENTINEL}` : OLLAMA_OUTPUT_TRUNCATED_SENTINEL;
+      yield { message: { content: note, role: 'assistant' }, done: false };
+    } else if (toolCalls.length > 0) {
+      const markers = ollamaToolCallsToMarkers(toolCalls);
+      yield { message: { content: contentSeen ? `\n${markers}` : markers, role: 'assistant' }, done: false };
+    }
+    yield { message: { content: '', role: 'assistant' }, done: true };
+  }
 
   for (;;) {
     const { value, done } = await readWithIdleTimeout(reader, {
-      idleMs: DEFAULT_STREAM_IDLE_MS,
-      warnAfterMs: DEFAULT_STREAM_WARN_MS,
+      idleMs,
+      warnAfterMs: opts.nativeTools ? undefined : DEFAULT_STREAM_WARN_MS,
       abortLabel: 'Ollama stream',
       onWarn: (elapsedMs) => {
         if (stallWarned) {return;}
@@ -291,30 +379,42 @@ async function* streamOllamaResponse(response: Response): AsyncGenerator<AIChatR
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) {continue;}
+      let chunk: OllamaChatChunk;
       try {
-        const chunk = JSON.parse(trimmed) as OllamaChatChunk;
-        const content = sanitizeOllamaOutput(chunk.message?.content ?? '');
-        const thinking = chunk.message?.thinking;
-        if (content || thinking) {
-          yield {
-            message: {
-              content,
-              role: 'assistant',
-              ...(thinking ? { thinking } : {})
-            },
-            done: false
-          };
-        }
-        if (chunk.done) {
-          yield { message: { content: '', role: 'assistant' }, done: true };
-          return;
-        }
+        chunk = JSON.parse(trimmed) as OllamaChatChunk;
       } catch {
-        // skip malformed lines
+        continue; // skip malformed lines
+      }
+      const content = sanitizeOllamaOutput(chunk.message?.content ?? '');
+      const thinking = chunk.message?.thinking;
+      if (Array.isArray(chunk.message?.tool_calls)) {
+        toolCalls.push(...chunk.message.tool_calls);
+      }
+      if (thinking) {
+        const hit = loopDetector.push('thinking', thinking);
+        if (hit) {
+          opts.abort?.();
+          throw new ModelOutputLoopError('thinking', hit);
+        }
+      }
+      if (content || thinking) {
+        if (content) {contentSeen = true;}
+        yield {
+          message: {
+            content,
+            role: 'assistant',
+            ...(thinking ? { thinking } : {})
+          },
+          done: false
+        };
+      }
+      if (chunk.done) {
+        yield* finish(chunk.done_reason);
+        return;
       }
     }
   }
-  yield { message: { content: '', role: 'assistant' }, done: true };
+  yield* finish(undefined);
 }
 
 /**
@@ -403,61 +503,76 @@ function createDirectOllamaProvider(
         // Native tool calling: when the caller provides `tools`, pass
         // them through to Ollama so the model's chat template serializes
         // the schemas efficiently (30-50% fewer tokens than our text
-        // XML block). Streaming is DISABLED for native-tools requests
-        // because Ollama's streaming path currently emits tool_calls
-        // only on the terminal chunk and interleaving that with partial
-        // content makes the downstream translator brittle. Non-native
-        // requests keep streaming as before.
+        // XML block).
+        //
+        // These turns STREAM like every other request. They used to be
+        // sent with stream:false, which hid every thinking and content
+        // token until the reply was complete: the host saw nothing, its
+        // no-token watchdog fired on models that were working (or stuck
+        // in a thinking loop it could not see), and the retry replayed
+        // the same request. Ollama 0.35.1 streams thinking/content as
+        // usual and emits each tool call whole in its own chunk; the
+        // stream reader collects those and appends the same
+        // `<tool_call>` markers the non-streaming translator produced,
+        // so the ToolUseLoop sees the identical text.
         if (hasNativeTools) {
           payload.tools = request.tools;
-          payload.stream = false;
-        }
-
-        const response = await fetchWithRetry(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: mergedHeaders,
-          body: JSON.stringify(payload)
-        }, { fetchImpl });
-
-        if (!response.ok) {
-          const detail = await safeReadText(response);
-          const hint = buildOllamaErrorHint(response.status, request.model, baseUrl, detail);
-          throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${hint}`);
-        }
-
-        if (payload.stream !== false) {
-          yield* streamOllamaResponse(response);
-        } else {
-          const data = await response.json() as OllamaChatChunk & {
-            message?: { tool_calls?: Array<{ function?: { name?: string; arguments?: unknown } }> };
-          };
-          let content = sanitizeOllamaOutput(data.message?.content ?? '');
-          // Translate Ollama's native tool_calls into inline text
-          // markup so the ToolUseLoop's existing parseToolCalls()
-          // picks them up without any downstream change. Each call
-          // becomes one `<tool_call>{...}</tool_call>` block appended
-          // to the response text.
-          const toolCalls = data.message?.tool_calls;
-          if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-            const markers = toolCalls.map(tc => {
-              const name = tc.function?.name ?? '';
-              const args = tc.function?.arguments ?? {};
-              // Ollama returns arguments as an already-parsed object;
-              // stringify to match the wire format our parser expects.
-              // Stringify values to strings — ToolRegistry schemas
-              // declare every param as type: 'string' and our tools
-              // read String(params.path), etc.
-              const params: Record<string, string> = {};
-              if (args && typeof args === 'object') {
-                for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
-                  params[k] = typeof v === 'string' ? v : JSON.stringify(v);
-                }
-              }
-              return `<tool_call>${JSON.stringify({ name, params })}</tool_call>`;
-            }).join('\n');
-            content = content ? `${content}\n${markers}` : markers;
+          // Runaway backstop only — see AGENT_NUM_PREDICT_BACKSTOP.
+          const options = payload.options as Record<string, unknown>;
+          if (options.num_predict === undefined) {
+            options.num_predict = AGENT_NUM_PREDICT_BACKSTOP;
           }
-          yield { message: { content, role: 'assistant' }, done: true };
+        }
+
+        // Aborting stops generation on the Ollama side (it cancels on
+        // client disconnect). Fired when the loop detector trips, when the
+        // caller's signal aborts (watchdog / Esc), and when the consumer
+        // stops iterating early.
+        const controller = new AbortController();
+        const callerSignal = request.signal;
+        const onCallerAbort = () => controller.abort();
+        if (callerSignal) {
+          if (callerSignal.aborted) {controller.abort();}
+          else {callerSignal.addEventListener('abort', onCallerAbort, { once: true });}
+        }
+
+        try {
+          const response = await fetchWithRetry(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: mergedHeaders,
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          }, { fetchImpl });
+
+          if (!response.ok) {
+            const detail = await safeReadText(response);
+            const hint = buildOllamaErrorHint(response.status, request.model, baseUrl, detail);
+            throw new Error(`Ollama request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${hint}`);
+          }
+
+          if (payload.stream !== false) {
+            yield* streamOllamaResponse(response, { abort: () => controller.abort(), nativeTools: hasNativeTools });
+          } else {
+            const data = await response.json() as OllamaChatChunk;
+            let content = sanitizeOllamaOutput(data.message?.content ?? '');
+            // Translate Ollama's native tool_calls into inline text
+            // markup so the ToolUseLoop's existing parseToolCalls()
+            // picks them up without any downstream change. Each call
+            // becomes one `<tool_call>{...}</tool_call>` block appended
+            // to the response text.
+            const toolCalls = data.message?.tool_calls;
+            if (data.done_reason === 'length') {
+              // Cut off by the limit: never replay a half-written call.
+              content = content ? `${content}\n\n${OLLAMA_OUTPUT_TRUNCATED_SENTINEL}` : OLLAMA_OUTPUT_TRUNCATED_SENTINEL;
+            } else if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+              const markers = ollamaToolCallsToMarkers(toolCalls);
+              content = content ? `${content}\n${markers}` : markers;
+            }
+            yield { message: { content, role: 'assistant' }, done: true };
+          }
+        } finally {
+          callerSignal?.removeEventListener('abort', onCallerAbort);
+          controller.abort();
         }
       };
       return iterator();
