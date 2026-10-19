@@ -9,8 +9,7 @@
  *     (2) `handleAction()` on an unknown path posts a graceful error
  *     `diffPreviewResult` and never throws,
  * (3) `handleAction({ action: 'explain' })` primes the composer via
- *     `ctx.setPendingPrompt` AND posts the feedback decision —
- *     the explain path is the one that touches the most surfaces.
+ *     `ctx.setPendingPrompt` and sends nothing off the machine.
  *
  * The vscode workspace surface (`workspaceFolders`, `openTextDocument`,
  * etc.) is stubbed minimally — the goal is to assert the service's
@@ -18,7 +17,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentReport } from '@burtson-labs/stealth-core-runtime';
-import type { FeedbackRequest } from '../../src/agentTypes';
 import type { ProviderContext } from '../../src/provider/context';
 
 const vscodeMock = vi.hoisted(() => ({
@@ -134,10 +132,7 @@ beforeEach(() => {
 describe('DiffPreviewService', () => {
   it('presentFromReport() filters report results to entries with diff+path and surfaces additionalWrites', async () => {
     const { ctx, posted } = makeCtx();
-    const feedbackCalls: Array<{ payload: FeedbackRequest }> = [];
-    const svc = new DiffPreviewService(ctx, {
-      sendFeedback: async (payload) => { feedbackCalls.push({ payload }); }
-    });
+    const svc = new DiffPreviewService(ctx);
 
     await svc.presentFromReport(makeReport());
 
@@ -160,7 +155,7 @@ describe('DiffPreviewService', () => {
 
   it('handleAction() on an unknown path posts a graceful diffPreviewResult error and never throws', async () => {
     const { ctx, posted } = makeCtx();
-    const svc = new DiffPreviewService(ctx, { sendFeedback: async () => undefined });
+    const svc = new DiffPreviewService(ctx);
 
     await expect(svc.handleAction({ path: 'unseen.ts', action: 'apply' })).resolves.toBeUndefined();
 
@@ -169,12 +164,10 @@ describe('DiffPreviewService', () => {
     expect((errors[0] as { message: string }).message).toContain('no longer available');
   });
 
-  it("handleAction({ action: 'explain' }) primes the composer via setPendingPrompt and posts the explain feedback decision", async () => {
+  it("handleAction({ action: 'explain' }) primes the composer via setPendingPrompt and sends nothing off the machine", async () => {
     const { ctx, posted, pendingPrompts } = makeCtx();
-    const feedbackCalls: FeedbackRequest[] = [];
-    const svc = new DiffPreviewService(ctx, {
-      sendFeedback: async (payload) => { feedbackCalls.push(payload); }
-    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const svc = new DiffPreviewService(ctx);
 
     await svc.presentFromReport(makeReport());
 
@@ -184,10 +177,9 @@ describe('DiffPreviewService', () => {
     expect(pendingPrompts).toHaveLength(1);
     expect(pendingPrompts[0]).toContain('Explain the proposed updates made to src/a.ts');
 
-    // Feedback was submitted with the explain decision.
-    expect(feedbackCalls).toHaveLength(1);
-    expect(feedbackCalls[0].title).toBe('Diff review — explain');
-    expect(feedbackCalls[0].category).toBe('improvement');
+    // The diff stays local: no network request for a review decision.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
 
     // diffPreviewResult posted with status=explain.
     const result = posted.find((m) => m.type === 'diffPreviewResult' && m.path === 'src/a.ts');

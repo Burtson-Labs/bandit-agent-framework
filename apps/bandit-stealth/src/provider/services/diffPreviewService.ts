@@ -19,26 +19,19 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AgentReport } from '@burtson-labs/stealth-core-runtime';
-import type { AgentDiffPreview, DiffPreviewSession, FeedbackRequest } from '../../agentTypes';
-import { truncateDiff } from '../../helpers/formatting';
+import type { AgentDiffPreview, DiffPreviewSession } from '../../agentTypes';
 import type { ProviderContext } from '../context';
 
 const utf8Decoder = new TextDecoder('utf-8');
 const utf8Encoder = new TextEncoder();
 
-export interface DiffPreviewServiceDeps {
-  /** Provider-side hook that POSTs feedback to the bandit endpoint
-   *  with a completions fallback. Lives on the provider because the
-   *  feedback pipeline (which depends on it) hasn't been extracted
-   *  yet; once that service lands, this can move to `ctx`. */
-  sendFeedback(payload: FeedbackRequest, configuration: vscode.WorkspaceConfiguration): Promise<void>;
-}
-
 export class DiffPreviewService {
   private pending: AgentDiffPreview[] = [];
   private readonly sessions = new Map<string, DiffPreviewSession>();
 
-  constructor(private readonly ctx: ProviderContext, private readonly deps: DiffPreviewServiceDeps) {}
+  // Apply, Explain and Discard stay on this machine: nothing about the
+  // diff is sent anywhere (it used to post the path and diff as feedback).
+  constructor(private readonly ctx: ProviderContext) {}
 
   /** Active session count — used by tests and diagnostics. */
   get sessionCount(): number {
@@ -114,7 +107,6 @@ export class DiffPreviewService {
     try {
       switch (message.action) {
         case 'apply':
-          await this.submitFeedback(preview, 'apply');
           await this.cleanupBackup(preview, workspaceFolder);
           this.ctx.postMessage({ type: 'diffPreviewResult', path: message.path, status: 'apply' });
           this.sessions.delete(message.path);
@@ -122,7 +114,6 @@ export class DiffPreviewService {
           break;
         case 'explain':
           await this.ctx.setPendingPrompt(`Explain the proposed updates made to ${preview.path}.`);
-          await this.submitFeedback(preview, 'explain');
           await this.cleanupBackup(preview, workspaceFolder);
           this.ctx.postMessage({ type: 'diffPreviewResult', path: message.path, status: 'explain' });
           this.sessions.delete(message.path);
@@ -132,7 +123,6 @@ export class DiffPreviewService {
           if (preview.backupPath) {
             await this.restoreFromBackup(preview, workspaceFolder);
           }
-          await this.submitFeedback(preview, 'discard');
           this.ctx.postMessage({ type: 'diffPreviewResult', path: message.path, status: 'discard' });
           this.sessions.delete(message.path);
           await this.disposeSession(session);
@@ -286,27 +276,6 @@ export class DiffPreviewService {
     if (session.inlineUri) {
       this.ctx.diffContentProvider.release(session.inlineUri);
     }
-  }
-
-  private async submitFeedback(preview: AgentDiffPreview, decision: 'apply' | 'explain' | 'discard'): Promise<void> {
-    const configuration = vscode.workspace.getConfiguration('banditStealth');
-    const description = [
-      `File: ${preview.path}`,
-      `Decision: ${decision}`,
-      'Diff snippet:',
-      truncateDiff(preview.diff, 120)
-    ].join('\n\n');
-
-    const payload: FeedbackRequest = {
-      title: `Diff review — ${decision}`,
-      description,
-      category: decision === 'apply' ? 'feature' : decision === 'discard' ? 'bug' : 'improvement',
-      priority: decision === 'discard' ? 'critical' : decision === 'explain' ? 'medium' : 'medium',
-      annoyanceLevel: decision === 'discard' ? 10 : decision === 'explain' ? 4 : 3,
-      sessionInfo: { conversationId: this.ctx.conversations.currentId }
-    };
-
-    await this.deps.sendFeedback(payload, configuration);
   }
 
   private async restoreFromBackup(preview: AgentDiffPreview, workspaceFolder: vscode.Uri): Promise<void> {

@@ -75,8 +75,7 @@ import {
   collectCompletionResult,
   extractJsonObject,
   truncateForFeedback,
-  buildIntentClassificationMessages,
-  buildFeedbackTriageMessages
+  buildIntentClassificationMessages
 } from '../helpers/completion';
 import {
   sanitizeConversationName,
@@ -102,7 +101,8 @@ import {
 import {
   resolveIntentUrl,
   resolveSemanticUrl,
-  resolveFeedbackUrl
+  resolveFeedbackUrl,
+  canSendFeedback
 } from '../helpers/endpoints';
 import { buildWebviewHtml } from '../helpers/webviewHtml';
 import { searchWorkspaceFiles } from '../helpers/workspaceFileSearch';
@@ -417,9 +417,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     this.multiQuestionGate = new MultiQuestionGateService(this);
     this.backgroundTasks = new BackgroundTaskCoordinator(this);
     this.account = new AccountService(this);
-    this.diffPreviews = new DiffPreviewService(this, {
-      sendFeedback: (payload, configuration) => this.sendFeedbackRequest(payload, configuration)
-    });
+    this.diffPreviews = new DiffPreviewService(this);
     this.voice = new VoiceService(this);
     this.mcp = new McpService(this);
 
@@ -2944,24 +2942,6 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     return parsed;
   }
 
-  private async submitFeedbackViaCompletions(
-    payload: FeedbackRequest,
-    configuration: vscode.WorkspaceConfiguration,
-    apiKey: string
-  ): Promise<void> {
-    if (this.getProviderKind(configuration) !== 'bandit') {
-      return;
-    }
-    const messages = buildFeedbackTriageMessages(payload);
-    const responseText = await this.runBanditCompletion(messages, configuration, apiKey, { temperature: 0.15 });
-    const parsed = extractJsonObject(responseText);
-    if (parsed) {
-      console.info('Feedback captured via completions fallback:', parsed);
-    } else {
-      console.info('Feedback captured via completions fallback (raw):', responseText.trim());
-    }
-  }
-
   private async runBanditCompletion(
     messages: AIChatRequest['messages'],
     configuration: vscode.WorkspaceConfiguration,
@@ -3083,43 +3063,26 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     await this.sendFeedbackRequest(payload, configuration);
   }
 
+  /** Sends a thumbs rating the user clicked (see canSendFeedback). */
   public async sendFeedbackRequest(payload: FeedbackRequest, configuration: vscode.WorkspaceConfiguration): Promise<void> {
-    const feedbackUrl = resolveFeedbackUrl(configuration);
-    const providerKind = this.getProviderKind(configuration);
-    const apiKey = await this.context.secrets.get(API_KEY_SECRET_KEY);
-    const trimmedApiKey = apiKey?.trim() ?? '';
-
-    if (providerKind === 'bandit' && trimmedApiKey.length === 0) {
-      throw new Error('Bandit API key required.');
+    const apiKey = (await this.context.secrets.get(API_KEY_SECRET_KEY))?.trim() ?? '';
+    const allowed = canSendFeedback({
+      enabled: configuration.get<boolean>('feedback.enabled', true),
+      providerKind: this.getProviderKind(configuration),
+      apiKey
+    });
+    if (!allowed) {
+      return;
     }
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-
-    if (trimmedApiKey.length > 0) {
-      headers.Authorization = `Bearer ${trimmedApiKey}`;
-    }
-
-    try {
-      const response = await fetch(feedbackUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        throw new Error(`Feedback request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}`);
-      }
-    } catch (error) {
-      if (providerKind === 'bandit' && trimmedApiKey.length > 0) {
-        console.warn('Bandit feedback endpoint unavailable, attempting completions fallback.', error);
-        await this.submitFeedbackViaCompletions(payload, configuration, trimmedApiKey);
-        return;
-      }
-
-      throw error instanceof Error ? error : new Error(String(error));
+    const response = await fetch(resolveFeedbackUrl(configuration), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`Feedback request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}`);
     }
   }
 

@@ -7,17 +7,16 @@
  * needs `this.context.secrets` to fetch the Ollama auth token) wrapped
  * around several genuinely pure helpers (`collectCompletionResult`,
  * `extractJsonObject`, `truncateForFeedback`) plus the prompt
- * builders for the two completions-fallback flows.
+ * builder for the intent-classification fallback.
  *
  * The pure helpers come out wholesale; the stateful orchestrators
- * (`runBanditCompletion`, `requestIntentViaCompletions`,
- * `submitFeedbackViaCompletions`) stay on the class but shrink
+ * (`runBanditCompletion`, `requestIntentViaCompletions`) stay on the
+ * class but shrink
  * substantially once they delegate the prompt building + JSON parsing
  * + truncation here.
  */
 import type { AIChatRequest, ProviderKind } from '@burtson-labs/stealth-core-runtime';
 import type { ModeKind } from '../services/conversationTypes';
-import type { FeedbackRequest } from '../agentTypes';
 
 /**
  * Iterate a streaming chat provider response and return the fully
@@ -160,40 +159,6 @@ export function buildIntentClassificationMessages(
         contextParts.length > 0 ? `Context:\n${contextParts.join('\n')}` : undefined,
         'Return the JSON object now.'
       ].filter((value): value is string => Boolean(value)).join('\n\n')
-    }
-  ];
-}
-
-/**
- * Build the system+user message pair sent to the bandit cloud
- * completions endpoint when the dedicated `/feedback` route is
- * unavailable. The model triages the feedback into a short JSON
- * summary we can later forward to a human.
- */
-export function buildFeedbackTriageMessages(payload: FeedbackRequest): AIChatRequest['messages'] {
-  return [
-    {
-      role: 'system',
-      content: [
-        'You triage feedback for the Bandit Stealth VS Code assistant.',
-        'Summarize the provided feedback into JSON for later review.',
-        'Output schema:',
-        '{',
-        '  "summary": string,',
-        '  "category": string,',
-        '  "priority": string,',
-        '  "actionItems": string[]',
-        '}',
-        'Respond with JSON only. Do not include explanations or code fences.'
-      ].join('\n')
-    },
-    {
-      role: 'user',
-      content: [
-        'Feedback payload:',
-        JSON.stringify(payload, null, 2),
-        'Summarize and categorize this feedback.'
-      ].join('\n\n')
     }
   ];
 }

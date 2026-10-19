@@ -74,6 +74,17 @@ export function resolveFeedbackUrl(configuration: vscode.WorkspaceConfiguration)
   return deriveEndpoint(raw, fallback, 'feedback');
 }
 
+/** Whether a thumbs rating may be sent: only when the user clicked it with
+ *  feedback on and is signed in to Bandit. Ollama and other providers never
+ *  send chat text to Burtson Labs. */
+export function canSendFeedback(options: {
+  enabled: boolean | undefined;
+  providerKind: string;
+  apiKey: string | undefined;
+}): boolean {
+  return options.enabled !== false && options.providerKind === 'bandit' && (options.apiKey?.trim() ?? '').length > 0;
+}
+
 /** Cloud TTS endpoint: POST text → audio/mpeg bytes. Gated by API-key. */
 export function resolveTtsUrl(configuration: vscode.WorkspaceConfiguration): string {
   const fallback = configuration.get<string>('apiUrl', DEFAULT_API_URL);
