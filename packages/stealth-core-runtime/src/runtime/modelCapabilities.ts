@@ -403,6 +403,31 @@ export function resolvePreferredToolProtocol(modelId: string): 'native-tools' | 
   return getModelCapabilities(modelId).supportsToolCalling ? 'native-tools' : 'text-tools';
 }
 
+/**
+ * Most tool calls one model reply may run. Hand-tuned behavior profiles
+ * keep their measured value. A model with no profile that runs on native
+ * tools (resolvePreferredToolProtocol) gets the cap measured for qwen3
+ * dense models, 4, instead of the catch-all profile's 1: that 1 assumes
+ * the text-tool envelope, where a small model's second call is often
+ * malformed, and on native tools it threw away calls the model had made
+ * correctly. qwen3.8:27b (no profile) sent two to four reads or edits in
+ * one reply in 33 of 326 requests on the 2026-10-19 benchmark's public
+ * tasks; all but the first were dropped and re-requested one per reply,
+ * 37 extra model calls. Writes in one reply still run one at a time in
+ * hosts that serialise them, and same-file writes never race (agent-core
+ * parallelExecute).
+ */
+export const UNPROFILED_NATIVE_MAX_PARALLEL_TOOLS = 4;
+
+export function resolveMaxParallelTools(modelId: string, toolProtocol?: 'native-tools' | 'text-tools'): number {
+  const profile = getModelBehaviorProfile(modelId);
+  if (profile.id !== 'default') {return profile.reliability.maxParallelTools;}
+  const protocol = toolProtocol ?? resolvePreferredToolProtocol(modelId);
+  return protocol === 'native-tools'
+    ? Math.max(profile.reliability.maxParallelTools, UNPROFILED_NATIVE_MAX_PARALLEL_TOOLS)
+    : profile.reliability.maxParallelTools;
+}
+
 export function getModelCapabilities(modelId: string): ModelCapabilities {
   if (!modelId) {return DEFAULT_CAPABILITIES;}
   // First-party catalog data outranks the built-in table — see

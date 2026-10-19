@@ -662,7 +662,9 @@ const applyEditTool: AgentTool = {
         ? before.slice(0, nearLineSpan.start) + finalReplace + before.slice(nearLineSpan.end)
         : usedFuzzyWhitespace && fuzzySpan
           ? before.slice(0, fuzzySpan.start) + spliceReplace + before.slice(fuzzySpan.end)
-          : before.replace(find, finalReplace);
+          // Function replacer: a string replacement expands `$$`, `$&`, `$'`
+          // and `` $` `` (a Makefile's `$$HOME` landed as `$HOME`).
+          : before.replace(find, () => finalReplace);
 
     if (after === before) {
       // Defensive — should be impossible given the guards above, but stay honest.
@@ -933,6 +935,106 @@ const replaceRangeTool: AgentTool = {
 // find = context lines + removed lines (in their original order)
 // replace = context lines + added lines (in their original order)
 // The same uniqueness/indentation guards as apply_edit apply per-update.
+//
+// Marker spelling. The format puts exactly one marker character before
+// each line (`+`, `-`, or a space for context), so `+    return x;` adds
+// a line indented four spaces. Some models instead write the marker and
+// then a space (`+ return x;`, like the comment above). Parsing every
+// line as the second spelling cost one column on every indented line:
+// a Python docstring the model wrote at four spaces landed at three and
+// the module stopped importing (qwen3.8:27b, 2026-10-19 benchmark, all
+// three runs of a docstring task; every envelope patch it wrote with an
+// indented line was shifted). Lines are now read with the one-character
+// marker, and the "marker + space" reading is used only where the file
+// or the patch shows the model wrote it that way (see
+// `resolvePatchHunk` and `addFileLines`).
+type PatchHunkItem = { kind: 'context' | 'removed' | 'added'; text: string };
+
+/** `text` read as "marker + space" (the extra space dropped). */
+function dropMarkerSpace(text: string): string {
+  return text.startsWith(' ') ? text.slice(1) : text;
+}
+
+function leadingSpaces(line: string): number {
+  return /^ */.exec(line)?.[0].length ?? 0;
+}
+
+/**
+ * True when every non-blank line is indented by an odd number of spaces
+ * (and only spaces). A model that writes `+ ` before each line produces
+ * that shape for code indented in even steps, which nearly all code is.
+ */
+function allOddSpaceIndented(lines: string[]): boolean {
+  const nonBlank = lines.filter((l) => l.trim().length > 0);
+  if (nonBlank.length === 0) {return false;}
+  return nonBlank.every((l) => !/^ *\t/.test(l) && leadingSpaces(l) % 2 === 1);
+}
+
+/** Body lines of an `*** Add File:` block (text after the `+`). */
+export function addFileLines(rawLines: string[]): string[] {
+  const nonBlank = rawLines.filter((l) => l.trim().length > 0);
+  // Every line spelled `+ text`: the model used the marker-plus-space
+  // form for the whole file (a real file has unindented lines).
+  const markerSpace = nonBlank.length > 0 && nonBlank.every((l) => l.startsWith(' '));
+  return rawLines.map((l) => (markerSpace ? dropMarkerSpace(l) : l));
+}
+
+export interface ResolvedPatchHunk {
+  find: string;
+  replace: string;
+  /** Exact occurrences of `find` in the file. */
+  occurrences: number;
+  /** Which reading of the marker produced `find`/`replace`. */
+  spelling: 'one-char' | 'marker-space';
+}
+
+/**
+ * Turn one hunk into a find/replace against `file`. The one-character
+ * reading wins when its find text is in the file. When it is not and the
+ * "marker + space" reading of the removed and added lines is, the model
+ * wrote that form and both sides use it. A hunk with no removed lines
+ * cannot be told apart by matching (its context matches either way), so
+ * its added lines use the marker-space reading only when every one of
+ * them is indented by an odd number of spaces and the context is not.
+ */
+export function resolvePatchHunk(hunk: PatchHunkItem[], file: string): ResolvedPatchHunk {
+  const build = (markerSpace: boolean): { find: string; replace: string } => {
+    const findLines: string[] = [];
+    const replaceLines: string[] = [];
+    for (const item of hunk) {
+      const text = markerSpace && item.kind !== 'context' ? dropMarkerSpace(item.text) : item.text;
+      if (item.kind === 'context') {
+        findLines.push(text);
+        replaceLines.push(text);
+      } else if (item.kind === 'removed') {
+        findLines.push(text);
+      } else {
+        replaceLines.push(text);
+      }
+    }
+    return { find: findLines.join('\n'), replace: replaceLines.join('\n') };
+  };
+  const count = (find: string): number => (find ? file.split(find).length - 1 : 0);
+  const oneChar = build(false);
+  const oneCharCount = count(oneChar.find);
+  const hasRemoved = hunk.some((i) => i.kind === 'removed');
+  if (oneCharCount === 0 && hasRemoved) {
+    const markerSpace = build(true);
+    const markerSpaceCount = count(markerSpace.find);
+    if (markerSpaceCount > 0) {
+      return { ...markerSpace, occurrences: markerSpaceCount, spelling: 'marker-space' };
+    }
+  }
+  if (!hasRemoved) {
+    const added = hunk.filter((i) => i.kind === 'added').map((i) => i.text);
+    const context = hunk.filter((i) => i.kind === 'context').map((i) => i.text);
+    if (allOddSpaceIndented(added) && !allOddSpaceIndented(context)) {
+      return { ...build(true), occurrences: oneCharCount, spelling: 'marker-space' };
+    }
+  }
+  return { ...oneChar, occurrences: oneCharCount, spelling: 'one-char' };
+}
+
 const applyPatchTool: AgentTool = {
   name: 'apply_patch',
   description: 'Apply a multi-file patch in a single tool call. Use this when you have to change 2+ files (rename, refactor, multi-method comment pass) — much cheaper than calling apply_edit N times. Two accepted formats: (1) **standard unified diff** — what `git diff` produces, with `--- a/path`, `+++ b/path`, `@@` hunks, ` `/`-`/`+` body lines. Most models emit this format natively. Single-file unified diffs accepted; for multi-file, concatenate diffs with their own headers. (2) **Codex envelope** — `*** Begin Patch` / `*** End Patch` wrapping `*** Update File: <path>` / `*** Add File:` / `*** Delete File:` blocks. The tool auto-detects the format from the input.',
@@ -983,7 +1085,7 @@ const applyPatchTool: AgentTool = {
     // collapsed them into one big block whose `find` string didn't
     // appear contiguously in the file, returning "hunk text not found"
     // even though the diff was structurally correct).
-    type HunkItem = { kind: 'context' | 'removed' | 'added'; text: string };
+    type HunkItem = PatchHunkItem;
     type Action =
       | { kind: 'update'; path: string; hunks: HunkItem[][] }
       | { kind: 'add'; path: string; lines: string[] }
@@ -1017,9 +1119,10 @@ const applyPatchTool: AgentTool = {
       }
       if (!current) {continue;}
       if (current.kind === 'add') {
-        // Add file: every line should start with `+ ` (or be empty).
+        // Add file: every body line starts with `+`. The marker spelling
+        // is settled once the block is complete (addFileLines).
         if (line.startsWith('+')) {
-          current.lines.push(line.slice(line[1] === ' ' ? 2 : 1));
+          current.lines.push(line.slice(1));
         }
         continue;
       }
@@ -1038,10 +1141,12 @@ const applyPatchTool: AgentTool = {
           currentHunk = [];
           current.hunks.push(currentHunk);
         }
+        // One marker character; resolvePatchHunk decides whether the
+        // model wrote "marker + space" instead.
         if (line.startsWith('-')) {
-          currentHunk.push({ kind: 'removed', text: line.slice(line[1] === ' ' ? 2 : 1) });
+          currentHunk.push({ kind: 'removed', text: line.slice(1) });
         } else if (line.startsWith('+')) {
-          currentHunk.push({ kind: 'added', text: line.slice(line[1] === ' ' ? 2 : 1) });
+          currentHunk.push({ kind: 'added', text: line.slice(1) });
         } else if (line.startsWith(' ')) {
           // Context line preserved IN ORDER — combined with removed/
           // added at execute time to produce a find/replace that
@@ -1091,8 +1196,9 @@ const applyPatchTool: AgentTool = {
       }
       if (action.kind === 'add') {
         try {
-          await ctx.writeFile(absPath, action.lines.join('\n') + (action.lines.length > 0 ? '\n' : ''));
-          results.push(`Added: ${action.path} (${action.lines.length} lines)`);
+          const addLines = addFileLines(action.lines);
+          await ctx.writeFile(absPath, addLines.join('\n') + (addLines.length > 0 ? '\n' : ''));
+          results.push(`Added: ${action.path} (${addLines.length} lines)`);
         } catch (err) {
           results.push(`FAILED Add ${action.path}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -1128,30 +1234,18 @@ const applyPatchTool: AgentTool = {
       const hunkFailureNotes: string[] = [];
       for (let hi = 0; hi < action.hunks.length; hi++) {
         const hunk = action.hunks[hi];
-        const findLines: string[] = [];
-        const replaceLines: string[] = [];
-        let contextCount = 0;
-        for (const item of hunk) {
-          if (item.kind === 'context') {
-            findLines.push(item.text);
-            replaceLines.push(item.text);
-            contextCount++;
-          } else if (item.kind === 'removed') {
-            findLines.push(item.text);
-          } else if (item.kind === 'added') {
-            replaceLines.push(item.text);
-          }
-        }
-        const find = findLines.join('\n');
-        const replace = replaceLines.join('\n');
+        const contextCount = hunk.filter((item) => item.kind === 'context').length;
+        const resolved = resolvePatchHunk(hunk, after);
+        const { find, occurrences } = resolved;
+        let { replace } = resolved;
         if (!find) {
           hunksFailed++;
           hunkFailureNotes.push(`hunk #${hi + 1}: empty (no removed lines and no context)`);
           continue;
         }
-        const occurrences = after.split(find).length - 1;
         if (occurrences === 1) {
-          after = after.replace(find, replace);
+          // Function replacer: a string one would expand `$&`, `$$`, `$1` in the patch text.
+          after = after.replace(find, () => replace);
           hunksApplied++;
           continue;
         }
@@ -1191,6 +1285,27 @@ const applyPatchTool: AgentTool = {
             }
           }
           if (matchedStart >= 0) {
+            // A whitespace-tolerant match says nothing about the marker
+            // spelling. When every matched file line is indented exactly
+            // one space less than the patch's line, the model wrote
+            // "marker + space": drop that space from the added lines too.
+            if (resolved.spelling === 'one-char') {
+              // Removed lines only: context lines may be spelled either way.
+              const findKinds = hunk.filter((item) => item.kind !== 'added').map((item) => item.kind);
+              const findWindow = find.split('\n');
+              const fileWindow = afterLines.slice(matchedStart, matchedStart + findLineCount);
+              const pairs = findWindow
+                .map((l, i) => [l, fileWindow[i] ?? '', findKinds[i]] as const)
+                .filter(([l, , kind]) => kind === 'removed' && l.trim().length > 0);
+              const offByOne = pairs.length > 0 &&
+                pairs.every(([l, f]) => leadingSpaces(l) === leadingSpaces(f) + 1 && !/^\s*\t/.test(f));
+              if (offByOne) {
+                replace = hunk
+                  .filter((item) => item.kind !== 'removed')
+                  .map((item) => (item.kind === 'added' ? dropMarkerSpace(item.text) : item.text))
+                  .join('\n');
+              }
+            }
             const replaceLineCount = replace.split('\n').length;
             const replacedLines = [
               ...afterLines.slice(0, matchedStart),
@@ -1559,7 +1674,7 @@ const listFilesTool: AgentTool = {
     try {
       const files = await ctx.listFiles(pattern, cwd);
       if (!files.length) {return { output: `No files matched pattern "${pattern}"` };}
-      const list = files.slice(0, 200).join('\n');
+      const list = files.slice(0, 200).map((f) => workspaceDisplayPath(f, ctx.workspaceRoot)).join('\n');
       const suffix = files.length > 200 ? `\n\n[list_files: showing first 200 of ${files.length} files]` : '';
       return { output: `${files.length} file(s) matched "${pattern}":\n\n${list}${suffix}` };
     } catch (err) {
@@ -1567,6 +1682,22 @@ const listFilesTool: AgentTool = {
     }
   }
 };
+
+/**
+ * A path as the model should see it: relative to the workspace root when it
+ * is inside it (read_file, apply_edit and search take those), absolute
+ * otherwise. Hosts return absolute paths; repeating a temp-dir root such as
+ * `/private/var/folders/.../T/<run>/` on every line cost ~20 tokens a file
+ * and nothing the model could use.
+ */
+export function workspaceDisplayPath(filePath: string, workspaceRoot: string | undefined): string {
+  if (!workspaceRoot) {return filePath;}
+  const norm = (p: string): string => p.replace(/\\/g, '/');
+  const root = norm(workspaceRoot).replace(/\/+$/, '');
+  const file = norm(filePath);
+  if (root && file.startsWith(`${root}/`)) {return file.slice(root.length + 1);}
+  return filePath;
+}
 
 // ── ls ─────────────────────────────────────────────────────────────────────────
 // Dead-simple directory listing. Exists alongside list_files because small
