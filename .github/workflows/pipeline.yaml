@@ -310,10 +310,8 @@ jobs:
           body: |
             ## Highlights
 
-            - A cleaner panel that matches VS Code and Cursor: history, new conversation and settings move into the view's own title bar, the text uses the editor's font and theme colours, and spaced-out capitals are gone.
-            - Settings get a labelled section list, compact rows and VS Code-sized buttons; the account shows on one line with the key still masked.
-            - A quieter empty state with three starter prompts.
-            - Fixes: Set API Key opens Settings again, settings fields have a background, and the account card no longer clips in a narrow sidebar.
+            - Privacy fix: Apply, Explain and Discard in the diff review no longer send the file path or diff anywhere.
+            - Thumbs ratings are sent only when you click one while signed in to Bandit with feedback on; nothing is sent for Ollama or other providers.
 
             ## Install
 

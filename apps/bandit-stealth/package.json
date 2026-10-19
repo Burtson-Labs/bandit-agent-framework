@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code \u2014 run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.453",
+  "version": "1.7.454",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -368,7 +368,7 @@
           "banditStealth.feedbackUrl": {
             "type": "string",
             "default": "https://api.burtson.ai/feedback",
-            "description": "Bandit feedback endpoint for chat ratings and diff reviews."
+            "description": "Bandit feedback endpoint for the thumbs ratings you click. Ratings are sent only when you are signed in to Bandit; nothing is sent for Ollama or other providers, and diff reviews are never sent."
           },
           "banditStealth.provider": {
             "type": "string",
@@ -665,7 +665,7 @@
           "banditStealth.feedback.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Show chat feedback prompts after assistant responses. Disable to hide the thumbs up/down row."
+            "description": "Show chat feedback prompts after assistant responses. Disable to hide the thumbs up/down row and send no ratings."
           },
           "banditStealth.notifications.enabled": {
             "type": "boolean",

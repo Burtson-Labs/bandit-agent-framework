@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.454 (2026-10-19)
+
+- **Diff reviews stay on your machine.** Apply, Explain and Discard used to send the file path and the first 120 lines of the diff to the Bandit feedback endpoint, whichever provider you used. Nothing about a diff is sent now.
+- **Thumbs ratings are sent only when you click one, are signed in to Bandit, and have `banditStealth.feedback.enabled` on.** With Ollama or any other provider nothing is sent, and a failed send no longer falls back to sending the rating through the chat model.
+
 ## 1.7.453 (2026-10-18)
 
 - **New conversation, history and settings live in the view's title bar.** They are VS Code title-bar buttons now, with trace logs and Open in Terminal under the `…` menu, and the view title shows the conversation name or the page you're on. The in-panel circle buttons are gone, so the settings button can no longer be cut off in a narrow side bar.
