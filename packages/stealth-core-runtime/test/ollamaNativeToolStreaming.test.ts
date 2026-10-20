@@ -117,6 +117,19 @@ describe('Ollama native-tools streaming', () => {
     expect(text).not.toContain('<tool_call>');
   });
 
+  it('streamIdleMs sets the idle window and is never sent to Ollama', async () => {
+    // A stream that sends one chunk and then nothing.
+    const { seen, impl } = ndjsonFetch(async function* () {
+      yield msg({ content: 'x' });
+      await new Promise(() => undefined);
+    });
+    const provider = await createProvider({ kind: 'ollama', fetchImpl: impl });
+    const started = Date.now();
+    await expect(collect(provider, { stream: true, tools: TOOLS, streamIdleMs: 60 })).rejects.toThrow(/stalled — no data for 60ms/);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(seen.body).not.toHaveProperty('streamIdleMs');
+  });
+
   it('non-streaming done_reason "length" is also marked truncated', async () => {
     const { impl } = ndjsonFetch([{ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'write_file', arguments: { content: 'x' } } }] }, done: true, done_reason: 'length' }], { json: true });
     const text = textOf(await collect(await createProvider({ kind: 'ollama', fetchImpl: impl }), { stream: false, tools: TOOLS }));

@@ -73,6 +73,14 @@ export interface AIChatRequest {
    * the model generating behind the next request. Never serialized.
    */
   signal?: AbortSignal;
+  /**
+   * Idle window for a streamed reply, in ms (direct Ollama provider). Unset:
+   * 300 s on native-tool streams, 90 s otherwise. A host that capped the
+   * reply with `options.num_predict` can pass a longer window: the server
+   * ends a capped reply by itself, so the guard only has to catch a hang and
+   * must not cut a slow model that is still generating. Never serialized.
+   */
+  streamIdleMs?: number;
 }
 
 export interface AIChatResponse {

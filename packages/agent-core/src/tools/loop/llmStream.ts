@@ -20,6 +20,17 @@
  *    (whitespace-normalized, numeric tokens collapsed to '#') and check
  *    for 3 identical fingerprints in a row. Catches re-numbered list
  *    repetition the line-level path misses.
+ *  - Low-novelty guard: once 40 completed lines of 12+ characters hold
+ *    12 or fewer distinct lines, the reply is cycling through a few
+ *    sentences (gemma4:12b, 2026-10-20: "I'll use apply_edit for the
+ *    block from 34 to 48. / Wait, I'll just do it. / Actually, I'll just
+ *    do it." for 24k chars and 295 s). A multi-line cycle defeats the
+ *    5-identical-lines check, and its period is not a divisor of the
+ *    800-char fingerprint stride, so only HARD_MAX used to end it.
+ *  - Runaway text kept for history is cut where the repetition began
+ *    (see trimRepeatedTail), so the next request does not carry 24k chars
+ *    of loop — that pushed one run's prompt from 8k to 18k tokens and the
+ *    following reply into the context limit.
  *  - User abort: `signal.aborted` mid-stream emits `stream_abort` with
  *    reason `cancelled` and breaks. No retry.
  *  - Retryable error WITH zero text streamed AND (no native tools OR
@@ -63,6 +74,55 @@ export interface StreamAndAggregateArgs {
   tools?: NativeToolSchema[];
   signal?: AbortSignal;
   callOptions?: ChatCallOptions;
+}
+
+/** Lines shorter than this (after trimming) are ignored by the novelty guard: braces, fences, bullets. */
+export const NOVELTY_MIN_LINE = 12;
+/** Window of considered lines for the novelty guard. */
+export const NOVELTY_WINDOW = 40;
+/** Trip when the window holds this many distinct lines or fewer (each line seen 3-4+ times on average). */
+export const NOVELTY_MAX_DISTINCT = 12;
+
+function normalizeLoopLine(line: string): string {
+  return line.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Cut a runaway reply where its repetition began, for the copy kept in the
+ * conversation. A line counts as part of the loop when it occurs three or
+ * more times; the text is cut at the second occurrence of the first such
+ * line, so one pass of the cycle stays visible to the model. Returns the
+ * text unchanged when no line repeats that often, or when such lines are
+ * under `minLoopShare` of the considered lines (a long but varied reply is
+ * never shortened).
+ */
+export function trimRepeatedTail(text: string, minLoopShare = 0): { text: string; droppedChars: number } {
+  const lines = text.split('\n');
+  const counts = new Map<string, number>();
+  let considered = 0;
+  for (const raw of lines) {
+    const n = normalizeLoopLine(raw);
+    if (n.length < NOVELTY_MIN_LINE) {continue;}
+    considered++;
+    counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  let loopLines = 0;
+  for (const c of counts.values()) {if (c >= 3) {loopLines += c;}}
+  if (loopLines === 0 || loopLines < considered * minLoopShare) {return { text, droppedChars: 0 };}
+  const seen = new Set<string>();
+  let offset = 0;
+  for (const raw of lines) {
+    const n = normalizeLoopLine(raw);
+    if (n.length >= NOVELTY_MIN_LINE && (counts.get(n) ?? 0) >= 3) {
+      if (seen.has(n)) {
+        const kept = text.slice(0, offset).replace(/\s+$/, '');
+        return { text: kept, droppedChars: text.length - kept.length };
+      }
+      seen.add(n);
+    }
+    offset += raw.length + 1;
+  }
+  return { text, droppedChars: 0 };
 }
 
 /**
@@ -116,6 +176,11 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
   let lastLine = '';
   let repeatCount = 1;
   let lastEmittedLineLength = 0;
+  // Low-novelty guard (see NOVELTY_* above): the last NOVELTY_WINDOW
+  // considered lines and how often each occurs in that window.
+  const noveltyWindow: string[] = [];
+  const noveltyCounts = new Map<string, number>();
+  let abortReason: string | null = null;
   const MAX_TRANSIENT_RETRIES = 2;
   const BASE_RETRY_MS = 1_200;
   let transientRetries = 0;
@@ -133,6 +198,7 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
 
         if (text.length >= HARD_MAX) {
           aborted = true;
+          abortReason = 'hard_max';
           emit('tool_loop:stream_abort', { iteration, reason: 'hard_max', length: text.length });
           break;
         }
@@ -146,6 +212,28 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
           const newSegment = text.slice(lastEmittedLineLength, lastNewline);
           for (const rawLine of newSegment.split('\n')) {
             const line = rawLine.trim();
+            const normalized = normalizeLoopLine(rawLine);
+            if (normalized.length >= NOVELTY_MIN_LINE) {
+              noveltyWindow.push(normalized);
+              noveltyCounts.set(normalized, (noveltyCounts.get(normalized) ?? 0) + 1);
+              if (noveltyWindow.length > NOVELTY_WINDOW) {
+                const out = noveltyWindow.shift()!;
+                const c = (noveltyCounts.get(out) ?? 1) - 1;
+                if (c <= 0) {noveltyCounts.delete(out);} else {noveltyCounts.set(out, c);}
+              }
+              if (noveltyWindow.length === NOVELTY_WINDOW && noveltyCounts.size <= NOVELTY_MAX_DISTINCT) {
+                aborted = true;
+                abortReason = 'low_novelty_loop';
+                emit('tool_loop:stream_abort', {
+                  iteration,
+                  reason: 'low_novelty_loop',
+                  length: text.length,
+                  distinctLines: noveltyCounts.size,
+                  fingerprintPreview: normalized.slice(0, 120)
+                });
+                break;
+              }
+            }
             if (!line || line.length > REPEAT_LINE_MAXLEN) {
               lastLine = line;
               repeatCount = 1;
@@ -155,6 +243,7 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
               repeatCount += 1;
               if (repeatCount >= REPEAT_LINE_THRESHOLD) {
                 aborted = true;
+                abortReason = 'line_repetition_loop';
                 emit('tool_loop:stream_abort', {
                   iteration,
                   reason: 'line_repetition_loop',
@@ -183,6 +272,15 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
             .replace(/\s+/g, ' ')
             .replace(/\d+/g, '#')
             .trim();
+          // A markdown table of same-shaped rows ("| SKU-1001 | Widget 1 |
+          // needs reorder |") is identical once digits collapse; it is data,
+          // not a loop, so a tail that is mostly table rows is not sampled.
+          const tailLines = tail.split('\n').filter((l) => l.trim().length > 0);
+          const tableRows = tailLines.filter((l) => /^\s*\|.*\|\s*$/.test(l)).length;
+          if (tailLines.length > 0 && tableRows * 2 >= tailLines.length) {
+            recentFingerprints.length = 0;
+            continue;
+          }
           recentFingerprints.push(fingerprint);
           if (recentFingerprints.length > THRESHOLD) {recentFingerprints.shift();}
           if (
@@ -190,6 +288,7 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
             recentFingerprints.every(f => f === fingerprint)
           ) {
             aborted = true;
+            abortReason = 'intra_response_loop';
             emit('tool_loop:stream_abort', {
               iteration,
               reason: 'intra_response_loop',
@@ -275,7 +374,20 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
     // Drop the last (likely-truncated) repetition cycle from the
     // output — cleaner to end at a previous paragraph boundary than
     // mid-sentence.
-    const trimmed = text.replace(/\s+$/, '');
+    let trimmed = text.replace(/\s+$/, '');
+    // A loop stop keeps one pass of the cycle, not the whole runaway: this
+    // text goes back to the model on every later request. A model-loop
+    // stop from the provider (abortReason null) and a user cancel keep
+    // their text as it is.
+    if (abortReason && abortReason !== 'cancelled') {
+      // HARD_MAX alone does not prove a loop (a long varied answer reaches
+      // it too), so it trims only when most of the reply is repeated lines.
+      const cut = trimRepeatedTail(trimmed, abortReason === 'hard_max' ? 0.5 : 0);
+      if (cut.droppedChars > 0) {
+        trimmed = `${cut.text}\n\n[${cut.droppedChars} characters of repeated output dropped]`;
+        emit('tool_loop:runaway_trimmed', { iteration, reason: abortReason, droppedChars: cut.droppedChars, keptChars: cut.text.length });
+      }
+    }
     text = trimmed + '\n\n[stream aborted: self-contradicting prose loop detected]';
   }
 

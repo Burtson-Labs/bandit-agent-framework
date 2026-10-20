@@ -105,6 +105,39 @@ const BINARY_EXTENSIONS = new Set([
   '.exe', '.dll', '.so', '.dylib', '.bin', '.dat', '.db', '.sqlite'
 ]);
 
+/**
+ * File text whose escapes were written twice: `\n`, `\t`, `\"`, `\'` and
+ * `\\` as two characters where the file needs one. gemma4:12b does this in
+ * native tool arguments (2026-10-20 benchmark: every edit in all three runs
+ * of a Python task carried `\"\"\"docstring\"\"\"` and `\n\n\ndef`, each
+ * rejected by the syntax check, 7 to 27 times per run until the run ended).
+ * Returns the decoded text, or null when there is nothing to decode. The
+ * edit tools use it only after the literal text has FAILED validation, and
+ * keep the decoded text only when it passes — legitimate escapes inside
+ * string literals (`"a\nb"`) parse as written and are never touched.
+ */
+export function decodeOverEscaped(text: string): string | null {
+  if (!/\\[ntr"'\\]/.test(text)) {return null;}
+  const decoded = text.replace(/\\([ntr"'\\])/g, (_m, c: string) =>
+    c === 'n' ? '\n' : c === 't' ? '\t' : c === 'r' ? '\r' : c);
+  return decoded === text ? null : decoded;
+}
+
+const OVER_ESCAPE_NOTE = (field: string): string =>
+  `Note: \`${field}\` had literal backslash escapes (\\n, \\", \\t) that did not parse, so they were written as real newlines, quotes and tabs. ` +
+  `Send file text as it should appear in the file: a real line break, not \\n; a plain ", not \\".`;
+
+/** Hint appended to a validation failure when decoding the escapes did not help either. */
+const OVER_ESCAPE_HINT = (field: string): string =>
+  `\n\nYour \`${field}\` contains literal backslash escapes (\\n, \\"). The tool writes the text exactly as sent — send real line breaks and plain quotes, not escape sequences.`;
+
+/** 1-based line number of a character offset. */
+function lineOfOffset(text: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset && i < text.length; i++) {if (text.charCodeAt(i) === 10) {line++;}}
+  return line;
+}
+
 function binaryRefusalMessage(ext: string, relPath: string): string {
   const baseMsg = `"${relPath}" is a ${ext} file — its bytes are not plain text and cannot be read as UTF-8.`;
   const hints: Record<string, string> = {
@@ -274,6 +307,8 @@ const writeFileTool: AgentTool = {
       // apply_edit: if the file already had errors, only block when
       // THIS write introduced new ones. Pre-existing rot doesn't get
       // to gate every subsequent edit.
+      let toWrite: string = content;
+      let escapeNote: string | undefined;
       if (ctx.languageAdapters) {
         const validation = await ctx.languageAdapters.validate(absPath, content, ctx);
         if (!validation.ok) {
@@ -288,26 +323,36 @@ const writeFileTool: AgentTool = {
             beforeError = undefined;
           }
           if (beforeError === undefined || introducedNewErrors(beforeError, validation.error)) {
-            return {
-              output: `Validation failed for "${relPath}":\n${validation.error}\n\nThe file was NOT written. Fix the errors and retry.`,
-              isError: true
-            };
+            // Twice-escaped text (see decodeOverEscaped): keep the decoded
+            // form only when it passes where the literal one failed.
+            const decoded = decodeOverEscaped(content);
+            const decodedValidation = decoded !== null ? await ctx.languageAdapters.validate(absPath, decoded, ctx) : undefined;
+            if (decoded !== null && decodedValidation
+              && (decodedValidation.ok || (beforeError !== undefined && !introducedNewErrors(beforeError, decodedValidation.error)))) {
+              toWrite = decoded;
+              escapeNote = OVER_ESCAPE_NOTE('content');
+            } else {
+              return {
+                output: `Validation failed for "${relPath}":\n${validation.error}\n\nThe file was NOT written. Fix the errors and retry.${decoded !== null ? OVER_ESCAPE_HINT('content') : ''}`,
+                isError: true
+              };
+            }
           }
         }
       }
-      await ctx.writeFile(absPath, content);
+      await ctx.writeFile(absPath, toWrite);
       // The model authored every byte it just wrote, so a follow-up
       // apply_edit/replace_range on this file is not a blind edit. Without
       // this, "write the HTML, then add the logo" was rejected with "you
       // have not read this file" and cost a read + a loop-breaker trip.
       ctx.markFileRead?.(absPath);
-      const lineCount = content.split('\n').length;
+      const lineCount = toWrite.split('\n').length;
       // Same "don't restate" footer as apply_edit — same Qwen failure
       // mode applies here when the model overwrites an entire file.
       const baseMessage = `Wrote ${lineCount} lines to ${relPath}. File saved. Do not restate the file contents — the user can see the diff. Move on to the next pending task or reply with a brief summary if the work is complete.`;
-      const validationWarning = validatePostWrite(absPath, content);
+      const validationWarning = validatePostWrite(absPath, toWrite);
       const postEditCheck = await runPostEditTypeCheck(absPath, ctx).catch(() => ({ newErrorCount: 0, warning: undefined as string | undefined }));
-      const trailers = [validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
+      const trailers = [escapeNote, validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
       return {
         output: trailers ? `${baseMessage}\n\n${trailers}` : baseMessage
       };
@@ -420,7 +465,8 @@ const applyEditTool: AgentTool = {
     if (find === undefined || find === null) {return { output: 'Error: find parameter is required (also accepts old_text, old_string)', isError: true };}
     if (replace === undefined || replace === null) {return { output: 'Error: replace parameter is required (also accepts new_text, new_string)', isError: true };}
     if (find === '') {return { output: 'Error: find parameter must not be empty — use write_file to create a new file', isError: true };}
-    if (find === replace) {return { output: 'Error: find and replace are identical — no edit to apply', isError: true };}
+    // find === replace is checked after the file is read: when the text is
+    // already in the file the model is re-sending an edit it already made.
 
     // Scratchpad-placeholder detector. Small models occasionally dump their
     // own internal reasoning into `replace` as a bracketed "token" where
@@ -492,6 +538,19 @@ const applyEditTool: AgentTool = {
       return { output: `Error reading "${relPath}": ${err instanceof Error ? err.message : String(err)}. apply_edit only works on existing files — use write_file to create a new one.`, isError: true };
     }
 
+    if (find === replace) {
+      const at = before.indexOf(find);
+      // 2026-10-20 benchmark (gemma4:12b): after a successful edit the model
+      // sent find === replace (the new text) six times; "no edit to apply"
+      // did not tell it the change was already there.
+      return {
+        output: at >= 0
+          ? `No change: \`find\` and \`replace\` are identical, and that text is already in "${relPath}" at line ${lineOfOffset(before, at)}. If this is the change you meant to make, it is already done — do not send it again; continue with the next step.`
+          : 'Error: find and replace are identical — no edit to apply',
+        isError: true
+      };
+    }
+
     // Count occurrences with a literal (non-regex) scan so metacharacters in
     // `find` don't blow up. split+length-1 is cheap and correct for literals.
     let occurrences = before.split(find).length - 1;
@@ -529,6 +588,21 @@ const applyEditTool: AgentTool = {
         // No exact match AND no fuzzy match. Real miss. Surface the
         // closest line in the file so the model can correct the find
         // text without burning an iteration on a re-read.
+        // The edit was already applied: `find` is gone and `replace` is
+        // there. 2026-10-20 benchmark (gemma4:12b): a successful edit was
+        // re-sent 12 times, each answered with an indentation hint about a
+        // line that existed only because the edit had been made, until the
+        // run hit its iteration limit.
+        const replaceTrimmed = replace.trim();
+        const appliedAt = replaceTrimmed.length >= 20 ? before.indexOf(replaceTrimmed) : -1;
+        if (appliedAt >= 0) {
+          const startLine = lineOfOffset(before, appliedAt);
+          const endLine = startLine + replaceTrimmed.split('\n').length - 1;
+          return {
+            output: `\`find\` text was not found in "${relPath}", but your \`replace\` text is already there (line${endLine > startLine ? `s ${startLine}-${endLine}` : ` ${startLine}`}). This edit has already been applied — do not send it again. Continue with the next change, or re-read the file if you are unsure what it contains now.`,
+            isError: true
+          };
+        }
         const hint = findIndentationHint(before, find);
         const snippet = nearestMatchSnippet(before, find);
         return {
@@ -611,60 +685,64 @@ const applyEditTool: AgentTool = {
     // indent to every additional line. Skipped on `replace_all` (each
     // match could have a different indent) and on edits where the model
     // already supplied absolute indent on the first line.
-    const finalReplace = (() => {
-      if (replaceAll) {return replace;}
-      if (find.includes('\n')) {return replace;}
-      if (!replace.includes('\n')) {return replace;}
-      if (/^\s/.test(replace)) {return replace;}
-      const matchIndex = before.indexOf(find);
-      if (matchIndex === -1) {return replace;}
-      const lineStart = before.lastIndexOf('\n', matchIndex - 1) + 1;
-      const indent = before.slice(lineStart, matchIndex);
-      if (indent.length === 0 || !/^[ \t]+$/.test(indent)) {return replace;}
-      const lines = replace.split('\n');
-      return lines
-        .map((line, i) => (i === 0 || line.length === 0 ? line : indent + line))
-        .join('\n');
-    })();
-
-    // When fuzzy whitespace matched, the model's `find` had different
-    // indentation than the file. Its `replace` was almost certainly
-    // written at the same (wrong) indent as its `find`, so splicing
-    // it verbatim into the matched span would land mis-indented code
-    // in the middle of correctly-indented code. Compute the indent
-    // delta between the find and the matched text and shift every
-    // line of `replace` by that delta so the edit lands at the
-    // right column. No-op when find and matched first lines have
-    // the same indent (fuzzy fired on inner-line whitespace, not
-    // outer indent).
-    let spliceReplace = finalReplace;
-    if (usedFuzzyWhitespace && fuzzySpan) {
-      const matchedText = before.slice(fuzzySpan.start, fuzzySpan.end);
-      const findIndent = (find.match(/^[ \t]*/) ?? [''])[0];
-      const matchedIndent = (matchedText.match(/^[ \t]*/) ?? [''])[0];
-      const delta = matchedIndent.length - findIndent.length;
-      if (delta !== 0) {
-        spliceReplace = finalReplace
-          .split('\n')
-          .map((line) => {
-            if (line.length === 0) {return line;}
-            if (delta > 0) {return ' '.repeat(delta) + line;}
-            const leading = (line.match(/^[ \t]*/) ?? [''])[0].length;
-            return line.slice(Math.min(-delta, leading));
-          })
+    const buildAfter = (rep: string): string => {
+      const finalReplace = (() => {
+        if (replaceAll) {return rep;}
+        if (find.includes('\n')) {return rep;}
+        if (!rep.includes('\n')) {return rep;}
+        if (/^\s/.test(rep)) {return rep;}
+        const matchIndex = before.indexOf(find);
+        if (matchIndex === -1) {return rep;}
+        const lineStart = before.lastIndexOf('\n', matchIndex - 1) + 1;
+        const indent = before.slice(lineStart, matchIndex);
+        if (indent.length === 0 || !/^[ \t]+$/.test(indent)) {return rep;}
+        const lines = rep.split('\n');
+        return lines
+          .map((line, i) => (i === 0 || line.length === 0 ? line : indent + line))
           .join('\n');
-      }
-    }
+      })();
 
-    const after = replaceAll
-      ? before.split(find).join(finalReplace)
-      : nearLineSpan
-        ? before.slice(0, nearLineSpan.start) + finalReplace + before.slice(nearLineSpan.end)
-        : usedFuzzyWhitespace && fuzzySpan
-          ? before.slice(0, fuzzySpan.start) + spliceReplace + before.slice(fuzzySpan.end)
-          // Function replacer: a string replacement expands `$$`, `$&`, `$'`
-          // and `` $` `` (a Makefile's `$$HOME` landed as `$HOME`).
-          : before.replace(find, () => finalReplace);
+      // When fuzzy whitespace matched, the model's `find` had different
+      // indentation than the file. Its `replace` was almost certainly
+      // written at the same (wrong) indent as its `find`, so splicing
+      // it verbatim into the matched span would land mis-indented code
+      // in the middle of correctly-indented code. Compute the indent
+      // delta between the find and the matched text and shift every
+      // line of `replace` by that delta so the edit lands at the
+      // right column. No-op when find and matched first lines have
+      // the same indent (fuzzy fired on inner-line whitespace, not
+      // outer indent).
+      let spliceReplace = finalReplace;
+      if (usedFuzzyWhitespace && fuzzySpan) {
+        const matchedText = before.slice(fuzzySpan.start, fuzzySpan.end);
+        const findIndent = (find.match(/^[ \t]*/) ?? [''])[0];
+        const matchedIndent = (matchedText.match(/^[ \t]*/) ?? [''])[0];
+        const delta = matchedIndent.length - findIndent.length;
+        if (delta !== 0) {
+          spliceReplace = finalReplace
+            .split('\n')
+            .map((line) => {
+              if (line.length === 0) {return line;}
+              if (delta > 0) {return ' '.repeat(delta) + line;}
+              const leading = (line.match(/^[ \t]*/) ?? [''])[0].length;
+              return line.slice(Math.min(-delta, leading));
+            })
+            .join('\n');
+        }
+      }
+
+      return replaceAll
+        ? before.split(find).join(finalReplace)
+        : nearLineSpan
+          ? before.slice(0, nearLineSpan.start) + finalReplace + before.slice(nearLineSpan.end)
+          : usedFuzzyWhitespace && fuzzySpan
+            ? before.slice(0, fuzzySpan.start) + spliceReplace + before.slice(fuzzySpan.end)
+            // Function replacer: a string replacement expands `$$`, `$&`, `$'`
+            // and `` $` `` (a Makefile's `$$HOME` landed as `$HOME`).
+            : before.replace(find, () => finalReplace);
+    };
+    let after = buildAfter(replace);
+    let escapeNote: string | undefined;
 
     if (after === before) {
       // Defensive — should be impossible given the guards above, but stay honest.
@@ -685,10 +763,25 @@ const applyEditTool: AgentTool = {
         // the model gave up after iterating on its find/replace 8x.
         const beforeValidation = await ctx.languageAdapters.validate(absPath, before, ctx);
         if (introducedNewErrors(beforeValidation.error, afterValidation.error)) {
-          return {
-            output: `Validation failed after apply_edit on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Fix the \`find\`/\`replace\` values and retry.`,
-            isError: true
-          };
+          // Twice-escaped `replace` (see decodeOverEscaped): keep the
+          // decoded form only when it passes where the literal one failed.
+          const decoded = decodeOverEscaped(replace);
+          let repaired = false;
+          if (decoded !== null) {
+            const candidate = buildAfter(decoded);
+            const candidateValidation = candidate !== before ? await ctx.languageAdapters.validate(absPath, candidate, ctx) : undefined;
+            if (candidateValidation && (candidateValidation.ok || !introducedNewErrors(beforeValidation.error, candidateValidation.error))) {
+              after = candidate;
+              escapeNote = OVER_ESCAPE_NOTE('replace');
+              repaired = true;
+            }
+          }
+          if (!repaired) {
+            return {
+              output: `Validation failed after apply_edit on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Fix the \`find\`/\`replace\` values and retry.${decoded !== null ? OVER_ESCAPE_HINT('replace') : ''}`,
+              isError: true
+            };
+          }
         }
         // Pre-existing errors only — write proceeds. Surface the
         // situation in the result so the model knows the file isn't
@@ -741,7 +834,7 @@ const applyEditTool: AgentTool = {
     // call to 38s+ and eventually tripped a 504.
     const baseMessage = `Replaced ${matches} in ${relPath} (${deltaLabel}). File saved. Do not restate the file contents — the user can see the diff. Do not re-read this file just to make another edit — you already have the structure in context. Move on to the next pending task or reply with a brief summary if the work is complete.`;
     const postEditCheck = await runPostEditTypeCheck(absPath, ctx).catch(() => ({ newErrorCount: 0, warning: undefined as string | undefined }));
-    const trailers = [validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
+    const trailers = [escapeNote, validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
     return {
       output: trailers ? `${baseMessage}\n\n${trailers}` : baseMessage
     };
@@ -861,16 +954,18 @@ const replaceRangeTool: AgentTool = {
     // every replacement written the natural way ("// entry point\n" → "Inserted 2
     // lines"). It is only kept when the range runs to the end of the file, where
     // that newline is the file's own final newline.
-    const text = String(content);
     const hasFollowingLines = endIdx < lines.length;
-    const replacementLines = text === ''
+    const linesFor = (t: string): string[] => t === ''
       ? []
-      : splitTextLines(hasFollowingLines ? text.replace(/\r?\n$/, '') : text).lines;
-    const after = [
+      : splitTextLines(hasFollowingLines ? t.replace(/\r?\n$/, '') : t).lines;
+    const buildAfter = (replacement: string[]): string => [
       ...lines.slice(0, startIdx),
-      ...replacementLines,
+      ...replacement,
       ...lines.slice(endIdx)
     ].join(eol);
+    let replacementLines = linesFor(String(content));
+    let after = buildAfter(replacementLines);
+    let escapeNote: string | undefined;
 
     if (after === before) {
       return { output: 'replace_range produced no change to the file.', isError: true };
@@ -881,10 +976,27 @@ const replaceRangeTool: AgentTool = {
       if (!afterValidation.ok) {
         const beforeValidation = await ctx.languageAdapters.validate(absPath, before, ctx);
         if (introducedNewErrors(beforeValidation.error, afterValidation.error)) {
-          return {
-            output: `Validation failed after replace_range on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Re-read the surrounding lines and retry with a smaller or corrected replacement.`,
-            isError: true
-          };
+          // Twice-escaped `content` (see decodeOverEscaped): keep the
+          // decoded form only when it passes where the literal one failed.
+          const decoded = decodeOverEscaped(String(content));
+          let repaired = false;
+          if (decoded !== null) {
+            const decodedLines = linesFor(decoded);
+            const candidate = buildAfter(decodedLines);
+            const candidateValidation = candidate !== before ? await ctx.languageAdapters.validate(absPath, candidate, ctx) : undefined;
+            if (candidateValidation && (candidateValidation.ok || !introducedNewErrors(beforeValidation.error, candidateValidation.error))) {
+              replacementLines = decodedLines;
+              after = candidate;
+              escapeNote = OVER_ESCAPE_NOTE('content');
+              repaired = true;
+            }
+          }
+          if (!repaired) {
+            return {
+              output: `Validation failed after replace_range on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Re-read the surrounding lines and retry with a smaller or corrected replacement.${decoded !== null ? OVER_ESCAPE_HINT('content') : ''}`,
+              isError: true
+            };
+          }
         }
       }
     }
@@ -901,9 +1013,18 @@ const replaceRangeTool: AgentTool = {
       ? `Inserted ${added} line${added === 1 ? '' : 's'} before line ${startLine}`
       : `Replaced lines ${startLine}-${endLine} (+${added} -${removed})`;
     const baseMessage = `${rangeLabel} in ${relPath}. File saved. Do not restate the file contents — the user can see the diff. Do not re-read this file just to make another nearby edit; continue with the next range or verify when done.`;
+    // Line numbers below the range moved. 2026-10-20 benchmark (gemma4:26b):
+    // after a +2-line replace_range the model sent the next range with the
+    // numbers from its earlier read, replaced the wrong lines, and spent the
+    // rest of the run on a file it had broken. Say where the old lines are.
+    const shift = added - removed;
+    const firstBelow = endLine < startLine ? startLine : endLine + 1;
+    const shiftNote = shift !== 0 && firstBelow <= lines.length
+      ? `Line numbers from line ${firstBelow} down moved by ${shift > 0 ? '+' : ''}${shift}: what your last read showed as line ${firstBelow} is now line ${firstBelow + shift}. Use the new numbers for further replace_range calls in this file.`
+      : undefined;
     const validationWarning = validatePostWrite(absPath, after);
     const postEditCheck = await runPostEditTypeCheck(absPath, ctx).catch(() => ({ newErrorCount: 0, warning: undefined as string | undefined }));
-    const trailers = [hashWarning, validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
+    const trailers = [shiftNote, escapeNote, hashWarning, validationWarning, postEditCheck.warning].filter(Boolean).join('\n\n');
     return {
       output: trailers ? `${baseMessage}\n\n${trailers}` : baseMessage
     };
@@ -2203,6 +2324,16 @@ function shellTokenize(input: string): string[] {
   return out;
 }
 
+/** Interpreters run_command may start, and their inline-code flag. */
+const INTERPRETER_CODE_FLAG: Record<string, string> = {
+  python: '-c',
+  python3: '-c',
+  node: '-e',
+  ruby: '-e',
+  perl: '-e',
+  php: '-r'
+};
+
 const runCommandTool: AgentTool = {
   name: 'run_command',
   description: 'Run a shell command in the workspace and return the output. Allowed commands span common dev stacks: node/pnpm/npm/npx, python/pip/pytest, git, cargo, go, dotnet, mvn/gradle/java, ruby/bundle, php/composer, swift/xcodebuild, make/cmake, docker, package managers (brew, npm install -g, pip install, pipx, cargo install, gem install, go install), and read-only inspection tools (ls, cat, head, tail, grep, find, jq, yq). When the user asks you to install a CLI or package, run the install via the right package manager — the host\'s permission gate prompts the user before each invocation, so attempting an install is the correct behavior, not refusal. Only fall back to "ask the user to run it in their shell" when the command is genuinely outside the allow-list AND no package-manager equivalent exists. Call the binary directly via cmd/args (cmd="git", args="status") — NEVER wrap it in `bash -c` / `sh -c` / `zsh -c`; shell interpreters are blocked and the runner already spawns the program for you. For pipes or globs, use `search_code` (grep) or `list_files` (find), or run the steps separately. NO SHELL: `&&`, `|`, `;`, `source`, `cd`, and `~`/glob expansion do NOT work — run each step as its own call. Python: prefer `python3 -m pip` (bare `pip` is often not on PATH); if pip reports an "externally-managed-environment" (PEP 668), create a venv once (cmd="python3", args="-m venv .venv") and then call `.venv/bin/pip` and `.venv/bin/python` DIRECTLY — never `source .venv/bin/activate`.',
@@ -2226,6 +2357,23 @@ const runCommandTool: AgentTool = {
     // command line was being treated as a single executable name).
     let cmd = rawCmd;
     let argsString = params.args ?? '';
+    // Arguments or inline code sent under a name this tool does not have.
+    // 2026-10-20 benchmark (gemma4:12b): `{"cmd":"python3","python_args":"-c
+    // \"...\""}` and `{"cmd":"python3","python_script":"assert ..."}` ran a
+    // bare `python3`, which read an empty stdin and exited 0 — five
+    // "verifications" that ran nothing were taken as passing checks, and one
+    // run ended on a false "verified" claim. Unknown names are mapped where
+    // the intent is unambiguous; a bare interpreter is refused below.
+    const interpreterBase = (rawCmd.split(/\s/)[0].split('/').pop() ?? '').toLowerCase();
+    const codeFlag = INTERPRETER_CODE_FLAG[interpreterBase];
+    if (!argsString.trim()) {
+      const argsAlias = Object.keys(params).find((k) => k !== 'args' && /(^|_)(args|arguments|argv)$/i.test(k) && String(params[k] ?? '').trim());
+      if (argsAlias) {argsString = String(params[argsAlias]);}
+    }
+    const scriptAlias = codeFlag
+      ? Object.keys(params).find((k) => /^(\w+_)?(script|code|source|program)$/i.test(k) && String(params[k] ?? '').trim())
+      : undefined;
+    let inlineCode: string | undefined = scriptAlias ? String(params[scriptAlias]) : undefined;
     const preparsedArgs = maybeParseJsonArrayArgs(argsString);
     const firstSpace = rawCmd.search(/\s/);
     if (firstSpace > 0 && !preparsedArgs) {
@@ -2249,6 +2397,19 @@ const runCommandTool: AgentTool = {
     }
 
     const args = preparsedArgs ?? (argsString ? shellTokenize(argsString) : []);
+    if (inlineCode !== undefined && codeFlag) {
+      args.unshift(codeFlag, inlineCode);
+      inlineCode = undefined;
+    }
+    // An interpreter with no script, no -c/-e and no module reads its program
+    // from stdin; commands here get no stdin, so it exits 0 having run
+    // nothing. That is not a check — refuse it with the fix.
+    if (codeFlag && args.length === 0) {
+      return {
+        output: `\`${baseCmd}\` with no arguments runs nothing here (it would read a program from stdin, and run_command has none) and exits 0 — that is not a check. Pass the code in \`args\`, e.g. cmd="${baseCmd}" args="${codeFlag} \\"<code>\\"", or run a script file or module (args="path/to/script${baseCmd.startsWith('node') ? '.js' : '.py'}").`,
+        isError: true
+      };
+    }
 
     // un-escape `<` / `>` in `git commit` messages.
     // from a real Bandit commit: the

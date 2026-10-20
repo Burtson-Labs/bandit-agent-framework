@@ -569,7 +569,10 @@ function createDirectOllamaProvider(
           }
 
           if (payload.stream !== false) {
-            yield* streamOllamaResponse(response, { abort: () => controller.abort(), nativeTools: hasNativeTools });
+            const idleMs = typeof request.streamIdleMs === 'number' && Number.isFinite(request.streamIdleMs) && request.streamIdleMs > 0
+              ? request.streamIdleMs
+              : undefined;
+            yield* streamOllamaResponse(response, { abort: () => controller.abort(), nativeTools: hasNativeTools, idleMs });
           } else {
             const data = await response.json() as OllamaChatChunk;
             let content = sanitizeOllamaOutput(data.message?.content ?? '');
