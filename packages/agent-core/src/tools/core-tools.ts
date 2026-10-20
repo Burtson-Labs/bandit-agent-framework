@@ -588,6 +588,15 @@ const applyEditTool: AgentTool = {
         // No exact match AND no fuzzy match. Real miss. Surface the
         // closest line in the file so the model can correct the find
         // text without burning an iteration on a re-read.
+        // A twice-escaped `find` (`\"\"\"doc\"\"\"`, 2026-10-20) is not in the
+        // file as written; when its decoded form is, run the edit with both
+        // fields decoded and say so.
+        const decodedFind = decodeOverEscaped(find);
+        if (decodedFind !== null && before.includes(decodedFind)) {
+          const decodedReplace = decodeOverEscaped(replace) ?? replace;
+          const retried = await applyEditTool.execute({ ...params, find: decodedFind, replace: decodedReplace }, ctx);
+          return retried.isError ? retried : { ...retried, output: `${retried.output}\n\n${OVER_ESCAPE_NOTE('find')}` };
+        }
         // The edit was already applied: `find` is gone and `replace` is
         // there. 2026-10-20 benchmark (gemma4:12b): a successful edit was
         // re-sent 12 times, each answered with an indentation hint about a

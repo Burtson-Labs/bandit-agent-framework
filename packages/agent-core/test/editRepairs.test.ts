@@ -83,6 +83,20 @@ describe.skipIf(!hasPython)('over-escaped edit text', () => {
     expect(after).toContain('raise ValueError("daily_usage must be positive")');
   });
 
+  it('apply_edit: a twice-escaped find that matches once decoded is applied, with both fields decoded', async () => {
+    const files = new Map([['/ws/stock.py', STOCK]]);
+    const ctx = buildCtx(files, pythonAdapters);
+    await readFileTool.execute({ path: 'stock.py' }, ctx);
+    const r = await applyEditTool.execute({
+      path: 'stock.py',
+      find: '\\"\\"\\"Stock levels.\\"\\"\\"',
+      replace: '\\"\\"\\"Stock levels and reorder planning.\\"\\"\\"'
+    }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(files.get('/ws/stock.py')!.startsWith('"""Stock levels and reorder planning."""')).toBe(true);
+    expect(r.output).toContain('`find` had literal backslash escapes');
+  });
+
   it('apply_edit: a legitimate escape inside a string literal is written as sent', async () => {
     const files = new Map([['/ws/stock.py', STOCK]]);
     const ctx = buildCtx(files, pythonAdapters);
