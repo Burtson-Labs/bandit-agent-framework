@@ -18,7 +18,13 @@ export {
 } from './banditEngineProvider';
 export {
   ModelOutputLoopError,
+  ModelThinkingBudgetError,
   OutputLoopDetector,
+  resolveThinkingBudgetChars,
+  THINKING_ONLY_BUDGET_CHARS,
+  THINKING_BUDGET_ENV,
+  MODEL_THINKING_BUDGET_CODE,
+  MODEL_THINKING_BUDGET_PREFIX,
   findPeriodicTail,
   isModelOutputLoopError,
   MODEL_OUTPUT_LOOP_CODE,

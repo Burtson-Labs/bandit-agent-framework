@@ -47,6 +47,10 @@
 import type { ChatFn, ToolLoopMessage, ChatCallOptions, NativeToolSchema } from '../tool-types';
 import { isModelOutputLoopError, isRetryableLlmError, tagRetryableLlmError, summarizeLlmError, sleep } from './loopShared';
 
+function getMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export type StreamEmit = (type: string, payload?: unknown) => void;
 
 export interface StreamAndAggregateArgs {
@@ -202,6 +206,10 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
         callOptions = { ...(callOptions ?? {}), think: false, temperatureBump: 0.15, recovery: 'output_loop' };
         emit('tool_loop:output_loop_recovery', {
           iteration,
+          kind: (error as { code?: unknown })?.code === 'MODEL_THINKING_BUDGET'
+            || getMessage(error).startsWith('Model thinking budget exceeded')
+            ? 'thinking_budget'
+            : 'loop',
           reason: summarizeLlmError(error)
         });
         continue;

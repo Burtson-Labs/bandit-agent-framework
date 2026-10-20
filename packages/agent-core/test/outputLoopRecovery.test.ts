@@ -121,3 +121,77 @@ describe('ToolUseLoop — output truncated at the token limit', () => {
     expect(result.finalResponse).not.toContain(OUTPUT_TRUNCATED_SENTINEL);
   });
 });
+
+describe('thinking-budget stop takes the same recovery', () => {
+  it('is classified with the loop errors and retried once with thinking off', async () => {
+    const budgetErr = Object.assign(new Error('Model thinking budget exceeded: the model streamed 32010 characters of reasoning'), { code: 'MODEL_THINKING_BUDGET' });
+    expect(isModelOutputLoopError(budgetErr)).toBe(true);
+    expect(isRetryableLlmError(budgetErr)).toBe(false);
+    const calls: Array<ChatCallOptions | undefined> = [];
+    const chat: ChatFn = async function* (_m, _t, options) {
+      calls.push(options);
+      if (calls.length === 1) {throw budgetErr;}
+      yield 'ok';
+    };
+    const { emit, events } = buildEmitRecorder();
+    expect(await streamAndAggregate({ chat, messages: [], emit, iteration: 0 })).toBe('ok');
+    expect(calls[1]?.think).toBe(false);
+    expect((events.find((e) => e.type === 'tool_loop:output_loop_recovery')?.payload as { kind?: string }).kind).toBe('thinking_budget');
+  });
+});
+
+describe('ToolUseLoop — sticky thinking-off after a runaway', () => {
+  it('keeps think:false on every later request of the run after an output-loop recovery', async () => {
+    const captured = { paths: [] as string[] };
+    const registry = new ToolRegistry();
+    registry.register(buildReadFileTool(captured));
+    const options: Array<ChatCallOptions | undefined> = [];
+    let n = 0;
+    const chat: ChatFn = async function* (_m, _t, o) {
+      options.push(o);
+      n++;
+      if (n === 1) {throw loopError();}
+      if (n <= 3) {yield `<tool_call>{"name":"read_file","params":{"path":"f${n}.ts"}}</tool_call>`; return;}
+      yield 'Done.';
+    };
+    const { emit, events } = buildEmitRecorder();
+    const loop = new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 6 });
+    const result = await loop.run('do it', chat);
+    expect(result.finalResponse).toBe('Done.');
+    expect(options[0]?.think).toBeUndefined();
+    // The recovery retry and every later request: thinking off.
+    expect(options.slice(1).map((o) => o?.think)).toEqual([false, false, false]);
+    const sticky = events.filter((e) => e.type === 'tool_loop:thinking_sticky_off');
+    expect(sticky).toHaveLength(1);
+    const order = events.map((e) => e.type).filter((t) => t === 'tool_loop:output_loop_recovery' || t === 'tool_loop:thinking_sticky_off');
+    expect(order).toEqual(['tool_loop:output_loop_recovery', 'tool_loop:thinking_sticky_off']);
+  });
+
+  it('turns thinking off after a reply cut off with nothing but reasoning, not after a partial answer', async () => {
+    const run = async (first: string) => {
+      const options: Array<ChatCallOptions | undefined> = [];
+      let n = 0;
+      const chat: ChatFn = async function* (_m, _t, o) {
+        options.push(o);
+        n++;
+        yield n === 1 ? first : 'Done.';
+      };
+      const { emit, events } = buildEmitRecorder();
+      await new ToolUseLoop(new ToolRegistry(), testCtx, { emitEvent: emit, maxIterations: 4 }).run('x', chat);
+      return { options, sticky: events.some((e) => e.type === 'tool_loop:thinking_sticky_off') };
+    };
+    const empty = await run(OUTPUT_TRUNCATED_SENTINEL);
+    expect(empty.sticky).toBe(true);
+    expect(empty.options[1]?.think).toBe(false);
+    const partial = await run(`Here is half an answer\n\n${OUTPUT_TRUNCATED_SENTINEL}`);
+    expect(partial.sticky).toBe(false);
+    expect(partial.options[1]?.think).toBeUndefined();
+  });
+
+  it('a run without a runaway never forces thinking off', async () => {
+    const options: Array<ChatCallOptions | undefined> = [];
+    const chat: ChatFn = async function* (_m, _t, o) { options.push(o); yield 'Done.'; };
+    await new ToolUseLoop(new ToolRegistry(), testCtx, { maxIterations: 3 }).run('x', chat);
+    expect(options.every((o) => o?.think === undefined)).toBe(true);
+  });
+});

@@ -83,13 +83,62 @@ export class ModelOutputLoopError extends Error {
   }
 }
 
+/**
+ * Thinking-only budget for one request, in characters (~8k tokens at ~4
+ * chars/token — OpenCode's cap for a WHOLE reply, thinking included).
+ *
+ * Why this is safe for a model that is working: it only counts while the
+ * reply has produced nothing but thinking — no visible content and no tool
+ * call. The moment either starts, the budget is off for the rest of the
+ * request, so long answers, long file writes and long tool calls are never
+ * touched, and a model that does not think never reaches it. A request that
+ * has thought for 32k characters without starting to act is, in practice, a
+ * runaway (2026-10-19: gemma4:12b thought for 491 s and hit the context limit
+ * with nothing to show). It is also not a dead end: the loop retries the step
+ * with thinking off, which answers in seconds.
+ *
+ * Power users: BANDIT_THINKING_BUDGET_CHARS=N overrides it, 0 disables it.
+ */
+export const THINKING_ONLY_BUDGET_CHARS = 32_000;
+export const THINKING_BUDGET_ENV = 'BANDIT_THINKING_BUDGET_CHARS';
+export const MODEL_THINKING_BUDGET_CODE = 'MODEL_THINKING_BUDGET';
+export const MODEL_THINKING_BUDGET_PREFIX = 'Model thinking budget exceeded';
+
+/** Effective thinking-only budget: explicit option > env override > default. 0 = off. */
+export function resolveThinkingBudgetChars(explicit?: number): number {
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit >= 0) {return explicit;}
+  const raw = typeof process !== 'undefined' ? process.env?.[THINKING_BUDGET_ENV] : undefined;
+  if (raw !== undefined && /^\d+$/.test(raw.trim())) {return Number(raw.trim());}
+  return THINKING_ONLY_BUDGET_CHARS;
+}
+
+export class ModelThinkingBudgetError extends Error {
+  readonly code = MODEL_THINKING_BUDGET_CODE;
+  readonly thinkingChars: number;
+
+  constructor(thinkingChars: number, budget: number) {
+    super(
+      `${MODEL_THINKING_BUDGET_PREFIX}: the model streamed ${thinkingChars} characters of reasoning (budget ${budget}) ` +
+      `without starting an answer or a tool call, so the request was stopped. Set ${THINKING_BUDGET_ENV} to change the budget (0 = off).`
+    );
+    this.name = 'ModelThinkingBudgetError';
+    this.thinkingChars = thinkingChars;
+  }
+}
+
+/**
+ * True for both runaway stops — an exact repetition loop and a thinking-only
+ * reply over budget. Both take the same recovery: retry with thinking off.
+ */
 export function isModelOutputLoopError(error: unknown): boolean {
-  if (error instanceof ModelOutputLoopError) {return true;}
+  if (error instanceof ModelOutputLoopError || error instanceof ModelThinkingBudgetError) {return true;}
   if (typeof error !== 'object' || error === null) {return false;}
   const code = (error as { code?: unknown }).code;
   const message = (error as { message?: unknown }).message;
   return code === MODEL_OUTPUT_LOOP_CODE
-    || (typeof message === 'string' && message.startsWith(MODEL_OUTPUT_LOOP_PREFIX));
+    || code === MODEL_THINKING_BUDGET_CODE
+    || (typeof message === 'string'
+      && (message.startsWith(MODEL_OUTPUT_LOOP_PREFIX) || message.startsWith(MODEL_THINKING_BUDGET_PREFIX)));
 }
 
 export interface OutputLoopDetectorOptions {

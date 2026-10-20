@@ -6,7 +6,7 @@ import type {
 } from './types/bandit';
 import { resolveOllamaRuntimeOptions } from './runtime/modelCapabilities';
 import { resolveToolHistoryMode, toOllamaToolHistory, toPartsToolHistory } from './toolHistory';
-import { ModelOutputLoopError, OutputLoopDetector } from './outputLoopDetector';
+import { ModelOutputLoopError, ModelThinkingBudgetError, OutputLoopDetector, resolveThinkingBudgetChars } from './outputLoopDetector';
 import {
   DEFAULT_STREAM_IDLE_MS,
   DEFAULT_STREAM_WARN_MS,
@@ -329,6 +329,8 @@ export interface StreamOllamaOptions {
   nativeTools?: boolean;
   /** Override the idle window (tests). */
   idleMs?: number;
+  /** Thinking-only budget in chars (see THINKING_ONLY_BUDGET_CHARS). Default: env override or the constant; 0 = off. */
+  thinkingBudgetChars?: number;
 }
 
 export async function* streamOllamaResponse(response: Response, opts: StreamOllamaOptions = {}): AsyncGenerator<AIChatResponse> {
@@ -342,6 +344,11 @@ export async function* streamOllamaResponse(response: Response, opts: StreamOlla
   let contentSeen = false;
   const toolCalls: OllamaToolCall[] = [];
   const loopDetector = new OutputLoopDetector();
+  const thinkingBudget = resolveThinkingBudgetChars(opts.thinkingBudgetChars);
+  // Thinking streamed before the reply started acting. Counting stops for good
+  // once real content or a tool call appears (`acting`).
+  let thinkingOnlyChars = 0;
+  let acting = false;
   const idleMs = opts.idleMs ?? (opts.nativeTools ? NATIVE_TOOLS_STREAM_IDLE_MS : DEFAULT_STREAM_IDLE_MS);
 
   // Terminal chunk(s): tool-call markers (same shape as the non-streaming
@@ -387,14 +394,25 @@ export async function* streamOllamaResponse(response: Response, opts: StreamOlla
       }
       const content = sanitizeOllamaOutput(chunk.message?.content ?? '');
       const thinking = chunk.message?.thinking;
-      if (Array.isArray(chunk.message?.tool_calls)) {
+      if (Array.isArray(chunk.message?.tool_calls) && chunk.message.tool_calls.length > 0) {
         toolCalls.push(...chunk.message.tool_calls);
+        acting = true;
       }
+      // Whitespace-only content does not count: qwen3.x pairs thinking tokens
+      // with '\n' content deltas while it is still reasoning.
+      if (content.trim().length > 0) {acting = true;}
       if (thinking) {
         const hit = loopDetector.push('thinking', thinking);
         if (hit) {
           opts.abort?.();
           throw new ModelOutputLoopError('thinking', hit);
+        }
+        if (!acting && thinkingBudget > 0) {
+          thinkingOnlyChars += thinking.length;
+          if (thinkingOnlyChars > thinkingBudget) {
+            opts.abort?.();
+            throw new ModelThinkingBudgetError(thinkingOnlyChars, thinkingBudget);
+          }
         }
       }
       if (content || thinking) {

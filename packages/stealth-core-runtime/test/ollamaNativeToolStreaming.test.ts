@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { afterEach } from 'vitest';
 import {
   AGENT_NUM_PREDICT_BACKSTOP,
+  THINKING_ONLY_BUDGET_CHARS,
   createProvider,
   isModelOutputLoopError,
   OLLAMA_OUTPUT_TRUNCATED_SENTINEL
@@ -139,9 +141,10 @@ describe('Ollama native-tools streaming', () => {
     expect(produced * '<|channel>thought '.length).toBeLessThan(4600);
   });
 
-  it('a long varied thinking stream is never stopped', async () => {
+  it('a long varied thinking stream (under the thinking-only budget) is never stopped by the loop detector', async () => {
     const { impl } = ndjsonFetch(async function* () {
-      for (let i = 0; i < 3000; i++) {yield msg({ thinking: `step ${i}: check case ${i % 7}. ` });}
+      // ~28k chars: well past the loop detector's 4000-char window, under the 32k budget.
+      for (let i = 0; i < 1000; i++) {yield msg({ thinking: `step ${i}: check case ${i % 7}. ` });}
       yield msg({ content: 'done' });
       yield msg({}, { done: true, done_reason: 'stop' });
     });
@@ -162,3 +165,96 @@ describe('Ollama native-tools streaming', () => {
     expect(seen.body).not.toHaveProperty('signal');
   });
 });
+
+describe('Ollama thinking-only budget', () => {
+  const prevEnv = process.env.BANDIT_THINKING_BUDGET_CHARS;
+  afterEach(() => {
+    if (prevEnv === undefined) {delete process.env.BANDIT_THINKING_BUDGET_CHARS;}
+    else {process.env.BANDIT_THINKING_BUDGET_CHARS = prevEnv;}
+  });
+  /** Varied (never periodic) reasoning text, ~40 chars per chunk. */
+  const step = (i: number) => `step ${i}: weigh option ${(i * 7919) % 1013}. `;
+  const run = async (gen: () => AsyncGenerator<Chunk>) => {
+    const { seen, impl } = ndjsonFetch(gen);
+    const provider = await createProvider({ kind: 'ollama', fetchImpl: impl });
+    const result = await collect(provider, { stream: true, tools: TOOLS }).then((out) => ({ out }), (error: unknown) => ({ error }));
+    return { ...result, seen } as { out?: Awaited<ReturnType<typeof collect>>; error?: unknown; seen: typeof seen };
+  };
+
+  it('is a named constant of ~8k tokens', () => {
+    expect(THINKING_ONLY_BUDGET_CHARS).toBe(32_000);
+  });
+
+  it('stops a reply that has only thought past the budget, aborts it and takes the loop-recovery path', async () => {
+    let chars = 0;
+    const r = await run(async function* () {
+      for (let i = 0; i < 5000; i++) { const t = step(i); chars += t.length; yield msg({ thinking: t }); }
+      yield msg({}, { done: true });
+    });
+    expect(isModelOutputLoopError(r.error)).toBe(true);
+    expect((r.error as Error).message).toMatch(/^Model thinking budget exceeded/);
+    expect((r.error as { code?: string }).code).toBe('MODEL_THINKING_BUDGET');
+    expect(r.seen.signal?.aborted).toBe(true);
+    expect(chars).toBeLessThan(THINKING_ONLY_BUDGET_CHARS + 200);
+  });
+
+  it('never stops long legitimate thinking under the budget', async () => {
+    const r = await run(async function* () {
+      let n = 0;
+      for (let i = 0; n < 31_000; i++) { const t = step(i); n += t.length; yield msg({ thinking: t }); }
+      yield msg({ content: 'Answer.' });
+      yield msg({}, { done: true, done_reason: 'stop' });
+    });
+    expect(r.error).toBeUndefined();
+    expect(textOf(r.out!)).toBe('Answer.');
+  });
+
+  it('never fires once content has started, however long the thinking after it', async () => {
+    const r = await run(async function* () {
+      yield msg({ thinking: 'plan. ' });
+      yield msg({ content: 'Here is the plan:' });
+      for (let i = 0; i < 3000; i++) {yield msg({ thinking: step(i) });}
+      yield msg({}, { done: true, done_reason: 'stop' });
+    });
+    expect(r.error).toBeUndefined();
+  });
+
+  it('never fires once a tool call has arrived', async () => {
+    const r = await run(async function* () {
+      yield msg({ tool_calls: [{ function: { name: 'ls', arguments: {} } }] });
+      for (let i = 0; i < 3000; i++) {yield msg({ thinking: step(i) });}
+      yield msg({}, { done: true, done_reason: 'stop' });
+    });
+    expect(r.error).toBeUndefined();
+    expect(textOf(r.out!)).toContain('<tool_call>{"name":"ls"');
+  });
+
+  it('never fires on output without thinking, however long', async () => {
+    const r = await run(async function* () {
+      for (let i = 0; i < 4000; i++) {yield msg({ content: step(i) });}
+      yield msg({}, { done: true, done_reason: 'stop' });
+    });
+    expect(r.error).toBeUndefined();
+  });
+
+  it('whitespace-only content deltas (qwen) do not switch the budget off', async () => {
+    const r = await run(async function* () {
+      for (let i = 0; i < 5000; i++) {yield msg({ thinking: step(i), content: '\n' });}
+      yield msg({}, { done: true });
+    });
+    expect((r.error as Error)?.message).toMatch(/^Model thinking budget exceeded/);
+  });
+
+  it('BANDIT_THINKING_BUDGET_CHARS overrides it; 0 disables it', async () => {
+    const think = async function* () {
+      for (let i = 0; i < 2000; i++) {yield msg({ thinking: step(i) });}
+      yield msg({ content: 'ok' });
+      yield msg({}, { done: true });
+    };
+    process.env.BANDIT_THINKING_BUDGET_CHARS = '0';
+    expect((await run(think)).error).toBeUndefined();
+    process.env.BANDIT_THINKING_BUDGET_CHARS = '5000';
+    expect((await run(think)).error).toBeInstanceOf(Error);
+  });
+});
+

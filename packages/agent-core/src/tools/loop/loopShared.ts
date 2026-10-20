@@ -52,9 +52,13 @@ export function isRetryableLlmError(error: unknown): boolean {
  * it and llmStream retries it once with thinking off instead.
  */
 export const MODEL_OUTPUT_LOOP_CODE = 'MODEL_OUTPUT_LOOP';
+/** stealth-core-runtime ModelThinkingBudgetError: a reply that only thought, past the budget. Same recovery. */
+export const MODEL_THINKING_BUDGET_CODE = 'MODEL_THINKING_BUDGET';
 export function isModelOutputLoopError(error: unknown): boolean {
-  if (getErrorCode(error) === MODEL_OUTPUT_LOOP_CODE) {return true;}
-  return getErrorMessage(error).startsWith('Model output loop detected');
+  const code = getErrorCode(error);
+  if (code === MODEL_OUTPUT_LOOP_CODE || code === MODEL_THINKING_BUDGET_CODE) {return true;}
+  const message = getErrorMessage(error);
+  return message.startsWith('Model output loop detected') || message.startsWith('Model thinking budget exceeded');
 }
 
 export function tagRetryableLlmError(error: unknown): void {

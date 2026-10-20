@@ -524,6 +524,13 @@ export class ToolUseLoop {
     let outputTruncationNudges = 0;
     const MAX_OUTPUT_TRUNCATION_NUDGES = 2;
     let nextCallThinkOverride: boolean | undefined = undefined;
+    // Sticky thinking-off for the rest of this run. Set when the model ran
+    // away in its reasoning (output-loop / thinking-budget recovery) or a
+    // reply was cut off at the limit with nothing but reasoning to show:
+    // the per-request recovery works, but the very next request had
+    // thinking on again and gemma4 looped again (2026-10-19: four 60-100 s
+    // loop recoveries in one run). Hosts keep their own session-level copy.
+    let stickyThinkOff = false;
     // Final-shot prefill recovery for qwen3.6-style "closes the reasoning
     // fence and stops" stalls. Observed Jun 2026 on a long CSS-refactor
     // turn: the model emitted 4 reasoning-only responses in a row even
@@ -933,7 +940,8 @@ export class ToolUseLoop {
       // model. Subagent stalls were hard to diagnose because we
       // couldn't tell if the prompt was 5KB (normal) or 50KB+ (would
       // explain prompt-processing latency). Now both are visible.
-      const callOptions = nextCallThinkOverride !== undefined ? { think: nextCallThinkOverride } : undefined;
+      const callThink = nextCallThinkOverride !== undefined ? nextCallThinkOverride : stickyThinkOff ? false : undefined;
+      const callOptions = callThink !== undefined ? { think: callThink } : undefined;
       // Per-call think override is single-shot — clear immediately after
       // building the options bag so subsequent iterations revert to the
       // chat function's closure-captured default.
@@ -973,7 +981,13 @@ export class ToolUseLoop {
           response = await streamAndAggregate({
             chat,
             messages,
-            emit,
+            emit: (type, payload) => {
+              emit(type, payload);
+              if (type === 'tool_loop:output_loop_recovery' && !stickyThinkOff) {
+                stickyThinkOff = true;
+                emit('tool_loop:thinking_sticky_off', { iteration: iterations, reason: 'output_loop' });
+              }
+            },
             iteration: iterations,
             tools: nativeSchemas,
             signal,
@@ -1121,6 +1135,11 @@ export class ToolUseLoop {
         const partial = response.split(OUTPUT_TRUNCATED_SENTINEL).join('').trimEnd();
         if (outputTruncationNudges < MAX_OUTPUT_TRUNCATION_NUDGES) {
           outputTruncationNudges++;
+          if (partial.length === 0 && !stickyThinkOff) {
+            // Cut off with nothing but reasoning: thinking ate the budget.
+            stickyThinkOff = true;
+            emit('tool_loop:thinking_sticky_off', { iteration: iterations, reason: 'truncated_thinking' });
+          }
           emit('tool_loop:output_truncated', {
             iteration: iterations,
             partialLength: partial.length,
