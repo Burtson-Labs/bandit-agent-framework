@@ -60,16 +60,21 @@ describe('streamAndAggregate — output-loop recovery', () => {
     expect(n).toBe(2);
   });
 
-  it('does not replay once content has already streamed', async () => {
+  it('does not replay once content has streamed: keeps it, ends the reply, and still signals recovery', async () => {
     let n = 0;
     const chat: ChatFn = async function* () {
       n++;
       yield 'partial answer';
       throw loopError();
     };
-    const { emit } = buildEmitRecorder();
-    await expect(streamAndAggregate({ chat, messages: [], emit, iteration: 0 })).rejects.toThrow(/loop detected/);
+    const { emit, events } = buildEmitRecorder();
+    const text = await streamAndAggregate({ chat, messages: [], emit, iteration: 0 });
+    // Kept, and tagged like the other in-stream loop aborts so the turn nudges instead of finishing.
+    expect(text.startsWith('partial answer')).toBe(true);
+    expect(text).toContain('[stream aborted: self-contradicting prose loop detected]');
     expect(n).toBe(1);
+    const rec = events.find((e) => e.type === 'tool_loop:output_loop_recovery');
+    expect(rec?.payload).toMatchObject({ partial: true });
   });
 
   it('a user abort is not retried', async () => {
@@ -193,5 +198,27 @@ describe('ToolUseLoop — sticky thinking-off after a runaway', () => {
     const chat: ChatFn = async function* (_m, _t, o) { options.push(o); yield 'Done.'; };
     await new ToolUseLoop(new ToolRegistry(), testCtx, { maxIterations: 3 }).run('x', chat);
     expect(options.every((o) => o?.think === undefined)).toBe(true);
+  });
+});
+
+describe('ToolUseLoop — loop after content started', () => {
+  it('does not fail the turn; the next request runs with thinking off', async () => {
+    const captured = { paths: [] as string[] };
+    const registry = new ToolRegistry();
+    registry.register(buildReadFileTool(captured));
+    const options: Array<ChatCallOptions | undefined> = [];
+    let n = 0;
+    const chat: ChatFn = async function* (_m, _t, o) {
+      options.push(o);
+      n++;
+      if (n === 1) { yield 'Adding days_of_cover to stock.py.'; throw loopError(); }
+      if (n === 2) { yield '<tool_call>{"name":"read_file","params":{"path":"stock.py"}}</tool_call>'; return; }
+      yield 'Done.';
+    };
+    const { emit } = buildEmitRecorder();
+    const result = await new ToolUseLoop(registry, testCtx, { emitEvent: emit, maxIterations: 6 }).run('add it', chat);
+    expect(result.finalResponse).toBe('Done.');
+    expect(captured.paths).toEqual(['stock.py']);
+    expect(options.slice(1).every((o) => o?.think === false)).toBe(true);
   });
 });

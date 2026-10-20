@@ -30,6 +30,8 @@
  *    text streamed: ONE retry with thinking forced off and a small
  *    temperature bump, emitting `tool_loop:output_loop_recovery`. The
  *    identical request would loop identically under a fixed seed.
+ *    With content already streamed, the reply is ended where it is instead
+ *    (no replay, no failed turn) and the same event fires with partial:true.
  *  - Non-retryable error OR partial text already streamed: re-throw
  *    (tagged with `UPSTREAM_MODEL` code on retryable to preserve the
  *    existing error-summarization contract for outer-layer handlers).
@@ -213,6 +215,27 @@ export async function streamAndAggregate(args: StreamAndAggregateArgs): Promise<
           reason: summarizeLlmError(error)
         });
         continue;
+      }
+      // The loop started after the reply had already streamed content (the
+      // model said what it would do, then looped in its reasoning). Replaying
+      // would duplicate that content, and failing the turn throws the work
+      // away (2026-10-19: "fatal: Model output loop detected" ended a
+      // py-add-days-of-cover run). Keep what streamed and end this reply
+      // here; the loop sees no tool call and carries on, and the recovery
+      // event turns thinking off for the rest of the run.
+      if (isModelOutputLoopError(error) && !safeToReplay && !signal?.aborted) {
+        emit('tool_loop:stream_abort', { iteration, reason: 'output_loop', length: text.length });
+        emit('tool_loop:output_loop_recovery', {
+          iteration,
+          kind: 'loop',
+          partial: true,
+          reason: summarizeLlmError(error)
+        });
+        // Same tagging as the in-stream loop guards below, so the turn takes
+        // the prose-loop nudge ("call a tool or stop") instead of treating
+        // the half-reply as a final answer.
+        aborted = true;
+        break;
       }
       const retryable = isRetryableLlmError(error);
       // Original gate was `!tools || tools.length === 0` — i.e. only
