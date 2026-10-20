@@ -27,6 +27,7 @@ overrides:
   js-yaml@4: '>=4.3.2 <5.0.0'
   jws: '>=3.2.3 <4.0.0'
   linkify-it@5: '>=5.0.2 <6.0.0'
+  markdown-it@14: '>=14.3.2 <15.0.0'
   minimatch@3: '>=3.1.4 <4.0.0'
   minimatch@9: '>=9.0.7 <10.0.0'
   nanoid@3: '>=3.3.18 <4.0.0'
@@ -88,8 +89,8 @@ importers:
         specifier: ^11.11.1
         version: 11.11.1
       markdown-it:
-        specifier: ^14.2.0
-        version: 14.2.0
+        specifier: '>=14.3.2 <15.0.0'
+        version: 14.3.3
       react:
         specifier: 19.2.0
         version: 19.2.0
@@ -189,8 +190,8 @@ importers:
         specifier: 3.4.7
         version: 3.4.7
       markdown-it:
-        specifier: ^14.2.0
-        version: 14.2.0
+        specifier: '>=14.3.2 <15.0.0'
+        version: 14.3.3
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
@@ -259,8 +260,8 @@ importers:
         specifier: ^11.11.1
         version: 11.11.1
       markdown-it:
-        specifier: ^14.2.0
-        version: 14.2.0
+        specifier: '>=14.3.2 <15.0.0'
+        version: 14.3.3
       react:
         specifier: 19.2.0
         version: 19.2.0
@@ -399,8 +400,8 @@ importers:
         specifier: ^11.10.0
         version: 11.11.1
       markdown-it:
-        specifier: ^14.2.0
-        version: 14.2.0
+        specifier: '>=14.3.2 <15.0.0'
+        version: 14.3.3
       morphdom:
         specifier: ^2.7.4
         version: 2.7.8
@@ -3054,8 +3055,8 @@ packages:
     resolution: {integrity: sha512-TchMembfxfNVpHkbtriWltGWc+m3xszaRD0CZup7GFFhzIgQqxIfn3eGj1yZpfuflzPvfkt611B2Q/Bsk1YnGg==}
     hasBin: true
 
-  markdown-it@14.2.0:
-    resolution: {integrity: sha512-1TGiQiJVRQ3NPmZH6sx5Cfnmg6GQm9jvC1ch4TK511NjSJvjzKLzn5pPfZRNZkRPZP0HqCioSndqH8v2nRaWVQ==}
+  markdown-it@14.3.3:
+    resolution: {integrity: sha512-L//tDAkjTjJCU6pBUSBTgs3Kg4InVaZuUZog/b6V12UKhcDQ7S78877ibbCanRExwPuYP1CZD7Gd2dxSy1GXRg==}
     hasBin: true
 
   math-intrinsics@1.1.0:
@@ -6560,7 +6561,7 @@ snapshots:
       mdurl: 1.0.1
       uc.micro: 1.0.6
 
-  markdown-it@14.2.0:
+  markdown-it@14.3.3:
     dependencies:
       argparse: 2.0.1
       entities: 4.5.0
