@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Bandit Agent Framework"
+abstract: >-
+  Local-first, model-agnostic AI agent framework: the runtime behind the
+  Bandit Stealth CLI and the VS Code / Cursor extension.
+authors:
+  - name: "Burtson Labs"
+    website: "https://burtson.ai"
+    email: "team@burtson.ai"
+repository-code: "https://github.com/Burtson-Labs/bandit-agent-framework"
+url: "https://github.com/Burtson-Labs/bandit-agent-framework"
+license: Apache-2.0
+keywords:
+  - AI agents
+  - coding agents
+  - local inference
+  - large language models
+# No version or date-released: the repo publishes several packages with their
+# own versions. Add both if a tagged framework release is ever cited, and add a
+# doi line if the repo is archived on Zenodo (GitHub integration).
+references:
+  - type: data
+    title: "Bandit agent benchmark, October 2026: Bandit CLI and OpenCode 1.19.3 on local models"
+    authors:
+      - name: "Burtson Labs"
+    year: 2026
+    url: "https://burtson.ai/bandit/benchmarks/2026-10"
