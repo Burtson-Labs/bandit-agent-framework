@@ -253,7 +253,7 @@ export {
   type OfflineSource,
   type ResolveOfflineInput
 } from './offline';
-export { PROJECT_GITIGNORE, ensureProjectGitignore, mkdirInProjectBandit } from './projectDir';
+export { PROJECT_GITIGNORE, ensureProjectGitignore, mkdirInProjectBandit, mkdirInProjectBanditSync } from './projectDir';
 export {
   openTurnLog,
   previewText,

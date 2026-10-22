@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { PROJECT_GITIGNORE, mkdirInProjectBandit } from '../src/projectDir';
+import { PROJECT_GITIGNORE, mkdirInProjectBandit, mkdirInProjectBanditSync } from '../src/projectDir';
 import { openTurnLog } from '../src/turnLog';
 import { CheckpointStore } from '../src/checkpoints';
 
@@ -56,6 +56,16 @@ describe('.bandit/.gitignore', () => {
     await mkdirInProjectBandit(root, path.join(root, '.bandit', 'checkpoints', 't1'));
     fs.rmSync(gi(root));
     await mkdirInProjectBandit(root, path.join(root, '.bandit', 'checkpoints', 't2'));
+    expect(fs.existsSync(gi(root))).toBe(false);
+  });
+
+  it('has a synchronous variant with the same rules', () => {
+    const root = ws();
+    mkdirInProjectBanditSync(root, path.join(root, '.bandit', 'pastes'));
+    expect(fs.readFileSync(gi(root), 'utf-8')).toBe(PROJECT_GITIGNORE);
+    expect(PROJECT_GITIGNORE).toMatch(/^pastes\/$/m);
+    fs.rmSync(gi(root));
+    mkdirInProjectBanditSync(root, path.join(root, '.bandit', 'pastes', 'x'));
     expect(fs.existsSync(gi(root))).toBe(false);
   });
 });

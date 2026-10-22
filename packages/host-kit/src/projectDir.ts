@@ -25,6 +25,9 @@ export const PROJECT_GITIGNORE = [
   'artifacts/',
   'tmp/',
   'cache/',
+  'pastes/',
+  'graph-run.json',
+  '*.log',
   '*.local.json',
   ''
 ].join('\n');
@@ -58,5 +61,20 @@ export async function mkdirInProjectBandit(workspaceRoot: string, dir: string): 
   const created = path.resolve(first);
   if (created === banditDir || path.dirname(created) === banditDir) {
     await ensureProjectGitignore(workspaceRoot);
+  }
+}
+
+/** Synchronous `mkdirInProjectBandit`, for callers that cannot await. */
+export function mkdirInProjectBanditSync(workspaceRoot: string, dir: string): void {
+  const banditDir = path.join(path.resolve(workspaceRoot), '.bandit');
+  const first = fs.mkdirSync(dir, { recursive: true });
+  if (!first) return;
+  const created = path.resolve(first);
+  if (created === banditDir || path.dirname(created) === banditDir) {
+    try {
+      fs.writeFileSync(path.join(banditDir, '.gitignore'), PROJECT_GITIGNORE, { encoding: 'utf-8', flag: 'wx' });
+    } catch {
+      // EEXIST (keep the user's file) or an unwritable folder.
+    }
   }
 }
