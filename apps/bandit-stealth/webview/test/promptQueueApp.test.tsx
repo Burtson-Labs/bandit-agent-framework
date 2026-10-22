@@ -120,4 +120,21 @@ describe('message queue in the chat', () => {
     await waitFor(() => expect(textarea().value).toBe('then run it'));
     expect(screen.queryByRole('button', { name: 'Edit this queued message' })).toBeNull();
   });
+
+  it('Stop with an approval card open denies it and takes the card down', async () => {
+    type('add a test');
+    await waitFor(() => expect(sentPrompts()).toHaveLength(1));
+    mockReceiveMessage({ type: 'state', state: banditState(true) });
+    mockReceiveMessage(buildPermissionPayload({ id: 'perm-stop', description: 'acme-stop-marker' }));
+    await waitFor(() => expect(screen.getByText('acme-stop-marker')).toBeTruthy());
+    type('queued behind the card');
+    await waitFor(() => expect(screen.getByText('queued behind the card')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: /stop/i }));
+    expect(recorder.calls).toContainEqual({ type: 'cancelResponse' });
+    expect(recorder.calls).toContainEqual(expect.objectContaining({ type: 'permissionResponse', id: 'perm-stop', choice: 'deny' }));
+    await waitFor(() => expect(screen.queryByText('acme-stop-marker')).toBeNull());
+    await waitFor(() => expect(textarea().value).toBe('queued behind the card'));
+  });
 });
+

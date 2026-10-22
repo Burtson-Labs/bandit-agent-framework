@@ -309,3 +309,41 @@ describe('ChatComposer queued pills', () => {
     expect(host!.querySelectorAll('[aria-label="Cancel this queued message"]')).toHaveLength(2);
   });
 });
+
+describe('ChatComposer Stop', () => {
+  it('Stop that puts text back in the composer does not also send it', () => {
+    const onSubmit = vi.fn();
+    function Host() {
+      const [value, setValue] = useState('');
+      return (
+        <ChatComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={onSubmit}
+          // Stop hands the queued messages back to the composer: the action
+          // button turns into Send during this very click.
+          onCancel={() => setValue('then run it')}
+          isStreaming
+          allowQueueWhileStreaming
+        />
+      );
+    }
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root!.render(<Host />));
+    const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop response"]');
+    expect(stop).not.toBeNull();
+    // In a real browser the button's type is read after the click handlers
+    // run: React has already re-rendered it as type="submit", so the click
+    // would submit the form unless Stop cancels the default action. (The
+    // test DOM doesn't model that, hence the defaultPrevented check.)
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => {
+      stop!.dispatchEvent(click);
+    });
+    expect(click.defaultPrevented).toBe(true);
+    expect((host.querySelector('textarea') as HTMLTextAreaElement).value).toBe('then run it');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

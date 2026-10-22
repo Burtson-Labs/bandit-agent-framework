@@ -1006,7 +1006,18 @@ export const ChatComposer = ({
           className="send-button"
           type={isStopMode ? "button" : "submit"}
           aria-label={isStopMode ? "Stop response" : "Send message"}
-          onClick={isStopMode ? onCancel : undefined}
+          onClick={
+            isStopMode
+              ? (event) => {
+                  // The browser reads the button's type after this handler:
+                  // when Stop puts text back in the composer, React has
+                  // already re-rendered the button as Send (type="submit"),
+                  // and the same click would send that text.
+                  event.preventDefault();
+                  onCancel?.();
+                }
+              : undefined
+          }
           disabled={actionDisabled}
           data-variant={isStopMode ? "stop" : "send"}
         >

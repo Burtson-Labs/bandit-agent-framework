@@ -2112,8 +2112,20 @@ export function App(): JSX.Element {
 
   // Stop cancels the turn and puts anything queued behind it back in the
   // composer, unsent: the user is stopping because the direction is wrong,
-  // so nothing they lined up runs on its own — and nothing is lost.
-  const handleCancelResponse = promptQueue.stop;
+  // so nothing they lined up runs on its own — and nothing is lost. An
+  // approval or question card still open is answered as denied / dismissed
+  // (the CLI's Esc does the same): the composer, and so Stop, stays up
+  // while a card is open, and the host does not withdraw the card itself.
+  const { stop: stopPromptQueue } = promptQueue;
+  const handleCancelResponse = useCallback(() => {
+    stopPromptQueue();
+    for (const pending of approvalQueue) {
+      handleApprovalChoice(pending.id, "deny");
+    }
+    if (askUserRequest) {
+      handleAskUserSubmit(askUserRequest.id, {}, true);
+    }
+  }, [stopPromptQueue, approvalQueue, handleApprovalChoice, askUserRequest, handleAskUserSubmit]);
 
   const handlePasteImages = useCallback(
     (files: File[]) => {
