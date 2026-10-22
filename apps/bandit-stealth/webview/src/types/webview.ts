@@ -138,6 +138,11 @@ export interface WebviewState {
   hasStoredApiKey: boolean;
   requiresApiKey: boolean;
   isBusy: boolean;
+  /** The prompt this view sent that the host is still running (its
+   *  `turnId`), and the last one that ended — how a reloaded view picks its
+   *  message queue back up. */
+  activeTurnId?: string | null;
+  lastSettledTurn?: { turnId?: string; outcome: "done" | "cancelled" | "failed" | "refused" } | null;
   statusText?: string;
   provider: string;
   model: string;

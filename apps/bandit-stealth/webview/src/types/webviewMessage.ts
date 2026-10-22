@@ -34,6 +34,8 @@ export type WebviewMessage =
   | { type: "state"; state: WebviewState }
   | { type: "notification"; message: string }
   | { type: "error"; message: string }
+  // A prompt this view sent ended; usePromptQueue listens for it.
+  | { type: "promptSettled"; turnId: string; outcome: "done" | "cancelled" | "failed" | "refused" }
   | { type: "requireApiKey" }
   // View title-bar action forwarded by the host (history, new
   // conversation, settings, trace logs). `action` is validated on receipt.

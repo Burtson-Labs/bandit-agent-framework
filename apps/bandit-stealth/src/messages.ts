@@ -38,7 +38,8 @@ export type IncomingMessage =
   // The webview reports what it is showing (conversation name, Settings,
   // History…) so the host can put it in the view's description.
   | { type: 'viewTitle'; title: string }
-  | { type: 'sendPrompt'; text: string; images?: string[]; files?: string[]; mode?: ModeKind; autoContext?: boolean }
+  // `turnId` (webview-made) comes back on `promptSettled` when the prompt ends.
+  | { type: 'sendPrompt'; text: string; images?: string[]; files?: string[]; mode?: ModeKind; autoContext?: boolean; turnId?: string }
   | { type: 'setApiKey'; value: string }
   | { type: 'signInWithBurtson' }
   | { type: 'mcpReload' }
@@ -135,6 +136,8 @@ export type IncomingMessage =
 export type OutgoingMessage =
   | { type: 'state'; state: WebviewState }
   | { type: 'error'; message: string }
+  // A webview-sent prompt ended: how, for the webview's message queue.
+  | { type: 'promptSettled'; turnId: string; outcome: 'done' | 'cancelled' | 'failed' | 'refused' }
   | { type: 'requireApiKey' }
   | { type: 'notification'; message: string }
   | { type: 'openSettings' }

@@ -186,6 +186,10 @@ export interface ChatComposerProps {
   queuedItems?: Array<{ id: string; preview: string; imageCount?: number; fileCount?: number }>;
   /** Invoked when the user clicks the ✕ on a queued-message pill. */
   onCancelQueued?: (id: string) => void;
+  /** Invoked when the user clicks edit on a queued-message pill. The host
+   *  takes the message out of its queue and puts it back in the composer.
+   *  No edit button renders without it. */
+  onEditQueued?: (id: string) => void;
 }
 
 export const ChatComposer = ({
@@ -222,7 +226,8 @@ export const ChatComposer = ({
   allowQueueWhileStreaming = false,
   queuedCount = 0,
   queuedItems,
-  onCancelQueued
+  onCancelQueued,
+  onEditQueued
 }: ChatComposerProps): JSX.Element => {
   // footerSlot is retained for type-compat; ignored in v1.5.53+.
   void footerSlot;
@@ -719,6 +724,17 @@ export const ChatComposer = ({
                         <span className="composer-queued-pill__attachments">{attachmentNote}</span>
                       ) : null}
                     </span>
+                    {onEditQueued ? (
+                      <button
+                        type="button"
+                        className="composer-queued-pill__edit"
+                        onClick={() => onEditQueued(item.id)}
+                        aria-label="Edit this queued message"
+                        title="Edit (moves it back to the composer)"
+                      >
+                        ✎
+                      </button>
+                    ) : null}
                     {onCancelQueued ? (
                       <button
                         type="button"

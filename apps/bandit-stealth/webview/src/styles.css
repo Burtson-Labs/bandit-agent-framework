@@ -1074,8 +1074,9 @@ body.bandit-theme-midnight {
 }
 
 /* Per-message queued pills — one row per queued submission with a
-   short preview + ✕ to cancel that specific message. Pill stack
-   appears below the textarea while messages are queued. */
+   short preview, ✎ to take it back into the composer to edit, and ✕
+   to cancel that specific message. Pill stack appears below the
+   textarea while messages are queued. */
 .stealth-shell .composer-queued-list {
   display: flex;
   flex-direction: column;
@@ -1108,6 +1109,7 @@ body.bandit-theme-midnight {
   font-size: 0.7rem;
 }
 
+.stealth-shell .composer-queued-pill__edit,
 .stealth-shell .composer-queued-pill__cancel {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1127,11 +1129,17 @@ body.bandit-theme-midnight {
   transition: opacity 0.12s, background-color 0.12s;
 }
 
+.stealth-shell .composer-queued-pill__edit {
+  font-size: 0.8rem;
+}
+
+.stealth-shell .composer-queued-pill__edit:hover,
 .stealth-shell .composer-queued-pill__cancel:hover {
   opacity: 1;
   background: rgba(var(--bandit-accent-rgb), 0.22);
 }
 
+.stealth-shell .composer-queued-pill__edit:focus-visible,
 .stealth-shell .composer-queued-pill__cancel:focus-visible {
   outline: 2px solid rgba(var(--bandit-accent-rgb), 0.6);
   outline-offset: 1px;

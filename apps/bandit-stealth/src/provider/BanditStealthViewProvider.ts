@@ -178,12 +178,16 @@ import type {
   OutgoingMessage,
   TraceListMode
 } from '../messages';
+import { PromptTurnTracker } from './services/promptTurnTracker';
+
 export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, ProviderContext {
   public static readonly viewType = 'banditStealth.chat';
 
   public view: vscode.WebviewView | undefined;
   public readonly conversations: ConversationService;
   private isBusy = false;
+  /** How each prompt ended, for the webview's message queue. */
+  private readonly promptTurns = new PromptTurnTracker();
   private pendingPrompt: string | undefined;
   /** A title-bar action that arrived before the webview had mounted;
    *  sent once the webview asks for state (it is listening by then). */
@@ -343,7 +347,13 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
    *  setBusy/setStatusMessage. */
   private readonly convMessageDeps: ConversationMessageDeps = {
     cancelActiveStream: () => this.cancelActiveStream(),
-    resetBusyImmediate: () => { this.isBusy = false; this.statusText = 'Ready'; },
+    resetBusyImmediate: () => {
+      // The conversation changed under a running turn: it is cancelled,
+      // and nothing queued behind it should run in the new conversation.
+      if (this.isBusy) {this.promptTurns.noteCancelled();}
+      this.isBusy = false;
+      this.statusText = 'Ready';
+    },
     setHistoryVisibleImmediate: (value) => { this.historyVisible = value; },
     isHistoryVisible: () => this.historyVisible,
     // The setter for `currentConversationId` mutates the ConversationService
@@ -811,6 +821,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     // event; the chat-stream branch calls cancelActiveStream(). Both
     // reset busy state.
     if (message.type === 'cancelResponse') {
+      this.promptTurns.noteCancelled();
       if (this.activeMode === 'agent') {
         this.agentRuntime.cancel();
         await environmentService.postToWebview({ type: 'agent:log', entry: { message: 'Cancellation requested…', level: 'warn' } });
@@ -828,7 +839,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         message.images,
         message.mode ?? 'ask',
         message.files,
-        message.autoContext
+        message.autoContext,
+        typeof message.turnId === 'string' && message.turnId ? message.turnId : undefined
       );
       return;
     }
@@ -862,7 +874,36 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     this.postMessage({ type: 'workspaceFileSuggestions', entries });
   }
 
+  /**
+   * Runs one prompt and tells the webview how it ended (`promptSettled`),
+   * which its message queue uses to decide whether to send the next queued
+   * message. See services/promptTurnTracker.ts.
+   */
   private async handlePrompt(
+    rawText: string,
+    images: string[] | undefined,
+    mode: 'ask' | 'agent',
+    files?: string[],
+    autoContext?: boolean,
+    turnId?: string
+  ): Promise<void> {
+    const turn = this.promptTurns.begin(turnId);
+    let threw = false;
+    try {
+      await this.runPrompt(rawText, images, mode, files, autoContext);
+    } catch (error) {
+      threw = true;
+      throw error;
+    } finally {
+      const settled = this.promptTurns.settle(turn, threw);
+      if (settled.turnId) {
+        this.postMessage({ type: 'promptSettled', turnId: settled.turnId, outcome: settled.outcome });
+        void this.syncState();
+      }
+    }
+  }
+
+  private async runPrompt(
     rawText: string,
     images: string[] | undefined,
     mode: 'ask' | 'agent',
@@ -3492,6 +3533,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   }
 
   public async setBusy(value: boolean, message?: string): Promise<void> {
+    if (value) {this.promptTurns.noteBusy();}
     this.isBusy = value;
     if (typeof message === 'string') {
       this.statusText = message;
@@ -3649,6 +3691,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       hasStoredApiKey,
       requiresApiKey,
       isBusy: this.isBusy,
+      activeTurnId: this.promptTurns.activeTurnId,
+      lastSettledTurn: this.promptTurns.lastSettledTurn,
       presetPrompt: this.pendingPrompt,
       statusText: this.statusText,
       provider: providerKind,
@@ -3743,6 +3787,9 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   }
 
   public postMessage(message: OutgoingMessage): void {
+    // An error the user sees ends the turn without finishing it; the
+    // webview's queue must not send the next message into the same error.
+    if (message.type === 'error' || message.type === 'rateLimited') {this.promptTurns.noteFailed();}
     this.view?.webview.postMessage(message);
   }
 

@@ -62,6 +62,8 @@ import {
 } from "./state/planSync";
 import { buildTelemetryMetadata } from "./state/telemetry";
 import { useApprovalQueue } from "./hooks/useApprovalQueue";
+import { usePromptQueue, type PromptReturnReason, type QueuedPrompt } from "./hooks/usePromptQueue";
+import { patchSavedState, readSavedState } from "./state/savedState";
 import { useAskUserRequest } from "./hooks/useAskUserRequest";
 import { useAudioPlayback } from "./hooks/useAudioPlayback";
 import { useBackgroundTaskPolling } from "./hooks/useBackgroundTaskPolling";
@@ -98,6 +100,7 @@ import {
   useBanditTheme,
   REMOTE_CONTENT_TAGS,
   disableRemoteImages,
+  draftWithQueued,
   type ThemePreference
 } from "@burtson-labs/agent-ui";
 import clsx from "clsx";
@@ -118,6 +121,13 @@ interface ContextFileAttachment {
 }
 
 const CONTEXT_FILE_LIMIT = 5;
+
+/** True while the composer's textarea has the keyboard focus. */
+function composerHasFocus(): boolean {
+  if (typeof document === "undefined") {return false;}
+  const active = document.activeElement;
+  return Boolean(active && active.classList.contains("composer-textarea"));
+}
 const MAX_IMAGE_ATTACHMENTS = 4;
 const CHAT_RENDER_WINDOW_SIZE = 80;
 
@@ -1637,9 +1647,14 @@ export function App(): JSX.Element {
     lastBusyRef.current = busy;
   }, [busy, mode, clearLiveDiffEntries]);
 
+  // Read through a ref: with composerValue as a dependency, every keystroke
+  // re-created this handler, which re-ran the message-listener effect below
+  // and posted a fresh requestState (a full host state sync) per keystroke.
+  const composerValueRef = useRef(composerValue);
+  composerValueRef.current = composerValue;
   const handleStateMessage = useCallback((state: WebviewState) => {
     applyConversationStateSnapshot(state);
-    if (state.presetPrompt && state.presetPrompt !== composerValue && !state.isBusy) {
+    if (state.presetPrompt && state.presetPrompt !== composerValueRef.current && !state.isBusy) {
       setComposerValue(state.presetPrompt);
     }
     applyAccountSnapshot(state, {
@@ -1681,7 +1696,6 @@ export function App(): JSX.Element {
     applyMcpSnapshot(state, { setMcpSnapshot });
     applyStateSnapshot(state);
   }, [
-    composerValue,
     applyConversationStateSnapshot,
     setComposerValue,
     applyProviderStateSnapshot,
@@ -1825,27 +1839,63 @@ export function App(): JSX.Element {
     handleDiffPreviewClear
   ]);
 
-  // Local queue of prompts the user typed while the agent was already
-  // running. Drained one-at-a-time as the agent goes idle (busy → false).
-  // The extension never sees these until they're dispatched — the
-  // host-side cancel path can drop them by clearing this array, which
-  // is what the cancel handler does so a stopped turn doesn't auto-fire
-  // the queued prompts.
-  //
-  // Queue carries the full submission shape (text + images + files +
-  // autoContext): when the user attaches images and then submits while
-  // streaming, the images now travel with the queued message and the
-  // composer clears them as if the message had sent immediately. Each
-  // entry also has a stable `id` so the user can cancel ONE queued
-  // message via the ✕ on its pill without dropping the rest.
-  type QueuedPrompt = {
-    id: string;
-    text: string;
-    images: string[];
-    files: string[];
-    autoContext: boolean;
-  };
-  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+  // Prompts typed while the agent works queue and run in order, one turn
+  // at a time (usePromptQueue → agent-ui's useMessageQueue, the same rules
+  // as the CLI and the desktop IDE). Each carries its own attachments and
+  // autoContext snapshot. Stop, or a turn that does not finish, puts what
+  // was queued back in the composer, unsent; the queue is saved across a
+  // reload of the view.
+  const returnQueuedToComposer = useCallback(
+    (back: QueuedPrompt[], why: PromptReturnReason) => {
+      if (back.length === 0) {return;}
+      setComposerValue((current) => draftWithQueued(current, back));
+      const backImages = back.flatMap((item) => item.images);
+      if (backImages.length > 0) {
+        setImageAttachments((prev) => [...prev, ...backImages].slice(0, MAX_IMAGE_ATTACHMENTS));
+      }
+      const backFiles = back.flatMap((item) => item.files);
+      if (backFiles.length > 0) {
+        setContextFiles((prev) => {
+          const known = new Set(prev.map((file) => file.path));
+          const added = backFiles.filter((path) => !known.has(path)).map((path) => ({ path }));
+          return [...prev, ...added].slice(0, CONTEXT_FILE_LIMIT);
+        });
+      }
+      if (why === "edit") {return;}
+      const what =
+        back.length === 1
+          ? "Your queued message is back in the composer"
+          : `Your ${back.length} queued messages are back in the composer`;
+      const detail =
+        why === "failed"
+          ? "the turn before it did not finish, so the queue stopped. Nothing else was sent."
+          : why === "reloaded"
+            ? "the turn it was waiting on did not survive a reload. Nothing else was sent."
+            : "stopped. Nothing else was sent.";
+      updateToast(`${what}: ${detail}`);
+    },
+    [setComposerValue, updateToast]
+  );
+  const promptQueue = usePromptQueue({ busy, onReturn: returnQueuedToComposer });
+
+  // The composer draft survives a reload of the view too (it reloads
+  // whenever it is hidden), so a message — or queued messages handed back
+  // to the composer — is never lost to switching sidebar views.
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    if (draftRestoredRef.current) {return;}
+    draftRestoredRef.current = true;
+    const saved = readSavedState().composerDraft;
+    if (typeof saved === "string" && saved.trim()) {
+      setComposerValue((current) => (current.trim() ? current : saved));
+    }
+  }, [setComposerValue]);
+  useEffect(() => {
+    if (!draftRestoredRef.current) {return;}
+    const handle = window.setTimeout(() => patchSavedState({ composerDraft: composerValue }), 250);
+    return () => window.clearTimeout(handle);
+  }, [composerValue]);
+
   const handleSendPrompt = useCallback(
     (value: string) => {
       const nextValue = value.trim();
@@ -1910,45 +1960,25 @@ export function App(): JSX.Element {
         setComposerValue("");
         return;
       }
-      // Agent is mid-turn → queue the prompt locally. The host drains
-      // the queue when busy flips to false (see effect below).
-      // Attachments / images / context-files / autoContext travel WITH
-      // the queued message and the composer clears them just like the
-      // immediate-send branch below — without this, attached images
-      // stayed in the composer and never reached the queued send, so
-      // the user had to manually re-attach or send each in isolation.
-      if (busy) {
-        const queuedFiles = contextFiles.map((file) => file.path).filter(Boolean);
-        const queuedImages = imageAttachments.filter((image) => image.length > 0);
-        const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        setQueuedPrompts((q) => [...q, {
-          id,
-          text: nextValue,
-          images: queuedImages,
-          files: queuedFiles,
-          autoContext: autoContextEnabled,
-        }]);
-        setComposerValue("");
-        setSuggestions([]);
-        setContextFiles([]);
-        setImageAttachments([]);
-        return;
-      }
+      // Sends now, or queues behind the running turn (an open approval or
+      // question card included). Attachments / context files / autoContext
+      // travel WITH the message either way, and the composer clears them.
       const files = contextFiles.map((file) => file.path).filter(Boolean);
       const images = imageAttachments.filter((image) => image.length > 0);
-      vscode.postMessage({
-        type: "sendPrompt",
+      const queued = promptQueue.submit({
         text: nextValue,
-        mode: "agent",
-        files: files.length ? files : undefined,
-        images: images.length ? images : undefined,
+        images,
+        files,
         autoContext: autoContextEnabled
       });
+      if (queued === "queued") {
+        setSuggestions([]);
+      }
       setComposerValue("");
       setContextFiles([]);
       setImageAttachments([]);
     },
-    [busy, contextFiles, imageAttachments, showHistory, autoContextEnabled, requestTraceList, requestTraceDetail]
+    [promptQueue, contextFiles, imageAttachments, showHistory, autoContextEnabled, requestTraceList, requestTraceDetail]
   );
 
   const handleSelectConversation = useCallback((id: string) => {
@@ -2080,41 +2110,10 @@ export function App(): JSX.Element {
     setImageAttachments((prev) => prev.filter((_, idx) => idx !== index));
   }, []);
 
-  const handleCancelResponse = useCallback(() => {
-    // Drop anything the user lined up behind the cancelled turn —
-    // they're stopping the active flow because the direction is wrong,
-    // queued follow-ups based on that flow are almost certainly stale
-    // too. Mirrors the CLI's Esc-clears-queue behavior.
-    setQueuedPrompts([]);
-    vscode.postMessage({ type: "cancelResponse" });
-  }, []);
-
-  // Drain the local queue when the agent goes idle. Pulls one prompt
-  // at a time so each lands as a real "send a new prompt" round-trip
-  // (no protocol changes needed in the extension). Wired off `busy`
-  // because the extension toggles that flag at end-of-turn — same
-  // signal the composer's Stop button watches.
-  //
-  // Each entry carries its own attachments + autoContext snapshot so
-  // the queued send matches what the user composed when they hit
-  // Enter, not the composer's current state at drain time.
-  useEffect(() => {
-    if (busy || queuedPrompts.length === 0) {return;}
-    const [next, ...rest] = queuedPrompts;
-    setQueuedPrompts(rest);
-    vscode.postMessage({
-      type: "sendPrompt",
-      text: next.text,
-      mode: "agent",
-      files: next.files.length ? next.files : undefined,
-      images: next.images.length ? next.images : undefined,
-      autoContext: next.autoContext,
-    });
-  }, [busy, queuedPrompts]);
-
-  const handleCancelQueuedPrompt = useCallback((id: string) => {
-    setQueuedPrompts((q) => q.filter((p) => p.id !== id));
-  }, []);
+  // Stop cancels the turn and puts anything queued behind it back in the
+  // composer, unsent: the user is stopping because the direction is wrong,
+  // so nothing they lined up runs on its own — and nothing is lost.
+  const handleCancelResponse = promptQueue.stop;
 
   const handlePasteImages = useCallback(
     (files: File[]) => {
@@ -2718,6 +2717,10 @@ export function App(): JSX.Element {
                         key={approvalQueue[0].id}
                         payload={approvalQueue[0]}
                         onChoice={handleApprovalChoice}
+                        // Someone typing in the composer keeps the focus:
+                        // the card's 1-4 shortcuts must not catch the
+                        // next keystroke of a message.
+                        autoFocus={!composerHasFocus()}
                       />
                     </div>
                   )}
@@ -2736,14 +2739,11 @@ export function App(): JSX.Element {
                     onCancel={cancelBackgroundTask}
                     onDismiss={dismissBackgroundTask}
                   />
-                  {/* When a permission card is showing, hide the composer
-                      so the card has the panel's full attention — same
-                      pattern Claude Code uses. The card itself owns a
-                      "Tell Bandit what to do instead" textarea for denial
-                      notes, so users don't lose the ability to type a
-                      reason. The composer's draft (`composerValue`) lives
-                      in React state so unmounting the input doesn't drop
-                      what the user was typing — it comes back on resolve. */}
+                  {/* The composer stays up while a permission or question
+                      card is open: a message typed there queues behind the
+                      turn without answering the card (the card keeps its
+                      own "Tell Bandit what to do instead" notes field for
+                      a denial reason). */}
                   {/* Next-prompt prediction: clickable chips that FILL the
                       composer (never auto-send). Hidden while streaming and
                       when a permission/ask card is up. */}
@@ -2763,7 +2763,6 @@ export function App(): JSX.Element {
                       ))}
                     </div>
                   )}
-                  {approvalQueue.length === 0 && !askUserRequest && (
                   <Composer
                     composerValue={composerValue}
                     setComposerValue={setComposerValue}
@@ -2779,8 +2778,9 @@ export function App(): JSX.Element {
                     onRemoveImage={handleRemoveImageAttachment}
                     autoContextEnabled={autoContextEnabled}
                     onToggleAutoContext={handleToggleAutoContext}
-                    queuedPrompts={queuedPrompts}
-                    onCancelQueuedPrompt={handleCancelQueuedPrompt}
+                    queuedPrompts={promptQueue.items}
+                    onCancelQueuedPrompt={promptQueue.remove}
+                    onEditQueuedPrompt={promptQueue.edit}
                     slashCommands={EXTENSION_SLASH_COMMANDS}
                     mentionSuggestions={mentionSuggestions}
                     onFileMentionQuery={handleFileMentionQuery}
@@ -2799,7 +2799,6 @@ export function App(): JSX.Element {
                     onEditModel={handleEditModel}
                     onEditOllamaUrl={handleEditOllamaUrl}
                   />
-                  )}
                 </div>
               </section>
             )

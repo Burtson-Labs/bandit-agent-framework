@@ -98,6 +98,11 @@ export interface WebviewState {
   hasStoredApiKey: boolean;
   requiresApiKey: boolean;
   isBusy: boolean;
+  /** The webview-sent prompt still running (its `sendPrompt.turnId`). With
+   *  `lastSettledTurn`, lets a reloaded webview pick its message queue back
+   *  up: wait for the turn it sent, or act on how it ended. */
+  activeTurnId?: string | null;
+  lastSettledTurn?: { turnId?: string; outcome: 'done' | 'cancelled' | 'failed' | 'refused' } | null;
   presetPrompt?: string;
   statusText?: string;
   provider: ProviderKind;

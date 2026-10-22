@@ -34,6 +34,8 @@ export interface ComposerProps {
   // Queue (prompts queued while busy):
   queuedPrompts: ComposerQueuedPrompt[];
   onCancelQueuedPrompt: (id: string) => void;
+  /** Takes a queued prompt back into the composer to edit. */
+  onEditQueuedPrompt?: (id: string) => void;
   // Slash commands + mention picker:
   slashCommands: Array<{ name: string; description?: string }>;
   mentionSuggestions: Array<{ path: string; isDir: boolean }>;
@@ -81,6 +83,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     onToggleAutoContext,
     queuedPrompts,
     onCancelQueuedPrompt,
+    onEditQueuedPrompt,
     slashCommands,
     mentionSuggestions,
     onFileMentionQuery,
@@ -117,6 +120,7 @@ export function Composer(props: ComposerProps): JSX.Element {
         fileCount: q.files.length || undefined
       }))}
       onCancelQueued={onCancelQueuedPrompt}
+      onEditQueued={onEditQueuedPrompt}
       disabled={composerDisabled}
       contextFiles={contextFiles}
       onRemoveContextFile={onRemoveContextFile}
