@@ -167,3 +167,42 @@ describe('failure behavior', () => {
     }
   });
 });
+
+describe('tools that contact another host are never read-only', () => {
+  const assess = (name: string, params: Record<string, string> = {}) => classifyRisk({ name, params }, ctx);
+
+  it('fetch_image is a network read like web_fetch, not an MCP read', () => {
+    // Its name used to match the MCP read regex (fetch*), which made it
+    // routine + read-only: unattended in auto mode, allowed in plan mode.
+    const r = assess('fetch_image', { url: 'http://127.0.0.1/probe.png?leak=x' });
+    expect(r.rule).toBe('network-read');
+    expect(r.tier).toBe('elevated');
+    expect(r.readOnly).toBeFalsy();
+  });
+
+  it('git remote tools and cloud publishing are elevated and not read-only', () => {
+    for (const name of ['git_push', 'git_pull', 'publish_artifact', 'share_artifact', 'email_artifact', 'update_artifact', 'generate_image', 'web_search']) {
+      const r = assess(name);
+      expect(r.tier, name).toBe('elevated');
+      expect(r.readOnly, name).toBeFalsy();
+    }
+  });
+
+  it('cloud artifact reads stay routine for auto mode but are not read-only', () => {
+    for (const name of ['list_artifacts', 'get_artifact']) {
+      const r = assess(name);
+      expect(r.tier, name).toBe('routine');
+      expect(r.readOnly, name).toBeFalsy();
+    }
+  });
+
+  it('MCP read-named tools are read-only only for a server declared local', async () => {
+    const { setMcpServerLocal } = await import('../src/permissions');
+    expect(assess('webby.fetch_url').readOnly).toBeFalsy();
+    expect(assess('gmail.getMessage').readOnly).toBeFalsy();
+    expect(assess('gmail.getMessage').tier).toBe('routine');
+    setMcpServerLocal('notes', true);
+    expect(assess('notes.getNote').readOnly).toBe(true);
+    setMcpServerLocal('notes', false);
+  });
+});

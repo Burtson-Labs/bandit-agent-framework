@@ -60,6 +60,8 @@ export interface TransportResponse {
   /** Lower-cased header names (Node's IncomingHttpHeaders shape). */
   headers: Record<string, string | string[] | undefined>;
   body: string;
+  /** Bytes received before decoding (binary bodies do not survive `body`). */
+  bytes?: number;
 }
 
 /**
@@ -357,7 +359,8 @@ export const pinnedHttpTransport: PinnedTransport = (url, pinned, opts) => {
           status: res.statusCode ?? 0,
           statusText: res.statusMessage ?? '',
           headers: res.headers,
-          body: Buffer.concat(chunks).toString('utf-8')
+          body: Buffer.concat(chunks).toString('utf-8'),
+          bytes: received
         });
       };
       stream.on('data', (chunk: Buffer) => {
@@ -411,32 +414,34 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
+export type GuardedGetResult =
+  | { ok: true; response: TransportResponse; url: URL }
+  | { ok: false; output: string };
+
 /**
- * The full guarded fetch: parse → vet → pinned connect, with manual
- * redirect handling where every hop re-runs the whole guard. Returns the
- * tool-shaped { output, isError } — output format is identical to the
- * pre-hardening tool (HTTP status header line, 16 KB trim, HTML strip).
+ * The guarded GET shared by `web_fetch` and `fetch_image`: parse → vet →
+ * pinned connect, with manual redirect handling where every hop re-runs the
+ * whole guard. Returns the final response, or a tool-shaped error string.
  */
-export async function runGuardedWebFetch(
+export async function guardedGet(
   rawUrl: string,
-  options: GuardedFetchOptions = {}
-): Promise<{ output: string; isError: boolean }> {
+  options: GuardedFetchOptions & { headers?: Record<string, string> } = {}
+): Promise<GuardedGetResult> {
   let url: URL;
   try {
     url = new URL(rawUrl);
   } catch {
-    return { output: `Invalid URL: ${rawUrl}`, isError: true };
+    return { ok: false, output: `Invalid URL: ${rawUrl}` };
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { output: `Unsupported protocol: ${url.protocol}`, isError: true };
+    return { ok: false, output: `Unsupported protocol: ${url.protocol}` };
   }
 
   const allowPrivate = options.allowPrivate === true;
   const transport = options.transport ?? pinnedHttpTransport;
   const maxRedirects = options.maxRedirects ?? MAX_REDIRECTS;
   const deadlineAt = Date.now() + (options.timeoutMs ?? FETCH_TIMEOUT_MS);
-  const originalHost = url.host;
-  const headers = {
+  const headers = options.headers ?? {
     'User-Agent': 'bandit-cli/0.1',
     Accept: 'text/html,text/plain,application/json;q=0.9,*/*;q=0.5',
     'Accept-Encoding': 'gzip, deflate, br'
@@ -448,48 +453,69 @@ export async function runGuardedWebFetch(
     // downgrade to file:/data:/etc.), then resolution + private checks.
     if (current.protocol !== 'http:' && current.protocol !== 'https:') {
       return {
-        output: `Blocked: redirect to unsupported protocol ${current.protocol} — only http/https targets are allowed.`,
-        isError: true
+        ok: false,
+        output: `Blocked: redirect to unsupported protocol ${current.protocol} — only http/https targets are allowed.`
       };
     }
     const vet = await vetHost(current.hostname, { allowPrivate, lookup: options.lookup });
     if (vet.kind === 'blocked') {
       const subject = redirects === 0 ? `Blocked: ${current.hostname}` : `Blocked: redirect to ${current.hostname}`;
-      return { output: `${subject} ${vet.detail}. ${ENV_HINT}`, isError: true };
+      return { ok: false, output: `${subject} ${vet.detail}. ${ENV_HINT}` };
     }
     if (vet.kind === 'unresolvable') {
-      return { output: `Fetch failed: ${vet.message}`, isError: true };
+      return { ok: false, output: `Fetch failed: ${vet.message}` };
     }
 
     let res: TransportResponse;
     try {
       res = await transport(current, vet.pinned, { headers, deadlineAt });
     } catch (err) {
-      return { output: `Fetch failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+      return { ok: false, output: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` };
     }
 
     const location = headerValue(res.headers, 'location');
     if (REDIRECT_STATUSES.has(res.status) && location) {
       if (redirects >= maxRedirects) {
-        return { output: `Fetch failed: too many redirects (limit ${maxRedirects}) — last hop ${current.host}`, isError: true };
+        return { ok: false, output: `Fetch failed: too many redirects (limit ${maxRedirects}) — last hop ${current.host}` };
       }
       let next: URL;
       try {
         next = new URL(location, current);
       } catch {
-        return { output: `Fetch failed: invalid redirect location "${location}" from ${current.host}`, isError: true };
+        return { ok: false, output: `Fetch failed: invalid redirect location "${location}" from ${current.host}` };
       }
       current = next;
       continue;
     }
-
-    const ct = headerValue(res.headers, 'content-type') ?? '';
-    const ok = res.status >= 200 && res.status < 300;
-    const body = ct.includes('html') ? stripHtml(res.body) : res.body;
-    const trimmed = body.length > 16 * 1024 ? body.slice(0, 16 * 1024) + '\n… (truncated)' : body;
-    return {
-      output: `HTTP ${res.status} ${res.statusText} • ${originalHost}\nContent-Type: ${ct || '(unknown)'}\n\n${trimmed}`,
-      isError: !ok
-    };
+    return { ok: true, response: res, url: current };
   }
+}
+
+/** Response header lookup, tolerant of array values (exported for tools). */
+export function responseHeader(headers: TransportResponse['headers'], name: string): string | undefined {
+  return headerValue(headers, name);
+}
+
+/**
+ * The full guarded fetch: parse → vet → pinned connect, with manual
+ * redirect handling where every hop re-runs the whole guard. Returns the
+ * tool-shaped { output, isError } — output format is identical to the
+ * pre-hardening tool (HTTP status header line, 16 KB trim, HTML strip).
+ */
+export async function runGuardedWebFetch(
+  rawUrl: string,
+  options: GuardedFetchOptions = {}
+): Promise<{ output: string; isError: boolean }> {
+  const got = await guardedGet(rawUrl, options);
+  if (!got.ok) return { output: got.output, isError: true };
+  const res = got.response;
+  const originalHost = new URL(rawUrl).host;
+  const ct = headerValue(res.headers, 'content-type') ?? '';
+  const ok = res.status >= 200 && res.status < 300;
+  const body = ct.includes('html') ? stripHtml(res.body) : res.body;
+  const trimmed = body.length > 16 * 1024 ? body.slice(0, 16 * 1024) + '\n… (truncated)' : body;
+  return {
+    output: `HTTP ${res.status} ${res.statusText} • ${originalHost}\nContent-Type: ${ct || '(unknown)'}\n\n${trimmed}`,
+    isError: !ok
+  };
 }

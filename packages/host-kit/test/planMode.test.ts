@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { classifyRisk } from '../src/riskTiers';
+import { setMcpServerLocal } from '../src/permissions';
 import {
   decidePermission,
   shouldAutoApprove,
@@ -40,9 +41,54 @@ describe('plan mode — reads and read-only shell are allowed', () => {
     }
   });
 
-  it('allows read-only MCP calls (getX / listX / searchX)', () => {
-    expect(plan('gmail.listMessages').action).toBe('allow');
-    expect(plan('drive.searchFiles').action).toBe('allow');
+  it('allows read-named MCP calls only from a server declared local', () => {
+    expect(plan('gmail.listMessages').action).toBe('deny');
+    expect(plan('drive.searchFiles').action).toBe('deny');
+    setMcpServerLocal('notes', true);
+    expect(plan('notes.listNotes').action).toBe('allow');
+    setMcpServerLocal('notes', false);
+  });
+});
+
+describe('plan mode — tools that contact another host are DENIED', () => {
+  it('denies web, image, git remote and artifact tools', () => {
+    for (const name of ['web_fetch', 'web_search', 'fetch_image', 'git_push', 'git_pull', 'publish_artifact', 'share_artifact', 'email_artifact', 'list_artifacts', 'get_artifact']) {
+      expect(plan(name, { url: 'https://example.com/?leak=x' }).action, name).toBe('deny');
+      // Even with an allow rule: plan mode is the read-only ceiling.
+      expect(plan(name, { url: 'https://example.com/' }, 'allow').action, name).toBe('deny');
+    }
+  });
+
+  it('denies MCP fetch_*/get_* tools from servers not declared local', () => {
+    expect(plan('webby.fetch_url', { url: 'https://example.com' }).action).toBe('deny');
+    expect(plan('webby.get_page').action).toBe('deny');
+  });
+});
+
+describe('ask and auto modes — network tools', () => {
+  const ask = (name: string, policy: 'allow' | 'ask' = 'ask') =>
+    decidePermission({ mode: 'ask', risk: risk(name, { url: 'https://example.com' }), policyDecision: policy });
+  const auto = (name: string, policy: 'allow' | 'ask' = 'ask') =>
+    decidePermission({ mode: 'auto', risk: risk(name, { url: 'https://example.com' }), policyDecision: policy });
+
+  it('ask mode asks unless a rule allows', () => {
+    for (const name of ['web_fetch', 'fetch_image', 'git_push', 'publish_artifact']) {
+      expect(ask(name).action, name).toBe('ask');
+      expect(ask(name, 'allow').action, name).toBe('allow');
+    }
+  });
+
+  it('auto mode asks for elevated network tools and still honours an allow rule', () => {
+    for (const name of ['web_fetch', 'web_search', 'fetch_image', 'git_push', 'git_pull', 'publish_artifact', 'share_artifact', 'email_artifact']) {
+      expect(auto(name).action, name).toBe('ask');
+      expect(auto(name, 'allow').action, name).toBe('allow');
+    }
+  });
+
+  it('dangerous mode still runs everything', () => {
+    for (const name of ['web_fetch', 'fetch_image', 'git_push', 'publish_artifact']) {
+      expect(decidePermission({ mode: 'dangerous', risk: risk(name), policyDecision: 'ask' }).action, name).toBe('allow');
+    }
   });
 });
 

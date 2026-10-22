@@ -63,29 +63,93 @@ describe('inlineHtmlImages', () => {
 });
 
 describe('buildFetchImageTool', () => {
+  const publicLookup = async () => [{ address: '93.184.216.34', family: 4 }];
+  type Reply = { status: number; type?: string; bytes?: number; location?: string };
+  const transportFrom = (reply: (url: URL) => Reply, seen: string[] = []) =>
+    (async (url: URL, pinned: { address: string }) => {
+      seen.push(`${url.href}@${pinned.address}`);
+      const r = reply(url);
+      const headers: Record<string, string> = {};
+      if (r.type) headers['content-type'] = r.type;
+      if (r.location) headers.location = r.location;
+      return { status: r.status, statusText: '', headers, body: '', bytes: r.bytes ?? 0 };
+    });
+
   it('reports a usable image', async () => {
-    const fetchImpl = (async () => imageResponse(pngBytes)) as unknown as typeof fetch;
-    const res = await buildFetchImageTool({ fetchImpl }).execute({ url: 'https://x/a.png' }, {} as never);
-    expect(res.output).toMatch(/Usable/);
+    const res = await buildFetchImageTool({ lookup: publicLookup, transport: transportFrom(() => ({ status: 200, type: 'image/png', bytes: pngBytes.length })) })
+      .execute({ url: 'https://x.example/a.png' }, {} as never);
+    expect(res.output).toMatch(/Usable: image\/png, 12 B/);
   });
 
   it('rejects a non-image', async () => {
-    const fetchImpl = (async () => ({ ok: true, status: 200, headers: { get: () => 'text/html' }, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response)) as unknown as typeof fetch;
-    const res = await buildFetchImageTool({ fetchImpl }).execute({ url: 'https://x/p.html' }, {} as never);
+    const res = await buildFetchImageTool({ lookup: publicLookup, transport: transportFrom(() => ({ status: 200, type: 'text/html' })) })
+      .execute({ url: 'https://x.example/p.html' }, {} as never);
     expect(res.output).toMatch(/Not an image/);
   });
 
   it('rejects an http error', async () => {
-    const fetchImpl = (async () => ({ ok: false, status: 404, headers: { get: () => null }, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response)) as unknown as typeof fetch;
-    const res = await buildFetchImageTool({ fetchImpl }).execute({ url: 'https://x/missing.png' }, {} as never);
+    const res = await buildFetchImageTool({ lookup: publicLookup, transport: transportFrom(() => ({ status: 404 })) })
+      .execute({ url: 'https://x.example/missing.png' }, {} as never);
     expect(res.output).toMatch(/Not usable|HTTP 404/);
   });
 
   it('errors on a missing url with no network', async () => {
+    const seen: string[] = [];
+    const res = await buildFetchImageTool({ lookup: publicLookup, transport: transportFrom(() => ({ status: 200 }), seen) }).execute({}, {} as never);
+    expect(res.isError).toBe(true);
+    expect(seen).toEqual([]);
+  });
+
+  it('refuses loopback, LAN and link-local targets without connecting', async () => {
+    for (const url of [
+      'http://127.0.0.1:11555/probe.png?leak=SECRET',
+      'http://localhost/a.png',
+      'http://192.168.1.10/a.png',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://[::1]/a.png'
+    ]) {
+      const seen: string[] = [];
+      const res = await buildFetchImageTool({ allowPrivate: false, lookup: publicLookup, transport: transportFrom(() => ({ status: 200, type: 'image/png' }), seen) })
+        .execute({ url }, {} as never);
+      expect(res.output, url).toMatch(/Blocked/);
+      expect(seen, url).toEqual([]);
+    }
+  });
+
+  it('refuses a public name that resolves to a private address', async () => {
+    const seen: string[] = [];
+    const res = await buildFetchImageTool({
+      allowPrivate: false,
+      lookup: async () => [{ address: '10.0.0.5', family: 4 }],
+      transport: transportFrom(() => ({ status: 200, type: 'image/png' }), seen)
+    }).execute({ url: 'https://rebind.example/a.png' }, {} as never);
+    expect(res.output).toMatch(/Blocked/);
+    expect(seen).toEqual([]);
+  });
+
+  it('re-checks every redirect hop', async () => {
+    const seen: string[] = [];
+    const res = await buildFetchImageTool({
+      allowPrivate: false,
+      lookup: publicLookup,
+      transport: transportFrom(() => ({ status: 302, location: 'http://127.0.0.1/a.png' }), seen)
+    }).execute({ url: 'https://x.example/a.png' }, {} as never);
+    expect(res.output).toMatch(/Blocked: redirect to 127\.0\.0\.1/);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('connects to the vetted address', async () => {
+    const seen: string[] = [];
+    await buildFetchImageTool({ lookup: publicLookup, transport: transportFrom(() => ({ status: 200, type: 'image/png' }), seen) })
+      .execute({ url: 'https://x.example/a.png' }, {} as never);
+    expect(seen).toEqual(['https://x.example/a.png@93.184.216.34']);
+  });
+
+  it('still vets the host when a fetchImpl test seam is passed', async () => {
     let called = false;
     const fetchImpl = (async () => { called = true; return imageResponse(pngBytes); }) as unknown as typeof fetch;
-    const res = await buildFetchImageTool({ fetchImpl }).execute({}, {} as never);
-    expect(res.isError).toBe(true);
+    const res = await buildFetchImageTool({ allowPrivate: false, fetchImpl }).execute({ url: 'http://127.0.0.1/a.png' }, {} as never);
+    expect(res.output).toMatch(/Blocked/);
     expect(called).toBe(false);
   });
 });

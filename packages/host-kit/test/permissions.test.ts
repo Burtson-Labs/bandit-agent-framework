@@ -11,7 +11,15 @@
  * stop an inbox-archiving spree before it ran.
  */
 import { describe, expect, it } from 'vitest';
-import { emptyPolicy, evaluatePermission } from '../src/permissions';
+import { afterEach } from 'vitest';
+import {
+  emptyPolicy,
+  evaluatePermission,
+  isNetworkTool,
+  isKnownLocalMcpTool,
+  mcpServerOf,
+  setMcpServerLocal
+} from '../src/permissions';
 
 describe('evaluatePermission default behavior', () => {
   it('allows read-only in-tree tools by default', () => {
@@ -50,14 +58,23 @@ describe('evaluatePermission — MCP mutating-name gate', () => {
     expect(evaluatePermission('burtson-labs.batchWrite', '', emptyPolicy())).toBe('ask');
   });
 
-  it('allows MCP read-only browse tools by default', () => {
-    expect(evaluatePermission('burtson-labs.listMessages', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.listLabels', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.listFilters', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.getMessage', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.getDraft', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.searchDriveFiles', '', emptyPolicy())).toBe('allow');
-    expect(evaluatePermission('burtson-labs.readGoogleDoc', '', emptyPolicy())).toBe('allow');
+  it('asks for read-named MCP tools from a server not declared local', () => {
+    // Bandit cannot see what a server does with a call: a get/fetch tool can
+    // send its arguments anywhere (2026-10-21 egress audit).
+    expect(evaluatePermission('burtson-labs.listMessages', '', emptyPolicy())).toBe('ask');
+    expect(evaluatePermission('burtson-labs.getMessage', '', emptyPolicy())).toBe('ask');
+    expect(evaluatePermission('burtson-labs.searchDriveFiles', '', emptyPolicy())).toBe('ask');
+    expect(evaluatePermission('webby.fetch_url', '', emptyPolicy())).toBe('ask');
+  });
+
+  it('allows read-named MCP tools from a server declared local', () => {
+    setMcpServerLocal('notes', true);
+    expect(evaluatePermission('notes.listNotes', '', emptyPolicy())).toBe('allow');
+    expect(evaluatePermission('notes.readNote', '', emptyPolicy())).toBe('allow');
+    // A local server's mutating tools still ask.
+    expect(evaluatePermission('notes.createNote', '', emptyPolicy())).toBe('ask');
+    setMcpServerLocal('notes', false);
+    expect(evaluatePermission('notes.listNotes', '', emptyPolicy())).toBe('ask');
   });
 
   it('honors explicit allow in policy over the mutating-name default', () => {
@@ -72,6 +89,57 @@ describe('evaluatePermission — MCP mutating-name gate', () => {
 
   it('handles mcp__server__tool naming convention too', () => {
     expect(evaluatePermission('mcp__burtson-labs__createFilter', '', emptyPolicy())).toBe('ask');
+    expect(evaluatePermission('mcp__burtson-labs__listMessages', '', emptyPolicy())).toBe('ask');
+    setMcpServerLocal('burtson-labs', true);
     expect(evaluatePermission('mcp__burtson-labs__listMessages', '', emptyPolicy())).toBe('allow');
+    setMcpServerLocal('burtson-labs', false);
+  });
+});
+
+describe('evaluatePermission — network tools ask by default', () => {
+  afterEach(() => setMcpServerLocal('local-srv', false));
+
+  const NETWORK = [
+    'web_fetch', 'web_search', 'fetch_image',
+    'git_push', 'git_pull',
+    'publish_artifact', 'share_artifact', 'email_artifact',
+    'update_artifact', 'delete_artifact', 'restore_artifact', 'list_artifacts', 'get_artifact',
+    'generate_image'
+  ];
+
+  it('asks for every built-in tool that contacts another host', () => {
+    for (const tool of NETWORK) {
+      expect(evaluatePermission(tool, 'https://example.com/?leak=x', emptyPolicy()), tool).toBe('ask');
+      expect(isNetworkTool(tool), tool).toBe(true);
+    }
+  });
+
+  it('keeps local tools allowed', () => {
+    for (const tool of ['read_file', 'list_files', 'search_code', 'git_status', 'git_diff', 'git_log', 'todo_write']) {
+      expect(evaluatePermission(tool, '', emptyPolicy()), tool).toBe('allow');
+      expect(isNetworkTool(tool), tool).toBe(false);
+    }
+  });
+
+  it('explicit allow rules still work, including URL-scoped ones', () => {
+    expect(evaluatePermission('web_fetch', 'https://docs.example.com/a', { ...emptyPolicy(), allow: ['web_fetch'] })).toBe('allow');
+    const scoped = { ...emptyPolicy(), allow: ['web_fetch:https://docs.example.com/*'] };
+    expect(evaluatePermission('web_fetch', 'https://docs.example.com/a', scoped)).toBe('allow');
+    expect(evaluatePermission('web_fetch', 'https://evil.example/?d=1', scoped)).toBe('ask');
+    expect(evaluatePermission('git_push', '', { ...emptyPolicy(), allow: ['git_push'] })).toBe('allow');
+  });
+
+  it('explicit deny still wins', () => {
+    expect(evaluatePermission('fetch_image', 'https://x/a.png', { ...emptyPolicy(), deny: ['fetch_image'], allow: ['fetch_image'] })).toBe('deny');
+  });
+
+  it('treats MCP tools as network tools unless their server is declared local', () => {
+    expect(mcpServerOf('srv.tool')).toBe('srv');
+    expect(mcpServerOf('mcp__srv__tool')).toBe('srv');
+    expect(mcpServerOf('read_file')).toBeNull();
+    expect(isNetworkTool('local-srv.listThings')).toBe(true);
+    setMcpServerLocal('local-srv', true);
+    expect(isKnownLocalMcpTool('local-srv.listThings')).toBe(true);
+    expect(isNetworkTool('local-srv.listThings')).toBe(false);
   });
 });

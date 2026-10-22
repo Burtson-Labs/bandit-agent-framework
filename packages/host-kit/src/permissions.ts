@@ -23,7 +23,9 @@
  *
  * Evaluation order: deny > allow > ask > default.
  * Default for dangerous tools (write_file, apply_edit, replace_range, run_command) is 'ask'.
- * Default for read-only tools is 'allow'.
+ * Default for tools that reach the network or publish (NETWORK_TOOLS, and MCP
+ * tools from a server not marked `"local": true`) is 'ask'.
+ * Default for read-only local tools is 'allow'.
  */
 
 export type PermissionDecision = 'allow' | 'ask' | 'deny';
@@ -36,6 +38,79 @@ export interface PermissionPolicy {
 
 /** Tools that mutate state or execute code and therefore require ask-by-default. */
 const DANGEROUS_TOOLS = new Set(['write_file', 'apply_edit', 'replace_range', 'apply_patch', 'run_command']);
+
+/**
+ * Built-in tools that contact another host or publish data, and therefore ask
+ * by default. The model chooses their arguments, so anything it puts in a URL,
+ * a search query or a pushed commit leaves the machine; a prompt injection in a
+ * file or a fetched page could use that. Asking keeps that a user decision.
+ * Explicit allow rules and the auto/dangerous modes still apply as before.
+ *
+ * Captured 2026-10-21 (egress audit): web_fetch, fetch_image, git_push and
+ * publish_artifact all ran without a prompt in the default `ask` mode,
+ * because the evaluator defaulted to 'allow' for anything not in
+ * DANGEROUS_TOOLS.
+ */
+export const NETWORK_TOOLS: ReadonlySet<string> = new Set([
+  'web_fetch',
+  'web_search',
+  'fetch_image',
+  // Git remote operations (agent-core core/git skill).
+  'git_push',
+  'git_pull',
+  'git_fetch',
+  'git_clone',
+  // Bandit Cloud artifacts and image generation.
+  'publish_artifact',
+  'share_artifact',
+  'email_artifact',
+  'update_artifact',
+  'delete_artifact',
+  'restore_artifact',
+  'list_artifacts',
+  'get_artifact',
+  'generate_image'
+]);
+
+/**
+ * MCP servers the user has declared local (`"local": true` on a stdio entry in
+ * mcp-servers.json). Their read-named tools keep running without a prompt;
+ * every other MCP tool asks by default, because Bandit cannot see what a
+ * server does with a call. Populated by loadMcpServersConfig.
+ */
+const localMcpServers = new Set<string>();
+
+/** Record which configured MCP servers are declared local. */
+export function setMcpServerLocal(serverName: string, local: boolean): void {
+  if (local) localMcpServers.add(serverName);
+  else localMcpServers.delete(serverName);
+}
+
+/** Server name of a namespaced MCP tool (`server.tool` / `mcp__server__tool`), or null. */
+export function mcpServerOf(toolName: string): string | null {
+  if (toolName.startsWith('mcp__')) {
+    const parts = toolName.split('__');
+    return parts.length >= 3 && parts[1] ? parts[1] : null;
+  }
+  const dot = toolName.indexOf('.');
+  return dot > 0 ? toolName.slice(0, dot) : null;
+}
+
+/** True for a namespaced MCP tool whose server is declared local. */
+export function isKnownLocalMcpTool(toolName: string): boolean {
+  const server = mcpServerOf(toolName);
+  return server !== null && localMcpServers.has(server);
+}
+
+/**
+ * Does this tool reach the network or publish? Built-in network tools, and
+ * any MCP tool whose server is not declared local. Hosts use this for the
+ * ask-by-default rule, the offline switch and the approval card's wording.
+ */
+export function isNetworkTool(toolName: string): boolean {
+  if (NETWORK_TOOLS.has(toolName)) return true;
+  return mcpServerOf(toolName) !== null && !isKnownLocalMcpTool(toolName);
+}
 
 /**
  * Mutating-tool name patterns used to gate MCP-bridged tools that
@@ -173,6 +248,9 @@ export function evaluatePermission(
   // archives 200 emails or creates a forwarding rule.
   if (DANGEROUS_TOOLS.has(toolName)) return 'ask';
   if (looksMutating(toolName)) return 'ask';
+  // Network-capable tools (web, image, git remote, artifacts) and MCP tools
+  // from servers not declared local ask before they contact anything.
+  if (isNetworkTool(toolName)) return 'ask';
   return 'allow';
 }
 

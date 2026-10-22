@@ -31,6 +31,7 @@
  */
 import * as path from 'path';
 import * as os from 'os';
+import { isKnownLocalMcpTool } from './permissions';
 
 export type RiskTier = 'routine' | 'elevated' | 'critical';
 
@@ -299,8 +300,32 @@ export function classifyRisk(
       return { tier: 'elevated', rule: 'multi-file-patch', why: 'Changes several files at once.' };
     }
 
-    if (name === 'web_fetch' || name === 'web_search') {
-      return { tier: 'elevated', rule: 'network-read', why: 'Fetches external content into the conversation.' };
+    if (name === 'web_fetch' || name === 'web_search' || name === 'fetch_image') {
+      // Not read-only: the request itself carries whatever the model put in
+      // the URL or query to another host. Plan mode blocks it.
+      return { tier: 'elevated', rule: 'network-read', why: 'Contacts another host. Anything in the address or query is sent to it.' };
+    }
+
+    if (name === 'git_push') {
+      return { tier: 'elevated', rule: 'git-remote-write', why: "Sends your commits to the repository's git remote." };
+    }
+
+    if (name === 'git_pull' || name === 'git_fetch' || name === 'git_clone') {
+      return { tier: 'elevated', rule: 'git-remote-read', why: 'Contacts a git remote and changes local repository state.' };
+    }
+
+    if (name === 'publish_artifact' || name === 'share_artifact' || name === 'email_artifact' || name === 'update_artifact') {
+      return { tier: 'elevated', rule: 'cloud-publish', why: 'Uploads to Bandit Cloud or shares a link others can open.' };
+    }
+
+    if (name === 'list_artifacts' || name === 'get_artifact') {
+      // Reads the user's own artifacts from Bandit Cloud. Routine (auto mode
+      // runs it) but not read-only: it is a network call, so plan mode blocks it.
+      return { tier: 'routine', rule: 'cloud-read', why: 'Reads your artifacts from Bandit Cloud.' };
+    }
+
+    if (name === 'generate_image') {
+      return { tier: 'elevated', rule: 'cloud-generate', why: 'Sends the image prompt to Bandit Cloud.' };
     }
 
     if (name === 'task') {
@@ -350,7 +375,13 @@ export function classifyRisk(
       return { tier: 'elevated', rule: 'mcp-mutating', why: 'Changes data in a connected service.' };
     }
     if (/^(list|get|search|read|find|fetch|query|describe)[A-Z_]/.test(bare)) {
-      return { tier: 'routine', rule: 'mcp-read', why: 'Reads from a connected service.', readOnly: true };
+      // The name says "read", but Bandit cannot see what the server does with
+      // the call (a fetch_* tool can send its arguments anywhere). Only a
+      // server the user declared local (`"local": true`) counts as read-only
+      // for plan mode; the tier stays routine so auto mode is unchanged.
+      return isKnownLocalMcpTool(name)
+        ? { tier: 'routine', rule: 'mcp-read', why: 'Reads from a local connected service.', readOnly: true }
+        : { tier: 'routine', rule: 'mcp-read', why: 'Reads from a connected service. Its arguments are sent to that service.' };
     }
 
     return { tier: 'elevated', rule: 'unknown-tool', why: 'Bandit is asking before using this capability.' };
