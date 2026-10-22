@@ -46,7 +46,10 @@ describe('McpClientPool tool-list cache', () => {
 
   it('primeDiscoveryCache is silently dropped when the fingerprint mismatches', async () => {
     const pool = new McpClientPool();
-    pool.register('slack', SLACK_CFG);
+    // A command that fails at once: with the stale cache ignored,
+    // discoverTools really spawns, and `npx -y` would download a server from
+    // npm (seconds on a slow registry; this test timed out in CI that way).
+    pool.register('slack', { ...SLACK_CFG, command: '/nonexistent/bandit-test-mcp-server', args: [] });
 
     // Wrong fingerprint — simulates a stale disk cache after the user
     // rotated SLACK_BOT_TOKEN (env changes the fingerprint).
@@ -54,8 +57,8 @@ describe('McpClientPool tool-list cache', () => {
       { name: 'stale_tool', description: 'should be ignored' }
     ]);
 
-    // discoverTools would now try to spawn (we have no SDK loaded —
-    // expect [] from the error path, NOT the stale cached entry).
+    // discoverTools now tries to spawn, which fails: expect [] from the
+    // error path, NOT the stale cached entry.
     const tools = await pool.discoverTools('slack');
     expect(tools.find((t) => t.name === 'stale_tool')).toBeUndefined();
   });
