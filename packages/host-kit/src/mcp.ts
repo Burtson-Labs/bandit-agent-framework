@@ -15,6 +15,39 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { McpClientPool, McpServerConfig, McpServersFile } from '@burtson-labs/agent-core';
+import { setMcpServerLocal } from './permissions';
+
+/**
+ * Does this server entry ask for the user's Bandit Cloud key?
+ *
+ * Opt-in only (2026-10-21 egress audit): the key used to be copied into the
+ * environment of EVERY stdio server, third-party ones included. Now it goes
+ * only to an entry that says `"auth": "bandit"` (or
+ * `{ "type": "bandit-api-key" }`), and to Burtson Labs' own server
+ * (`@burtson-labs/mcp-server`, which `/mcp google connect` writes as
+ * `burtson-labs`), which authenticates with that key by design.
+ */
+export function mcpServerWantsBanditKey(name: string, cfg: McpServerConfig): boolean {
+  const auth = cfg.auth;
+  if (auth === 'bandit') return true;
+  if (auth && typeof auth === 'object' && auth.type === 'bandit-api-key') return true;
+  if (name === 'burtson-labs') return true;
+  const argv = [cfg.command ?? '', ...(cfg.args ?? [])];
+  return argv.some((a) => typeof a === 'string' && a.includes('@burtson-labs/mcp-server'));
+}
+
+/**
+ * Is this entry declared local? `"local": true` on a stdio entry is the
+ * user's statement that the server does not contact other hosts. Bandit
+ * cannot verify that; it only changes the permission default (its read-named
+ * tools run without a prompt, and count as read-only in plan mode). A URL
+ * entry is never local.
+ */
+export function mcpServerDeclaredLocal(cfg: McpServerConfig): boolean {
+  return (cfg as McpServerConfig & { local?: unknown }).local === true
+    && typeof cfg.command === 'string'
+    && typeof cfg.url !== 'string';
+}
 
 // Resolved lazily (not at module load) so a stubbed/changed HOME is respected —
 // e.g. tests that point HOME at a temp dir, or a process that rewrites HOME.
@@ -23,13 +56,12 @@ const banditConfigPath = () => path.join(os.homedir(), '.bandit', 'config.json')
 
 /**
  * Pull the user's Burtson Labs API key out of `~/.bandit/config.json`
- * (`bandit.apiKey`). Used by the auto-inject path below — when an MCP
- * server config doesn't already specify `BANDIT_API_KEY` in its env
- * block, we backfill from the user's Bandit cloud config so a single
- * sign-in covers BOTH provider auth and MCP server auth. Solo users
- * almost always want one key everywhere; multi-tenant setups can opt
- * out by explicitly setting `BANDIT_API_KEY` in the env block, which
- * we never override.
+ * (`bandit.apiKey`). Used by the inject path below — when an MCP server
+ * that opts in (`"auth": "bandit"`, or Burtson Labs' own server) doesn't
+ * already specify `BANDIT_API_KEY` in its env block, we backfill from the
+ * user's Bandit cloud config so one sign-in covers both. Other servers
+ * never receive it. An explicit `BANDIT_API_KEY` in the env block is
+ * never overridden.
  *
  * Returns null when the config file is missing, malformed, or has no
  * `bandit.apiKey` set — the caller then leaves the env block alone
@@ -85,24 +117,33 @@ export async function loadMcpServersConfig(cwd: string): Promise<McpServersFile[
     }
   }
 
-  // Auto-inject BANDIT_API_KEY into each STDIO server's env block when
+  // Inject BANDIT_API_KEY into an opted-in STDIO server's env block when
   // the user has a Bandit cloud key configured AND the server hasn't
   // already pinned one. URL-based remote servers (v1.7.333+) use the
   // pool's `resolveAuthToken` callback instead of env injection —
   // that auth path is wired by the host (`auth: "bandit"` on the
   // server entry tells the pool to attach `X-API-Key`), so this
   // env-mutation is a no-op for them and we skip it.
+  //
+  // Only for servers that opt in (mcpServerWantsBanditKey). A third-party
+  // server never receives the key unless its entry asks for it.
   const banditApiKey = await resolveBanditApiKey();
   if (banditApiKey) {
-    for (const cfg of Object.values(merged)) {
+    for (const [name, cfg] of Object.entries(merged)) {
       // Skip URL entries — they auth via the pool's resolveAuthToken,
       // not via env on a child process that doesn't exist.
       if (typeof cfg.url === 'string') continue;
+      if (!mcpServerWantsBanditKey(name, cfg)) continue;
       const env = cfg.env ?? {};
       if (!env.BANDIT_API_KEY) {
         cfg.env = { ...env, BANDIT_API_KEY: banditApiKey };
       }
     }
+  }
+
+  // Tell the permission evaluator which servers are declared local.
+  for (const [name, cfg] of Object.entries(merged)) {
+    setMcpServerLocal(name, mcpServerDeclaredLocal(cfg));
   }
 
   return merged;
