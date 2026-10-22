@@ -49,3 +49,16 @@ describe('insights', () => {
     expect(data.localStory.join(' ').length).toBeGreaterThan(0);
   });
 });
+
+describe('insights report makes no network request when opened', () => {
+  it('embeds its logo and references no remote resource', async () => {
+    const { computeInsights, renderInsightsHtml, INSIGHTS_LOGO_DATA_URI } = await import('../src/insights');
+    const html = renderInsightsHtml(computeInsights(tmpCwd));
+    expect(INSIGHTS_LOGO_DATA_URI).toMatch(/^data:image\/png;base64,/);
+    expect(html).toContain(`src="${INSIGHTS_LOGO_DATA_URI}"`);
+    expect(html).not.toContain('cdn.burtson.ai');
+    // No src= or stylesheet/script href pointing off the page.
+    expect(html).not.toMatch(/\ssrc="https?:/i);
+    expect(html).not.toMatch(/<link[^>]+href="https?:/i);
+  });
+});

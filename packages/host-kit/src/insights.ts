@@ -22,6 +22,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+/**
+ * The report's logo (96x96 PNG), embedded so opening insights.html makes no
+ * network request. It used to load from cdn.burtson.ai, under a footer that
+ * says no telemetry was sent.
+ */
+export const INSIGHTS_LOGO_DATA_URI =
+  'data:image/png;base64,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';
+
 interface SessionFile {
   id: string;          // filename without .jsonl
   startedAt: number;   // ms epoch parsed from the YYYYMMDD-HHMMSS prefix
@@ -1763,7 +1771,7 @@ export function renderInsightsHtml(data: InsightsData): string {
     width: 32px;
     height: 32px;
     object-fit: contain;
-    /* Fall back gracefully if the CDN is unreachable (image is decorative). */
+    /* Embedded as a data: URI, so opening the report fetches nothing. */
   }
   h1 .accent { color: var(--accent); }
   .meta { color: var(--muted); font-size: 13px; }
@@ -1863,7 +1871,7 @@ export function renderInsightsHtml(data: InsightsData): string {
 
 <header>
   <h1>
-    <img src="https://cdn.burtson.ai/logos/bandit-stealth.png" alt="Bandit" class="logo" />
+    <img src="${INSIGHTS_LOGO_DATA_URI}" alt="Bandit" class="logo" />
     Bandit <span class="accent">insights</span>
   </h1>
   <span class="meta">generated ${new Date(now).toISOString().slice(0, 16).replace('T', ' ')} · ${escape(data.cwd)}</span>
