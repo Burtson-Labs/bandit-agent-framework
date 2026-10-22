@@ -58,7 +58,7 @@ export type { OllamaEmbeddingClientOptions, OllamaEmbeddingHit } from './ollamaE
 export { getModelCapabilities, getContextFileLimit, getContextTokenBudget, getOutputTokenBudget, registerModelCapabilities, clearDiscoveredCapabilities, queryOllamaModelCapabilities, capabilitiesFromOllamaShow, readOllamaContextLength, resolveOllamaRuntimeOptions, resolvePreferredToolProtocol, resolveMaxParallelTools, UNPROFILED_NATIVE_MAX_PARALLEL_TOOLS, checkOllamaLoadedContext, resolveDefaultMaxIterations } from './runtime/modelCapabilities';
 export { syncGatewayModelCapabilities, catalogEntryToCapabilities, type GatewayCatalogEntry, type FetchGatewayCatalogOptions } from './runtime/gatewayModelCatalog';
 export { MODEL_BEHAVIOR_CONFIG_SCHEMA_VERSION, getModelBehaviorProfile, getBuiltInModelBehaviorProfiles, registerModelBehaviorOverride, registerModelBehaviorConfig, parseModelBehaviorConfig, clearModelBehaviorOverrides } from './runtime/modelBehavior';
-export { queryModelsDevCapabilities, queryOpenAICompatibleModelInfo } from './runtime/modelsDevCatalog';
+export { modelsDevAllowed, queryModelsDevCapabilities, queryOpenAICompatibleModelInfo } from './runtime/modelsDevCatalog';
 export type { ModelCapabilities, ModelTier, OllamaRuntimeOptions, OllamaContextCheck, OllamaShowResponse, RegisterCapabilitiesOptions } from './runtime/modelCapabilities';
 export type { ModelBehaviorProfile, ModelBehaviorOverride, ModelBehaviorConfigEntry, ModelBehaviorConfigParseResult, ToolProtocol, ToolEnvelope, PromptTemplateId, CompactionMode, ThinkingDefault } from './runtime/modelBehavior';
 export { ContextBuilder, buildSlimContext } from './runtime/contextBuilder';

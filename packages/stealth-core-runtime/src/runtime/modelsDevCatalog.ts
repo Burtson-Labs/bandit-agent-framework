@@ -23,6 +23,10 @@
  * Failures are silent: when the catalog is unreachable or the model
  * isn't listed, lookupModelsDevCapabilities returns null and the
  * caller falls back to whatever default it had.
+ *
+ * Not fetched at all for a model server on this machine or the local
+ * network, or when BANDIT_OFFLINE=1 / BANDIT_NO_MODELS_DEV=1 is set
+ * (see modelsDevAllowed).
  */
 
 import * as fs from 'fs';
@@ -267,11 +271,60 @@ export async function queryOpenAICompatibleModelInfo(
   }
 }
 
+/**
+ * Should models.dev be consulted for this base URL?
+ *
+ * No when:
+ *   - `BANDIT_OFFLINE=1` or `BANDIT_NO_MODELS_DEV=1` is set, or the host
+ *     passes `{ disabled: true }` (its own offline setting);
+ *   - the base URL is on this machine or the local network (loopback,
+ *     private/link-local literals, `.local`/`.lan`/`.internal` names,
+ *     single-label hosts). models.dev only lists public providers, so a
+ *     self-hosted LM Studio, vLLM or llama.cpp server can never match and
+ *     the download was a connection to a third party for nothing.
+ */
+export function modelsDevAllowed(
+  baseUrl: string,
+  opts: { disabled?: boolean; env?: Record<string, string | undefined> } = {}
+): boolean {
+  const env = opts.env ?? (typeof process !== 'undefined' ? process.env : {});
+  if (opts.disabled) {return false;}
+  const on = (v: string | undefined) => /^(1|true|yes|on)$/i.test((v ?? '').trim());
+  if (on(env.BANDIT_OFFLINE) || on(env.BANDIT_NO_MODELS_DEV)) {return false;}
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    return false;
+  }
+  return !isLocalNetworkHost(host);
+}
+
+function isLocalNetworkHost(hostname: string): boolean {
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '');
+  if (!h) {return true;}
+  if (h === 'localhost' || h.endsWith('.localhost')) {return true;}
+  if (/\.(local|lan|internal|intranet|home\.arpa|localdomain)$/.test(h)) {return true;}
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  if (h.includes(':')) {
+    return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:');
+  }
+  // A single-label name (`gpu-node`) only resolves on a local network.
+  return !h.includes('.');
+}
+
 export async function queryModelsDevCapabilities(
   modelId: string,
-  baseUrl: string
+  baseUrl: string,
+  opts: { disabled?: boolean } = {}
 ): Promise<ModelCapabilities | null> {
   if (!modelId || !baseUrl) {return null;}
+  if (!modelsDevAllowed(baseUrl, opts)) {return null;}
   const catalog = await loadCatalog();
   if (!catalog) {return null;}
   if (!baseUrlIndex) {baseUrlIndex = buildBaseUrlIndex(catalog);}
