@@ -112,6 +112,7 @@ describe('buildFetchImageTool', () => {
       const res = await buildFetchImageTool({ allowPrivate: false, lookup: publicLookup, transport: transportFrom(() => ({ status: 200, type: 'image/png' }), seen) })
         .execute({ url }, {} as never);
       expect(res.output, url).toMatch(/Blocked/);
+      expect(res.isError, url).toBe(true);
       expect(seen, url).toEqual([]);
     }
   });

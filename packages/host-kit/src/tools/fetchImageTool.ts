@@ -74,6 +74,7 @@ export function buildFetchImageTool(opts: FetchImageToolOptions = {}): AgentTool
         headers: { 'User-Agent': 'bandit-cli/0.1', Accept: 'image/*;q=0.9,*/*;q=0.5' }
       });
       if (!got.ok) {
+        if (got.output.startsWith('Blocked')) return { output: got.output, isError: true };
         const aborted = /aborted due to timeout/i.test(got.output);
         return { output: aborted ? `Timed out fetching ${url}. Pick a different image.` : `Couldn't fetch ${url}: ${got.output}. Pick a different image.` };
       }
