@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { SecurityGuardSettings } from './securityGuard';
+import { mkdirInProjectBandit } from './projectDir';
 
 export type HookEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
 
@@ -45,6 +46,9 @@ export interface HookSettings {
   /** Built-in pre-tool security guard (opt-in, off by default). Read under
    *  `security.guard`. See securityGuard.ts. */
   security?: { guard?: SecurityGuardSettings };
+  /** Offline mode (see offline.ts). Any settings file that sets it to true
+   *  turns it on; a later file cannot turn it back off. */
+  offline?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -78,6 +82,7 @@ export async function loadHookSettings(cwd: string, opts?: { homeDir?: string })
         // overrides workspace. Matches how the guard's scalars merge.
         if (parsed.permissions.mode) merged.permissions!.mode = parsed.permissions.mode;
       }
+      if (parsed.offline === true) merged.offline = true;
       if (parsed.security?.guard) {
         const g = parsed.security.guard;
         const cur = merged.security?.guard ?? {};
@@ -104,7 +109,7 @@ export async function loadHookSettings(cwd: string, opts?: { homeDir?: string })
 export async function persistAllowEntry(cwd: string, entry: string): Promise<void> {
   const dir = path.resolve(cwd, '.bandit');
   const file = path.resolve(dir, 'settings.json');
-  await fs.promises.mkdir(dir, { recursive: true });
+  await mkdirInProjectBandit(cwd, dir);
   let existing: HookSettings = {};
   try {
     const raw = await fs.promises.readFile(file, 'utf-8');

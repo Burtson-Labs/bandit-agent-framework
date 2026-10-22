@@ -19,6 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { mkdirInProjectBandit } from './projectDir';
 
 export interface CheckpointEntry {
   /** Short slug id — "chk-<turnSlug>-<seq>". Used for /rewind lookup. */
@@ -150,7 +151,8 @@ export class CheckpointStore {
     after: string;
     iteration: number;
   }): Promise<CheckpointEntry> {
-    await fs.promises.mkdir(path.join(this.dir, input.turnId), { recursive: true });
+    // Also writes .bandit/.gitignore when this creates .bandit/ or checkpoints/.
+    await mkdirInProjectBandit(this.workspaceRoot, path.join(this.dir, input.turnId));
     this.counter++;
     const id = `chk-${input.turnId.split('-').pop() ?? 'x'}-${String(this.counter).padStart(3, '0')}`;
     const relPath = path.relative(this.workspaceRoot, input.absolutePath) || input.absolutePath;
@@ -228,7 +230,7 @@ export class CheckpointStore {
   }
 
   private async writeIndex(entries: CheckpointIndexEntry[]): Promise<void> {
-    await fs.promises.mkdir(this.dir, { recursive: true });
+    await mkdirInProjectBandit(this.workspaceRoot, this.dir);
     const file = path.join(this.dir, INDEX_FILE);
     await fs.promises.writeFile(file, JSON.stringify(entries, null, 2));
   }

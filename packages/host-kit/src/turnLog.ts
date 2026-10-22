@@ -26,6 +26,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { mkdirInProjectBandit } from './projectDir';
 
 const MAX_PREVIEW_CHARS = 2048;
 const LOG_DIR = '.bandit/turns';
@@ -101,7 +102,8 @@ function normalizeListOptions(optionsOrLimit?: number | TurnTraceListOptions): R
  */
 export async function openTurnLog(workspaceRoot: string): Promise<TurnLogger> {
   const dir = path.resolve(workspaceRoot, LOG_DIR);
-  await fs.promises.mkdir(dir, { recursive: true });
+  // Also writes .bandit/.gitignore when this creates .bandit/ or turns/.
+  await mkdirInProjectBandit(workspaceRoot, dir);
   const iso = new Date().toISOString().replace(/[:.]/g, '-');
   const rand = Math.random().toString(36).slice(2, 6);
   const filePath = path.join(dir, `turn-${iso}-${rand}.jsonl`);
