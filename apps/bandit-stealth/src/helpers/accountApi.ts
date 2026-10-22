@@ -33,7 +33,10 @@ export type AccountFetchResult<T> =
  * apiUrl shouldn't break key validation). 6-second timeout because
  * we block UI on this on every API-key store.
  */
-export async function validateBanditApiKey(apiKey: string): Promise<AccountFetchResult<AccountProfile>> {
+export async function validateBanditApiKey(
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<AccountFetchResult<AccountProfile>> {
   const trimmed = apiKey.trim();
   if (!trimmed) {
     return { ok: false, error: 'API key is empty.' };
@@ -42,10 +45,13 @@ export async function validateBanditApiKey(apiKey: string): Promise<AccountFetch
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 6000);
   try {
-    const url = `https://auth.burtson.ai/api/keys/validate?key=${encodeURIComponent(trimmed)}`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+    // POST with the key in the JSON body, not `?key=` in the URL: query
+    // strings end up in proxy and ingress access logs. The auth API has no
+    // header form of /validate; its POST form takes { key }.
+    const response = await fetchImpl('https://auth.burtson.ai/api/keys/validate', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: trimmed }),
       signal: controller.signal
     });
     if (!response.ok) {
