@@ -2,6 +2,20 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## Unreleased
+
+- **Tools that contact another host ask first.** `web_fetch`, `web_search`, `fetch_image`, `git_push`, `git_pull`, the Bandit Cloud artifact tools and MCP tools from servers not marked `"local": true` used to run without a prompt in the default `ask` mode. They ask now, and the card shows the full URL, the search text or the git remote's URL. Plan mode refuses them; allow rules and auto mode work as before.
+- **`fetch_image` refuses private, loopback and link-local addresses**, like `web_fetch`, and is no longer treated as read-only.
+- **Remote images in chat replies load only when you click them.** The panel's content security policy no longer allows remote images; a click fetches that one image through the `web_fetch` address guard.
+- **Voice follows the chat provider.** The new default `auto` uses Bandit cloud voice only while chat uses Bandit cloud. With Ollama or an OpenAI-compatible server, text and recorded audio are never sent to Bandit cloud, even with a saved key; pick a local provider (Piper, a Whisper server) to use voice.
+- **Offline mode.** `banditStealth.offline`, `BANDIT_OFFLINE=1`, `"offline": true` in `.bandit/settings.json`, or `network.offline` in the machine policy file leaves the configured model server as the only host Bandit contacts.
+- **Artifact and image tools** are offered only while the chat provider is Bandit cloud.
+- **Your Bandit key is checked with a POST body**, no longer as `?key=` in the URL.
+- **MCP servers receive your Bandit key only if they opt in** (`"auth": "bandit"`).
+- **models.dev is skipped** for a model server on `localhost` or your local network, and with `BANDIT_NO_MODELS_DEV=1`.
+- **`/insights` report** embeds its logo instead of loading it from cdn.burtson.ai.
+- **`.bandit/.gitignore`** is written when Bandit creates `.bandit/`, so turn logs and checkpoints stay out of git.
+
 ## 1.7.454 (2026-10-19)
 
 - **Diff reviews stay on your machine.** Apply, Explain and Discard used to send the file path and the first 120 lines of the diff to the Bandit feedback endpoint, whichever provider you used. Nothing about a diff is sent now.

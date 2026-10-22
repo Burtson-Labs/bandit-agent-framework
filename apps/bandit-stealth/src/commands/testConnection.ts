@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { API_KEY_SECRET_KEY } from '../storageKeys';
+import { extensionOfflineMode, offlineRefusal } from '../helpers/offlineMode';
 
 export async function testConnection(context: vscode.ExtensionContext): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('banditStealth');
@@ -30,6 +31,11 @@ export async function testConnection(context: vscode.ExtensionContext): Promise<
     }
   } else {
     // Bandit / Gateway provider
+    const offline = extensionOfflineMode();
+    if (offline.offline) {
+      void vscode.window.showWarningMessage(offlineRefusal('the Bandit Cloud connection test', offline));
+      return;
+    }
     const apiKey = await context.secrets.get(API_KEY_SECRET_KEY);
     if (!apiKey) {
       void vscode.window.showWarningMessage('No API key set. Use "Bandit: Set API Key" first.');

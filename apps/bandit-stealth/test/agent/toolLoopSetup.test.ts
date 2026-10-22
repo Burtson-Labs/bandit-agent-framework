@@ -97,6 +97,10 @@ vi.mock('../../src/agent/nodeToolContext', () => ({
   }
 }));
 
+vi.mock('../../src/helpers/offlineMode', () => ({
+  extensionOfflineMode: () => ({ offline: false })
+}));
+
 vi.mock('../../src/helpers/banditConfigFile', () => ({
   resolveTavilyKey: () => 'tav_test_key'
 }));
@@ -164,11 +168,11 @@ describe('buildTurnRunContext', () => {
     const names = agentCoreMock.registeredTools.map((t) => t.name);
     expect(names).toEqual([
       'todo_write',
-      'web_fetch',
-      'web_search',
       'remember',
       'read_memory',
       'test_run',
+      'web_fetch',
+      'web_search',
       'fetch_image'
     ]);
   });
@@ -177,9 +181,32 @@ describe('buildTurnRunContext', () => {
     await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), {
       ...baseOptions,
       banditApiKey: 'bai_test',
+      providerKind: 'bandit'
     });
 
     expect(agentCoreMock.registeredTools.map((tool) => tool.name)).toContain('generate_image');
+    expect(agentCoreMock.registeredTools.map((tool) => tool.name)).toContain('publish_artifact');
+  });
+
+  it('registers no artifact or image tool for an Ollama turn even with a key present', async () => {
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), {
+      ...baseOptions,
+      banditApiKey: 'bai_test',
+      providerKind: 'ollama'
+    });
+    const names = agentCoreMock.registeredTools.map((tool) => tool.name);
+    expect(names.filter((n) => /artifact|generate_image/.test(n))).toEqual([]);
+  });
+
+  it('offline mode registers no tool that contacts another host', async () => {
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), {
+      ...baseOptions,
+      banditApiKey: 'bai_test',
+      providerKind: 'bandit',
+      offline: true
+    });
+    const names = agentCoreMock.registeredTools.map((tool) => tool.name);
+    expect(names).toEqual(['todo_write', 'remember', 'read_memory', 'test_run']);
   });
 
   it('MCP failures do not kill turn startup — the factory swallows and returns the rest of the context intact', async () => {

@@ -37,11 +37,41 @@ import {
 import type { ConversationEntry } from '../../services/conversationTypes';
 import { API_KEY_SECRET_KEY } from '../../storageKeys';
 import { buildVoiceConfig } from '../../helpers/voiceConfig';
-import { sttRequiresBanditKey, synthesizeSpeech, transcribeAudio, ttsRequiresBanditKey } from '../../voiceProviders';
+import {
+  routeVoice,
+  synthesizeSpeech,
+  transcribeAudio,
+  withRoutedProvider,
+  type SttProvider,
+  type SttSetting,
+  type TtsProvider,
+  type TtsSetting,
+  type VoiceRoute
+} from '../../voiceProviders';
+import { extensionOfflineMode, offlineRefusal } from '../../helpers/offlineMode';
 import type { ProviderContext } from '../context';
 
 export class VoiceService {
   constructor(private readonly ctx: ProviderContext) {}
+
+  /** Voice follows the chat provider and offline mode (voiceProviders.routeVoice). */
+  private routeTts(configuration: vscode.WorkspaceConfiguration, chatProvider: ProviderKind): VoiceRoute<TtsProvider> {
+    const mode = extensionOfflineMode();
+    return routeVoice<TtsProvider>('tts', configuration.get<TtsSetting>('voice.tts.provider', 'auto'), chatProvider, {
+      offline: mode.offline,
+      offlineMessage: mode.offline ? offlineRefusal('read-aloud with a provider off this machine', mode) : undefined,
+      url: configuration.get<string>('voice.tts.url', '') ?? ''
+    });
+  }
+
+  private routeStt(configuration: vscode.WorkspaceConfiguration, chatProvider: ProviderKind): VoiceRoute<SttProvider> {
+    const mode = extensionOfflineMode();
+    return routeVoice<SttProvider>('stt', configuration.get<SttSetting>('voice.stt.provider', 'auto'), chatProvider, {
+      offline: mode.offline,
+      offlineMessage: mode.offline ? offlineRefusal('dictation with a provider off this machine', mode) : undefined,
+      url: configuration.get<string>('voice.stt.url', '') ?? ''
+    });
+  }
 
   /**
    * Auto-speak gating + dispatch. Called from
@@ -65,8 +95,12 @@ export class VoiceService {
     const autoSpeakOn = configuration.get<boolean>('voice.autoSpeak', false);
     if (!autoSpeakOn) {return;}
 
-    const ttsProvider = configuration.get<'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom'>('voice.tts.provider', 'bandit');
-    if (ttsRequiresBanditKey(ttsProvider) && !apiKey) {
+    const route = this.routeTts(configuration, providerKind);
+    if (!route.ok) {
+      this.ctx.postMessage({ type: 'audioError', entryId: entry.id, message: route.message });
+      return;
+    }
+    if (route.provider === 'bandit' && !apiKey) {
       this.ctx.postMessage({
         type: 'audioError',
         entryId: entry.id,
@@ -74,7 +108,6 @@ export class VoiceService {
       });
       return;
     }
-    void providerKind;
 
     const speakable = extractSpeakableText(entry.content ?? '');
     if (!speakable) {
@@ -87,7 +120,7 @@ export class VoiceService {
       if (wordCount > wordCap) {return;}
     }
 
-    await this.sendTts(entry.id, speakable, configuration, apiKey);
+    await this.sendTts(entry.id, speakable, configuration, apiKey, route.provider);
   }
 
   /**
@@ -99,14 +132,15 @@ export class VoiceService {
     entryId: string,
     text: string,
     configuration: vscode.WorkspaceConfiguration,
-    apiKey: string | undefined
+    apiKey: string | undefined,
+    provider: TtsProvider
   ): Promise<void> {
     const voiceId = configuration.get<string>('voice.voiceId', 'en_US-brian-premium');
     const banditUrl = resolveTtsUrl(configuration);
     try {
       const result = await synthesizeSpeech(
-        await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets),
-        { text, voice: voiceId, banditApiKey: apiKey, banditUrl }
+        withRoutedProvider(await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets), 'tts', provider),
+        { text, voice: voiceId, banditApiKey: provider === 'bandit' ? apiKey : undefined, banditUrl }
       );
       this.ctx.postMessage({
         type: 'playAudio',
@@ -129,11 +163,15 @@ export class VoiceService {
    */
   async handleSpeak(entryId: string, text: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('banditStealth');
-    const ttsProvider = configuration.get<'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom'>('voice.tts.provider', 'bandit');
-    const apiKey = ttsRequiresBanditKey(ttsProvider)
+    const route = this.routeTts(configuration, this.ctx.getProviderKind(configuration));
+    if (!route.ok) {
+      this.ctx.postMessage({ type: 'audioError', entryId, message: route.message });
+      return;
+    }
+    const apiKey = route.provider === 'bandit'
       ? await this.ctx.extensionContext.secrets.get(API_KEY_SECRET_KEY)
       : undefined;
-    if (ttsRequiresBanditKey(ttsProvider) && !apiKey) {
+    if (route.provider === 'bandit' && !apiKey) {
       this.ctx.postMessage({
         type: 'audioError',
         entryId,
@@ -146,7 +184,7 @@ export class VoiceService {
       this.ctx.postMessage({ type: 'audioError', entryId, message: 'No speakable text in this message.' });
       return;
     }
-    await this.sendTts(entryId, speakable, configuration, apiKey);
+    await this.sendTts(entryId, speakable, configuration, apiKey, route.provider);
   }
 
   /**
@@ -157,11 +195,15 @@ export class VoiceService {
    */
   async handleTranscribe(audioBase64: string, mimeType: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('banditStealth');
-    const sttProvider = configuration.get<'bandit' | 'openai-whisper' | 'custom'>('voice.stt.provider', 'bandit');
-    const apiKey = sttRequiresBanditKey(sttProvider)
+    const route = this.routeStt(configuration, this.ctx.getProviderKind(configuration));
+    if (!route.ok) {
+      this.ctx.postMessage({ type: 'notification', message: route.message });
+      return;
+    }
+    const apiKey = route.provider === 'bandit'
       ? await this.ctx.extensionContext.secrets.get(API_KEY_SECRET_KEY)
       : undefined;
-    if (sttRequiresBanditKey(sttProvider) && !apiKey) {
+    if (route.provider === 'bandit' && !apiKey) {
       this.ctx.postMessage({ type: 'notification', message: 'Bandit STT needs a Bandit API key — set one in Account, or switch the STT provider in Voice settings.' });
       return;
     }
@@ -170,7 +212,7 @@ export class VoiceService {
       const bytes = Buffer.from(audioBase64, 'base64');
       const normalizedMime = (mimeType || 'audio/webm').split(';')[0].trim();
       const result = await transcribeAudio(
-        await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets),
+        withRoutedProvider(await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets), 'stt', route.provider),
         { audioBytes: bytes, mimeType: normalizedMime, banditApiKey: apiKey, banditUrl }
       );
       const transcription = result.text.trim();

@@ -26,6 +26,7 @@ import { fetchAccountUsage, validateBanditApiKey } from '../../helpers/accountAp
 import { resolveAccountUsageUrl } from '../../helpers/endpoints';
 import { API_KEY_SECRET_KEY } from '../../storageKeys';
 import type { ProviderContext } from '../context';
+import { extensionOfflineMode, offlineRefusal } from '../../helpers/offlineMode';
 
 export class AccountService {
   private profile: AccountProfile | null = null;
@@ -66,7 +67,8 @@ export class AccountService {
     const apiKey = providerKind === 'bandit'
       ? await this.ctx.extensionContext.secrets.get(API_KEY_SECRET_KEY)
       : undefined;
-    if (providerKind !== 'bandit' || !apiKey) {
+    // Offline mode: no account validation request.
+    if (providerKind !== 'bandit' || !apiKey || extensionOfflineMode().offline) {
       this.profile = null;
       this.error = null;
       this.status = 'idle';
@@ -104,6 +106,11 @@ export class AccountService {
     const providerKind = this.ctx.getProviderKind(configuration);
     if (providerKind !== 'bandit') {
       this.ctx.postMessage({ type: 'accountUsage', data: null, error: 'Account & Usage is only available when provider = bandit.' });
+      return;
+    }
+    const offline = extensionOfflineMode();
+    if (offline.offline) {
+      this.ctx.postMessage({ type: 'accountUsage', data: null, error: offlineRefusal('Account & Usage', offline) });
       return;
     }
     const apiKey = await this.ctx.extensionContext.secrets.get(API_KEY_SECRET_KEY);

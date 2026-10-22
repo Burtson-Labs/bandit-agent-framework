@@ -61,6 +61,7 @@ import { resolveTavilyKey } from '../helpers/banditConfigFile';
 import type { ProviderContext } from '../provider/context';
 import type { ConversationEntry } from '../services/conversationTypes';
 import { NodeToolExecutionContext } from './nodeToolContext';
+import { extensionOfflineMode } from '../helpers/offlineMode';
 
 type SkillRegistry = ReturnType<typeof createDefaultSkillRegistry>;
 type ToolRegistry = ReturnType<SkillRegistry['buildToolRegistryWithMap']>['registry'];
@@ -100,13 +101,19 @@ export interface BuildTurnRunContextOptions {
   /** Bandit cloud key (present only when provider = bandit + signed in).
    *  Gates the cloud-only `publish_artifact` tool, matching the CLI. */
   banditApiKey?: string;
+  /** Active chat provider. Artifact and image tools register only for
+   *  'bandit' (a saved key alone is not enough). */
+  providerKind?: string;
+  /** Offline mode (helpers/offlineMode). Resolved here when omitted. */
+  offline?: boolean;
 }
 
 export async function buildTurnRunContext(
   ctx: ProviderContext,
   options: BuildTurnRunContextOptions
 ): Promise<TurnRunContext> {
-  const { workspaceRoot, configuration, userGoal, conversation, banditApiKey } = options;
+  const { workspaceRoot, configuration, userGoal, conversation, banditApiKey, providerKind } = options;
+  const offline = options.offline ?? extensionOfflineMode({ workspaceRoot }).offline;
 
   const toolCtx = new NodeToolExecutionContext(workspaceRoot, createDefaultLanguageAdapters(), {
     // ask_user → the webview question card, via the provider's gate service.
@@ -148,57 +155,64 @@ export async function buildTurnRunContext(
   const hookSettings: HookSettings = await loadHookSettings(workspaceRoot).catch(() => ({ hooks: {} }));
   const todoStore = new TodoStore();
   registry.register(buildTodoWriteTool(todoStore));
-  registry.register(buildWebFetchTool());
-  // Web search — uses Tavily API. The tool returns a clear "not
-  // configured" error if no key is set, so the model knows to fall
-  // back to web_fetch with a known URL. Key resolution order:
-  // env TAVILY_API_KEY → ~/.bandit/config.json → SecretStorage →
-  // legacy VS Code setting.
-  registry.register(buildWebSearchTool({
-    apiKey: await resolveTavilyKey(configuration, ctx.extensionContext?.secrets)
-  }));
   registry.register(buildRememberTool());
   registry.register(buildReadMemoryTool());
   // test_run — auto-detect framework, parse output, hand the agent
   // a tight pass/fail summary so fix-test-rerun loops close cleanly
   // without flooding context with raw test stdout.
   registry.register(buildTestRunTool());
-  // fetch_image — verify an image URL is usable before embedding it in an artifact
-  // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
-  registry.register(buildFetchImageTool());
-  // publish_artifact — cloud-only, so "write a README and publish it as an
-  // artifact" works in-editor the same as in the CLI. Registered only when a
-  // Bandit cloud key is present, so local-only turns stay fully offline.
-  // publishArtifact exchanges the bai_ key for a gateway JWT before S3Api.
-  if (banditApiKey) {
-    const artifactToolOpts = {
-      token: banditApiKey,
-      s3ApiBaseUrl: process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai',
-      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai',
-      webBaseUrl: process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com'
-    };
-    registry.register(buildPublishArtifactTool(artifactToolOpts));
-    // share_artifact — mint an external, revocable link for an already-published
-    // artifact, so "publish this and give me a link to send out" works in-editor.
-    registry.register(buildShareArtifactTool(artifactToolOpts));
-    // list_artifacts / delete_artifact — round out the agent's artifact management
-    // (see what's published, clean one up) without leaving the editor.
-    registry.register(buildListArtifactsTool(artifactToolOpts));
-    registry.register(buildDeleteArtifactTool(artifactToolOpts));
-    registry.register(buildRestoreArtifactTool(artifactToolOpts));
-    // get_artifact / update_artifact — fetch a published artifact back + revise it in place (same URL).
-    registry.register(buildGetArtifactTool(artifactToolOpts));
-    registry.register(buildUpdateArtifactTool(artifactToolOpts));
-    registry.register(buildEmailArtifactTool(artifactToolOpts));
-    // generate_image — coordinated local GPU image generation/editing. The
-    // tool completes the full Anton claim → render → release cycle and waits
-    // for Ollama to recover before the agent loop asks the local model for its
-    // next turn, so local inference is never stranded mid-tool-call.
-    registry.register(buildGenerateImageTool({
-      token: banditApiKey,
-      antonBaseUrl: process.env.BANDIT_ANTON_URL ?? 'https://anton.burtson.ai',
-      authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
+  // Offline mode (helpers/offlineMode): the tools that contact other hosts
+  // are not offered at all; the permission gate refuses any that remain.
+  if (!offline) {
+    registry.register(buildWebFetchTool());
+    // Web search — uses Tavily API. The tool returns a clear "not
+    // configured" error if no key is set, so the model knows to fall
+    // back to web_fetch with a known URL. Key resolution order:
+    // env TAVILY_API_KEY → ~/.bandit/config.json → SecretStorage →
+    // legacy VS Code setting.
+    registry.register(buildWebSearchTool({
+      apiKey: await resolveTavilyKey(configuration, ctx.extensionContext?.secrets)
     }));
+    // fetch_image — verify an image URL is usable before embedding it in an artifact
+    // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
+    registry.register(buildFetchImageTool());
+    // publish_artifact — cloud-only, so "write a README and publish it as an
+    // artifact" works in-editor the same as in the CLI. Registered only when a
+    // Bandit cloud key is present, so local-only turns stay fully offline.
+    // publishArtifact exchanges the bai_ key for a gateway JWT before S3Api.
+    // Bandit Cloud only: the chat provider must be Bandit Cloud AND a key
+    // must be present, so an Ollama session with a saved key never offers
+    // a tool that uploads workspace files.
+    if (banditApiKey && providerKind === 'bandit') {
+      const artifactToolOpts = {
+        token: banditApiKey,
+        s3ApiBaseUrl: process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai',
+        authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai',
+        webBaseUrl: process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com'
+      };
+      registry.register(buildPublishArtifactTool(artifactToolOpts));
+      // share_artifact — mint an external, revocable link for an already-published
+      // artifact, so "publish this and give me a link to send out" works in-editor.
+      registry.register(buildShareArtifactTool(artifactToolOpts));
+      // list_artifacts / delete_artifact — round out the agent's artifact management
+      // (see what's published, clean one up) without leaving the editor.
+      registry.register(buildListArtifactsTool(artifactToolOpts));
+      registry.register(buildDeleteArtifactTool(artifactToolOpts));
+      registry.register(buildRestoreArtifactTool(artifactToolOpts));
+      // get_artifact / update_artifact — fetch a published artifact back + revise it in place (same URL).
+      registry.register(buildGetArtifactTool(artifactToolOpts));
+      registry.register(buildUpdateArtifactTool(artifactToolOpts));
+      registry.register(buildEmailArtifactTool(artifactToolOpts));
+      // generate_image — coordinated local GPU image generation/editing. The
+      // tool completes the full Anton claim → render → release cycle and waits
+      // for Ollama to recover before the agent loop asks the local model for its
+      // next turn, so local inference is never stranded mid-tool-call.
+      registry.register(buildGenerateImageTool({
+        token: banditApiKey,
+        antonBaseUrl: process.env.BANDIT_ANTON_URL ?? 'https://anton.burtson.ai',
+        authBaseUrl: process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai'
+      }));
+    }
   }
 
   // MCP tools — surface every connected server's tools as

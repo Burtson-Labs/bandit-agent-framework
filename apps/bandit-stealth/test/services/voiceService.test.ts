@@ -32,11 +32,16 @@ vi.mock('vscode', () => ({
 
 const configMap = new Map<string, unknown>();
 
-vi.mock('../../src/voiceProviders', () => ({
+vi.mock('../../src/voiceProviders', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/voiceProviders')>()),
   synthesizeSpeech: vi.fn(),
-  transcribeAudio: vi.fn(),
-  sttRequiresBanditKey: (p: string) => p === 'bandit',
-  ttsRequiresBanditKey: (p: string) => p === 'bandit'
+  transcribeAudio: vi.fn()
+}));
+
+const offline = { on: false };
+vi.mock('../../src/helpers/offlineMode', () => ({
+  extensionOfflineMode: () => (offline.on ? { offline: true, source: 'env', detail: 'BANDIT_OFFLINE=1' } : { offline: false }),
+  offlineRefusal: (what: string) => `offline: ${what}`
 }));
 
 vi.mock('../../src/extensionRecorder', () => ({
@@ -59,9 +64,10 @@ vi.mock('../../src/helpers/speakableText', () => ({
 import * as voiceProviders from '../../src/voiceProviders';
 import { VoiceService } from '../../src/provider/services/voiceService';
 
-function makeCtx(options: { storedApiKey?: string } = {}): { ctx: ProviderContext; posted: Array<Record<string, unknown>> } {
+function makeCtx(options: { storedApiKey?: string; chatProvider?: string } = {}): { ctx: ProviderContext; posted: Array<Record<string, unknown>> } {
   const posted: Array<Record<string, unknown>> = [];
   const ctx = {
+    getProviderKind: () => options.chatProvider ?? 'bandit',
     extensionContext: {
       secrets: { get: vi.fn(async () => options.storedApiKey) }
     },
@@ -84,6 +90,7 @@ function fakeConfiguration() {
 
 beforeEach(() => {
   configMap.clear();
+  offline.on = false;
   vi.mocked(voiceProviders.synthesizeSpeech).mockReset();
   vi.mocked(voiceProviders.transcribeAudio).mockReset();
 });
@@ -162,5 +169,68 @@ describe('VoiceService', () => {
     expect(vi.mocked(voiceProviders.transcribeAudio)).toHaveBeenCalledOnce();
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({ type: 'voiceTranscription', text: 'hello there' });
+  });
+
+  describe('voice follows the chat provider', () => {
+    it('never sends read-aloud text to Bandit Cloud when chat is on Ollama (default and explicit bandit)', async () => {
+      for (const setting of [undefined, 'auto', 'bandit']) {
+        configMap.clear();
+        if (setting) configMap.set('voice.tts.provider', setting);
+        const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'ollama' });
+        await new VoiceService(ctx).handleSpeak('m', 'hello');
+        expect(vi.mocked(voiceProviders.synthesizeSpeech), String(setting)).not.toHaveBeenCalled();
+        expect(posted[0]).toMatchObject({ type: 'audioError' });
+        expect((posted[0] as { message: string }).message).toMatch(/follows the chat provider/);
+      }
+    });
+
+    it('never sends dictation audio to Bandit Cloud when chat is on Ollama', async () => {
+      const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'ollama' });
+      await new VoiceService(ctx).handleTranscribe(Buffer.from('a').toString('base64'), 'audio/wav');
+      expect(vi.mocked(voiceProviders.transcribeAudio)).not.toHaveBeenCalled();
+      expect(posted[0]).toMatchObject({ type: 'notification' });
+    });
+
+    it('auto-speak on Ollama does not reach Bandit Cloud either', async () => {
+      configMap.set('voice.autoSpeak', true);
+      const { ctx } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'ollama' });
+      await new VoiceService(ctx).maybeAutoSpeak(makeEntry('hello'), fakeConfiguration(), 'sk_saved', 'ollama');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech)).not.toHaveBeenCalled();
+    });
+
+    it('auto uses Bandit Cloud while chat is on Bandit Cloud', async () => {
+      vi.mocked(voiceProviders.synthesizeSpeech).mockResolvedValueOnce({ audio: new Uint8Array([1]), mimeType: 'audio/mpeg' });
+      const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      const [config, req] = vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0];
+      expect(config.get('voice.tts.provider', '')).toBe('bandit');
+      expect(req.banditApiKey).toBe('sk_saved');
+      expect(posted[0]).toMatchObject({ type: 'playAudio' });
+    });
+
+    it('an explicit local provider works on Ollama and gets no Bandit key', async () => {
+      vi.mocked(voiceProviders.synthesizeSpeech).mockResolvedValueOnce({ audio: new Uint8Array([1]), mimeType: 'audio/wav' });
+      configMap.set('voice.tts.provider', 'piper');
+      configMap.set('voice.tts.url', 'http://127.0.0.1:5000');
+      const { ctx } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'ollama' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      const [config, req] = vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0];
+      expect(config.get('voice.tts.provider', '')).toBe('piper');
+      expect(req.banditApiKey).toBeUndefined();
+    });
+
+    it('offline mode refuses non-loopback voice providers and allows a loopback one', async () => {
+      offline.on = true;
+      configMap.set('voice.tts.provider', 'openai');
+      const { ctx, posted } = makeCtx({ chatProvider: 'ollama' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech)).not.toHaveBeenCalled();
+      expect((posted[0] as { message: string }).message).toMatch(/^offline:/);
+      vi.mocked(voiceProviders.synthesizeSpeech).mockResolvedValueOnce({ audio: new Uint8Array([1]), mimeType: 'audio/wav' });
+      configMap.set('voice.tts.provider', 'piper');
+      configMap.set('voice.tts.url', 'http://localhost:5000');
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech)).toHaveBeenCalledOnce();
+    });
   });
 });

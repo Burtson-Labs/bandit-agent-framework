@@ -310,8 +310,9 @@ export function SettingsPanel({
       <div className="settings-card">
         <h3>Speech-to-text</h3>
         <p className="settings-note">
-          The microphone in the composer transcribes through this provider. The chat
-          provider doesn't matter — pick whichever STT you want.
+          The microphone in the composer transcribes through this provider. "Follow chat
+          provider" uses Bandit Cloud only while chat is on Bandit Cloud; with Ollama or an
+          OpenAI-compatible server, audio is never sent to Bandit Cloud.
         </p>
         <div className="settings-field">
           <label htmlFor="voice-stt-provider">Provider</label>
@@ -320,13 +321,16 @@ export function SettingsPanel({
             value={v.sttProvider}
             onChange={(e) => onUpdateVoiceProviderSetting("sttProvider", e.target.value)}
           >
-            <option value="bandit">Bandit cloud</option>
+            <option value="auto">Follow chat provider</option>
+            <option value="bandit">Bandit cloud (only with Bandit Cloud chat)</option>
             <option value="openai-whisper">OpenAI-compatible Whisper</option>
             <option value="custom">Custom URL</option>
           </select>
           <p className="settings-note" style={{ marginTop: "0.35rem" }}>
-            {v.sttProvider === "bandit"
-              ? "Routes through the Bandit gateway. Needs a Bandit API key (Account tab)."
+            {v.sttProvider === "auto"
+              ? "Bandit Cloud while chat uses Bandit Cloud; otherwise off until you pick a local Whisper server."
+              : v.sttProvider === "bandit"
+              ? "Routes through the Bandit gateway, and only while chat uses Bandit Cloud. Needs a Bandit API key (Account tab)."
               : v.sttProvider === "openai-whisper"
                 ? "Works with OpenAI, LiteLLM, faster-whisper-server, whisper.cpp HTTP, vLLM-Whisper, etc."
                 : "Multipart audio in, JSON { text } out. Bring any URL."}
@@ -378,15 +382,18 @@ export function SettingsPanel({
             value={v.ttsProvider}
             onChange={(e) => onUpdateVoiceProviderSetting("ttsProvider", e.target.value)}
           >
-            <option value="bandit">Bandit cloud</option>
+            <option value="auto">Follow chat provider</option>
+            <option value="bandit">Bandit cloud (only with Bandit Cloud chat)</option>
             <option value="openai">OpenAI</option>
             <option value="elevenlabs">ElevenLabs</option>
             <option value="piper">Piper (local)</option>
             <option value="custom">Custom URL</option>
           </select>
           <p className="settings-note" style={{ marginTop: "0.35rem" }}>
-            {v.ttsProvider === "bandit"
-              ? "Routes through the Bandit gateway. Needs a Bandit API key (Account tab)."
+            {v.ttsProvider === "auto"
+              ? "Bandit Cloud while chat uses Bandit Cloud; otherwise off until you pick Piper or another local server."
+              : v.ttsProvider === "bandit"
+              ? "Routes through the Bandit gateway, and only while chat uses Bandit Cloud. Needs a Bandit API key (Account tab)."
               : v.ttsProvider === "openai"
                 ? "Hits /v1/audio/speech. Works with OpenAI, LiteLLM, any compatible proxy."
                 : v.ttsProvider === "elevenlabs"

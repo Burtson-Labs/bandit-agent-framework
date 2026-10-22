@@ -179,6 +179,7 @@ import type {
   TraceListMode
 } from '../messages';
 import { PromptTurnTracker } from './services/promptTurnTracker';
+import { extensionOfflineMode, offlineRefusal } from '../helpers/offlineMode';
 
 export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, ProviderContext {
   public static readonly viewType = 'banditStealth.chat';
@@ -914,6 +915,23 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
     if (!prompt) {
       this.postMessage({ type: 'notification', message: 'Enter a prompt to continue.' });
       return;
+    }
+
+    // Offline mode allows only the configured model server, so Bandit Cloud
+    // as the chat provider is refused up front with the reason.
+    {
+      const offlineCfg = vscode.workspace.getConfiguration('banditStealth');
+      if (this.getProviderKind(offlineCfg) === 'bandit') {
+        const offline = extensionOfflineMode();
+        if (offline.offline) {
+          this.postMessage({
+            type: 'error',
+            message: offlineRefusal('Bandit Cloud as the chat provider', offline)
+              + ' Choose Ollama or an OpenAI-compatible server in Settings → Provider.'
+          });
+          return;
+        }
+      }
     }
 
     // Remote-control mirror: echo the user's prompt to the live session UNLESS
@@ -2029,6 +2047,11 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       return 'Live-session remote control lets you continue this conversation from Bandit Stealth Web — watch it live and send turns that run here, in this workspace.\n\n`/remote on` to start (requires Bandit cloud sign-in). `/remote off` to stop.';
     }
 
+    if (action === 'on') {
+      const offline = extensionOfflineMode();
+      if (offline.offline) {return offlineRefusal('remote control (/remote)', offline);}
+    }
+
     if (action !== 'on') {
       return `Unknown: \`/remote ${action}\`. Use \`/remote on | off | status\`.`;
     }
@@ -2099,6 +2122,11 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   /** (Re)build the telemetry exporter from ~/.bandit/config.json + the current
    *  bearer. Returns null (disabled) unless the user opted in. Never throws. */
   private ensureTelemetry(apiKey: string): void {
+    // Offline mode: no telemetry export, whatever ~/.bandit/config.json says.
+    if (extensionOfflineMode().offline) {
+      this.telemetry = null;
+      return;
+    }
     try {
       const cfg = resolveTelemetryConfig({
         telemetry: readBanditConfig().telemetry,
@@ -2166,7 +2194,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         conversation: this.conversation,
         // Cloud-only publish_artifact — pass the key only when signed in to
         // Bandit cloud, so local/Ollama turns never register the tool.
-        banditApiKey: providerKind === 'bandit' && apiKey ? apiKey : undefined
+        banditApiKey: providerKind === 'bandit' && apiKey ? apiKey : undefined,
+        providerKind
       });
       const {
         workspaceRoot,
@@ -3112,7 +3141,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       providerKind: this.getProviderKind(configuration),
       apiKey
     });
-    if (!allowed) {
+    if (!allowed || extensionOfflineMode().offline) {
       return;
     }
 

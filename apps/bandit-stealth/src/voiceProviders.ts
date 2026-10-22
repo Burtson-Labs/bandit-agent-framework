@@ -24,6 +24,68 @@ export interface VoiceConfig {
 
 export type SttProvider = 'bandit' | 'openai-whisper' | 'custom';
 export type TtsProvider = 'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom';
+/** Setting values: a provider, or 'auto' (the default) = follow the chat provider. */
+export type SttSetting = SttProvider | 'auto';
+export type TtsSetting = TtsProvider | 'auto';
+
+export type VoiceRoute<P> = { ok: true; provider: P } | { ok: false; message: string };
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    const h = new URL(raw).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return h === 'localhost' || h.endsWith('.localhost') || h === '::1' || /^127\./.test(h);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Which voice provider a speak/dictate request may use.
+ *
+ * Voice follows the chat provider (2026-10-21 egress audit: an Ollama user
+ * with a saved key sent assistant text and microphone audio to Bandit Cloud
+ * on click, because voice defaulted to Bandit Cloud regardless of the chat
+ * provider):
+ *   - 'auto' (the default): Bandit Cloud voice when the chat provider is
+ *     Bandit Cloud; otherwise no voice until a local provider is chosen.
+ *   - 'bandit': only while the chat provider is Bandit Cloud. With any other
+ *     chat provider, text and audio are never sent to Bandit Cloud.
+ *   - Any other provider is the user's explicit choice and is used as set,
+ *     except in offline mode, where only a loopback URL is allowed.
+ */
+export function routeVoice<P extends string>(
+  kind: 'stt' | 'tts',
+  setting: P | 'auto',
+  chatProvider: string,
+  opts: { offline?: boolean; offlineMessage?: string; url?: string } = {}
+): VoiceRoute<P> {
+  const label = kind === 'tts' ? 'Read-aloud' : 'Dictation';
+  const localHint = kind === 'tts'
+    ? "set banditStealth.voice.tts.provider to 'piper' (or 'custom') with a local URL"
+    : "set banditStealth.voice.stt.provider to 'openai-whisper' (or 'custom') with a local Whisper server URL";
+  if (setting === 'auto' || setting === 'bandit') {
+    if (opts.offline) {
+      return { ok: false, message: opts.offlineMessage ?? `${label} with Bandit Cloud is turned off in offline mode.` };
+    }
+    if (chatProvider === 'bandit') {return { ok: true, provider: 'bandit' as P };}
+    return {
+      ok: false,
+      message: `${label} follows the chat provider. Your chat provider is not Bandit Cloud, so Bandit does not send ${kind === 'tts' ? 'text' : 'audio'} to Bandit Cloud for voice. To use voice, ${localHint}.`
+    };
+  }
+  if (opts.offline && !(opts.url && isLoopbackUrl(opts.url))) {
+    return { ok: false, message: opts.offlineMessage ?? `${label} needs a provider on this machine in offline mode.` };
+  }
+  return { ok: true, provider: setting as P };
+}
+
+/** A VoiceConfig whose provider section returns the routed provider. */
+export function withRoutedProvider(config: VoiceConfig, kind: 'stt' | 'tts', provider: string): VoiceConfig {
+  const section = kind === 'tts' ? 'voice.tts.provider' : 'voice.stt.provider';
+  return {
+    get: <T,>(s: string, d: T): T => (s === section ? (provider as unknown as T) : config.get<T>(s, d))
+  };
+}
 
 /** Whether the configured provider needs a Bandit API key. Used by
  *  the gate that previously refused all voice without a Bandit key —

@@ -5,6 +5,7 @@ import {
   resolveOllamaEndpoint
 } from '@burtson-labs/stealth-core-runtime';
 import { API_KEY_SECRET_KEY, MODEL_MAX_ITER_CACHE_KEY } from '../storageKeys';
+import { isExtensionOffline } from '../helpers/offlineMode';
 
 export async function switchModel(
   updateStatusBarText: () => void,
@@ -161,7 +162,8 @@ export async function switchModel(
 
     let banditModels: BanditPick[] = fallbackModels;
     const apiKey = await context?.secrets.get(API_KEY_SECRET_KEY);
-    if (apiKey) {
+    // Offline mode: the built-in list only, no catalog request.
+    if (apiKey && !isExtensionOffline()) {
       try {
         const response = await fetch(`${gatewayUrl.replace(/\/+$/, '')}/api/stealth/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },

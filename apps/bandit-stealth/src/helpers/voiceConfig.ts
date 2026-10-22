@@ -33,11 +33,11 @@ export async function readVoiceProviderSettings(
   secrets: vscode.SecretStorage
 ): Promise<VoiceProviderSettings> {
   return {
-    sttProvider: configuration.get<'bandit' | 'openai-whisper' | 'custom'>('voice.stt.provider', 'bandit'),
+    sttProvider: configuration.get<'auto' | 'bandit' | 'openai-whisper' | 'custom'>('voice.stt.provider', 'auto'),
     sttUrl: configuration.get<string>('voice.stt.url', '') ?? '',
     sttApiKey: await readMigratedSecret(secrets, VOICE_STT_API_KEY_SECRET_KEY, configuration, 'voice.stt.apiKey'),
     sttModel: configuration.get<string>('voice.stt.model', 'whisper-1') ?? 'whisper-1',
-    ttsProvider: configuration.get<'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom'>('voice.tts.provider', 'bandit'),
+    ttsProvider: configuration.get<'auto' | 'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom'>('voice.tts.provider', 'auto'),
     ttsUrl: configuration.get<string>('voice.tts.url', '') ?? '',
     ttsApiKey: await readMigratedSecret(secrets, VOICE_TTS_API_KEY_SECRET_KEY, configuration, 'voice.tts.apiKey'),
     ttsModel: configuration.get<string>('voice.tts.model', 'tts-1') ?? 'tts-1',
@@ -72,11 +72,9 @@ export async function buildVoiceConfig(
 export interface VoiceGates {
   /** True when the webview should render the mic button. Composed of
    *  "user has a Bandit API key" AND "user opted into voice.micEnabled".
-   *  Provider doesn't matter — the cloud STT endpoint is available to
-   *  anyone with a Bandit account regardless of whether they're
-   *  running Ollama locally. Without an API key the button is hidden
-   *  entirely (it would fail on click and there's no UX value showing
-   *  a button the user can't use). */
+   *  Where the audio goes is decided at click time by routeVoice
+   *  (voiceProviders.ts): Bandit Cloud STT only while the chat provider
+   *  is Bandit Cloud. */
   micEnabled: boolean;
   /** Raw user preference for auto-speak (assistant TTS) — what the
    *  toggle in Settings → Voice is set to, NOT a derived gate. */

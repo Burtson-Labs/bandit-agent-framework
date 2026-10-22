@@ -23,7 +23,8 @@ vi.mock('vscode', () => ({
 const apiCoreMock = vi.hoisted(() => ({
   poolConstructorCalls: 0,
   lastPoolOptions: undefined as { resolveAuthToken?: (k: string) => string | undefined; trustGate?: unknown } | undefined,
-  poolListReturn: [] as Array<{ name: string }>
+  poolListReturn: [] as Array<{ name: string }>,
+  registered: [] as string[]
 }));
 
 vi.mock('@burtson-labs/agent-core', () => ({
@@ -34,6 +35,7 @@ vi.mock('@burtson-labs/agent-core', () => ({
       apiCoreMock.lastPoolOptions = options;
     }
     list() { return apiCoreMock.poolListReturn; }
+    register(name: string) { apiCoreMock.registered.push(name); }
     dispose() { return Promise.resolve(); }
   },
   fingerprintServerConfig: vi.fn(() => 'fp-123')
@@ -51,8 +53,19 @@ vi.mock('@burtson-labs/host-kit', () => ({
       await hostKitMock.registerImpl(root, pool);
     }
   }),
+  loadMcpServersConfig: vi.fn(async () => ({
+    localStdio: { command: 'node', args: ['s.js'] },
+    loopbackUrl: { url: 'http://127.0.0.1:7000/mcp' },
+    remoteUrl: { url: 'https://mcp.example/mcp' }
+  })),
+  isLoopbackHost: (h: string) => h === '127.0.0.1' || h === 'localhost',
   approveMcpFingerprint: vi.fn(async () => undefined),
   loadApprovedMcpFingerprints: vi.fn(async () => new Set<string>())
+}));
+
+const offlineState = vi.hoisted(() => ({ on: false }));
+vi.mock('../../src/helpers/offlineMode', () => ({
+  extensionOfflineMode: () => ({ offline: offlineState.on })
 }));
 
 vi.mock('../../src/helpers/mcpLifecycle', () => ({
@@ -100,6 +113,17 @@ describe('McpService', () => {
     // register called exactly once — the failure is caught + hydrated
     // stays true so we don't retry every turn.
     expect(hostKitMock.registerCalls).toBe(1);
+  });
+
+  it('offline mode does not register remote (non-loopback) URL servers', async () => {
+    offlineState.on = true;
+    apiCoreMock.registered.length = 0;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const svc = new McpService(makeCtx());
+    await svc.ensureHydrated('/workspace');
+    offlineState.on = false;
+    warn.mockRestore();
+    expect(apiCoreMock.registered).toEqual(['localStdio', 'loopbackUrl']);
   });
 
   it("setBanditApiKey populates the cache the pool's sync resolveAuthToken callback reads", () => {

@@ -189,11 +189,11 @@ export interface WebviewState {
   // ── Settings panel state (mirrors components/SettingsPanel's types) ──
   voiceMicEnabled?: boolean;
   voiceProviderSettings?: {
-    sttProvider: "bandit" | "openai-whisper" | "custom";
+    sttProvider: "auto" | "bandit" | "openai-whisper" | "custom";
     sttUrl: string;
     sttApiKey: string;
     sttModel: string;
-    ttsProvider: "bandit" | "openai" | "elevenlabs" | "piper" | "custom";
+    ttsProvider: "auto" | "bandit" | "openai" | "elevenlabs" | "piper" | "custom";
     ttsUrl: string;
     ttsApiKey: string;
     ttsModel: string;

@@ -370,6 +370,11 @@
             "default": "https://api.burtson.ai/feedback",
             "description": "Bandit feedback endpoint for the thumbs ratings you click. Ratings are sent only when you are signed in to Bandit; nothing is sent for Ollama or other providers, and diff reviews are never sent."
           },
+          "banditStealth.offline": {
+            "type": "boolean",
+            "default": false,
+            "description": "Offline mode: Bandit contacts only the model server you configured. Turns off models.dev, the web, image and artifact tools, Bandit Cloud (provider, account, usage, voice, remote control, telemetry), cloud voice providers and remote MCP servers, and refuses any network tool call with a message. Also turned on by BANDIT_OFFLINE=1, \"offline\": true in ~/.bandit/settings.json or .bandit/settings.json, or network.offline in the machine policy file; this setting cannot turn those off."
+          },
           "banditStealth.provider": {
             "type": "string",
             "enum": [
@@ -462,7 +467,7 @@
           "banditStealth.voice.micEnabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable the microphone button in the composer for speech-to-text transcription. Provider is configurable independently of the chat provider \u2014 see banditStealth.voice.stt.provider."
+            "description": "Enable the microphone button in the composer for speech-to-text transcription. The provider follows the chat provider by default \u2014 see banditStealth.voice.stt.provider."
           },
           "banditStealth.suggestNextPrompt": {
             "type": "boolean",
@@ -477,12 +482,13 @@
           "banditStealth.voice.stt.provider": {
             "type": "string",
             "enum": [
+              "auto",
               "bandit",
               "openai-whisper",
               "custom"
             ],
-            "default": "bandit",
-            "description": "Speech-to-text provider. 'bandit' uses the Bandit cloud STT endpoint (requires a Bandit API key). 'openai-whisper' targets any Whisper-compatible HTTP endpoint (faster-whisper-server, whisper.cpp HTTP, OpenAI, LiteLLM, vLLM). 'custom' lets you point at any URL with the same multipart shape."
+            "default": "auto",
+            "description": "Speech-to-text provider. 'auto' (default) follows the chat provider: Bandit Cloud STT while the chat provider is Bandit Cloud, otherwise no dictation until you choose a local server; audio is never sent to Bandit Cloud while chat uses Ollama or an OpenAI-compatible server. 'bandit' uses the Bandit cloud STT endpoint (requires a Bandit API key, and only while the chat provider is Bandit Cloud). 'openai-whisper' targets any Whisper-compatible HTTP endpoint (faster-whisper-server, whisper.cpp HTTP, OpenAI, LiteLLM, vLLM). 'custom' lets you point at any URL with the same multipart shape."
           },
           "banditStealth.voice.stt.url": {
             "type": "string",
@@ -503,14 +509,15 @@
           "banditStealth.voice.tts.provider": {
             "type": "string",
             "enum": [
+              "auto",
               "bandit",
               "openai",
               "elevenlabs",
               "piper",
               "custom"
             ],
-            "default": "bandit",
-            "description": "Text-to-speech provider. 'bandit' uses the Bandit cloud (requires a Bandit API key). 'openai' targets /v1/audio/speech. 'elevenlabs' uses ElevenLabs' /v1/text-to-speech/{voice} URL. 'piper' is a local Piper HTTP server. 'custom' is a free-form URL + JSON body shape."
+            "default": "auto",
+            "description": "Text-to-speech provider. 'auto' (default) follows the chat provider: Bandit Cloud TTS while the chat provider is Bandit Cloud, otherwise no read-aloud until you choose a local server such as Piper; text is never sent to Bandit Cloud while chat uses Ollama or an OpenAI-compatible server. 'bandit' uses the Bandit cloud (requires a Bandit API key, and only while the chat provider is Bandit Cloud). 'openai' targets /v1/audio/speech. 'elevenlabs' uses ElevenLabs' /v1/text-to-speech/{voice} URL. 'piper' is a local Piper HTTP server. 'custom' is a free-form URL + JSON body shape."
           },
           "banditStealth.voice.tts.url": {
             "type": "string",

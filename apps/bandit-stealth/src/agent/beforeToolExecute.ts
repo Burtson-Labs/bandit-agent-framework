@@ -12,6 +12,8 @@ import {
   grantRuleFor,
   decidePermission,
   resolvePermissionMode,
+  isNetworkTool,
+  offlineMessage,
   type AutoApprovalLedger,
   type HookSettings,
   type TurnLogger
@@ -20,6 +22,8 @@ import {
 import type { PermissionGateService } from '../provider/services/permissionGateService';
 import type { ConversationEntry } from '../services/conversationTypes';
 import { buildPermissionAskPreview } from './permissionAskPreview';
+import { describeNetworkDestination } from './networkDestination';
+import { extensionOfflineMode } from '../helpers/offlineMode';
 import type { TurnState } from './turnState';
 
 export type BeforeToolExecuteResult =
@@ -208,6 +212,26 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
       return { allow: false, reason };
     }
 
+    // 0b. Offline mode: a tool that contacts another host is refused before
+    // anything else runs. Normally such tools are not registered at all in
+    // offline mode (toolLoopSetup); this is the backstop for any that remain
+    // (git remote tools from a skill, MCP tools from servers not declared local).
+    if (isNetworkTool(name)) {
+      const offline = extensionOfflineMode({ workspaceRoot });
+      if (offline.offline) {
+        const reason = offlineMessage(offline, name);
+        await turnLog?.append({
+          type: 'permission-denied',
+          name,
+          primary: previewText(primary),
+          displayPrimary: previewText(displayPrimary),
+          source: 'offline',
+          reason
+        });
+        return { allow: false, reason };
+      }
+    }
+
     // 1. Shell hooks — project-authored guardrails.
     const hookResults = await runHooks('PreToolUse', hookSettings, { toolName: name, primary }, workspaceRoot);
     const blocker = hookResults.find(r => r.exitCode !== 0);
@@ -337,8 +361,15 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
         state.toolStartedAt.set(name, Date.now());
         return { allow: true };
       }
-      const { description, bodyPreview, warning, diffStats, command, paramsPreview } =
-        buildPermissionAskPreview(name, params, workspaceRoot, userGoal);
+      const preview = buildPermissionAskPreview(name, params, workspaceRoot, userGoal);
+      const { description, bodyPreview, diffStats, command, paramsPreview } = preview;
+      // Network tools: the card names the exact destination (full URL,
+      // resolved git remote, Bandit Cloud host), not just the tool.
+      const destination = await describeNetworkDestination(name, params, workspaceRoot).catch(() => undefined);
+      const warning = destination
+        ? [destination.line, preview.warning].filter(Boolean).join('\n\n')
+        : preview.warning;
+      const cardPrimary = displayPrimary || primary || destination?.primary || '';
 
       // Share an inflight card with any sibling call that hit this
       // gate at the same time for the same (tool, primary). First
@@ -352,12 +383,12 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
           displayPrimary: previewText(displayPrimary),
           risk
         });
-        notifyUser('approval', 'Bandit needs approval', `${name}${primary ? ` ${primary}` : ''}`);
+        notifyUser('approval', 'Bandit needs approval', `${name}${cardPrimary ? ` ${cardPrimary}` : ''}`);
         permissionPromise = permissionGate.request({
           tool: name,
           // Card title / fallback detail: full argv for shell so a missing
           // `command` field can never leave the user approving blind.
-          primary: displayPrimary || primary,
+          primary: cardPrimary,
           // The classifier's reason, so the card and the gate agree on how
           // risky the call is instead of computing it from separate string
           // matching that had already drifted between the two hosts.

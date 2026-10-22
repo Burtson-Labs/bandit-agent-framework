@@ -178,11 +178,11 @@ export interface WebviewState {
    * setups; sensitive cloud keys belong on the Bandit cloud
    * provider which uses VS Code Secrets. */
   voiceProviderSettings?: {
-    sttProvider: 'bandit' | 'openai-whisper' | 'custom';
+    sttProvider: 'auto' | 'bandit' | 'openai-whisper' | 'custom';
     sttUrl: string;
     sttApiKey: string;
     sttModel: string;
-    ttsProvider: 'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom';
+    ttsProvider: 'auto' | 'bandit' | 'openai' | 'elevenlabs' | 'piper' | 'custom';
     ttsUrl: string;
     ttsApiKey: string;
     ttsModel: string;

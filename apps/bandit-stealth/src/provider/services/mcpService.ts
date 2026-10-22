@@ -31,9 +31,20 @@ import {
 import {
   approveMcpFingerprint,
   loadApprovedMcpFingerprints,
+  isLoopbackHost,
+  loadMcpServersConfig,
   registerMcpServersFromDisk
 } from '@burtson-labs/host-kit';
 import { buildMcpSnapshot } from '../../helpers/mcpLifecycle';
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    return isLoopbackHost(new URL(raw).hostname);
+  } catch {
+    return false;
+  }
+}
+import { extensionOfflineMode } from '../../helpers/offlineMode';
 import type { ProviderContext } from '../context';
 
 export class McpService {
@@ -154,7 +165,21 @@ export class McpService {
     if (this.hydrated) {return;}
     this.hydrated = true;
     try {
-      await registerMcpServersFromDisk(workspaceRoot, this.pool);
+      if (extensionOfflineMode({ workspaceRoot }).offline) {
+        // Offline mode: a URL-based (remote) MCP server is not registered
+        // unless it is on loopback. Local stdio servers still load; their
+        // tools ask, or are refused if not declared "local": true.
+        const servers = await loadMcpServersConfig(workspaceRoot);
+        for (const [name, cfg] of Object.entries(servers)) {
+          if (typeof cfg.url === 'string' && !isLoopbackUrl(cfg.url)) {
+            console.warn(`[mcp] offline mode: not connecting to remote MCP server "${name}" (${cfg.url})`);
+            continue;
+          }
+          this.pool.register(name, cfg);
+        }
+      } else {
+        await registerMcpServersFromDisk(workspaceRoot, this.pool);
+      }
     } catch (err) {
       console.warn('[mcp] hydrate failed', err);
     }

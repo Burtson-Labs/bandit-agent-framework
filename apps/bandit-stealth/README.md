@@ -9,14 +9,14 @@
 
 ---
 
-Bandit reads your codebase, writes changes, runs commands, and stays out of your way. Local-first by default on any Ollama model — your code never leaves your machine. Optional Bandit cloud when you want managed inference with zero local setup.
+Bandit reads your codebase, writes changes, runs commands, and stays out of your way. Local-first by default on any Ollama model: the conversation goes to the Ollama server you configure, and tools that would contact another host ask first (see [Network and offline mode](#network-and-offline-mode)). Optional Bandit cloud when you want managed inference with zero local setup.
 
 - **Your choice of model.** Runs locally on any Ollama model — Gemma 4, Qwen 3.6, Devstral, your custom fine-tune. Or point at Bandit's hosted gateway for managed inference with thinking mode and zero local setup.
 - **Works alongside you.** Bandit autonomously explores your code, reads and writes files, runs shell commands — every write gated by a unified-diff approval so you're never surprised.
 - **Permission modes with a floor you can trust.** Read-only **plan** mode, prompt-everything **ask**, and **auto** for routine work — cycled with shift+tab and always visible on screen. Destructive calls (deletes, force-push, credential files, egress) ask every time, in every mode, and that's not configurable.
 - **Integrated with the editor.** Auto-context attaches the right files without you picking them. `@`-mention any file (or folder — drill in until you find it). Inline diffs stream into the editor as the agent works.
 - **Powerful agentic features.** Skills the agent can author itself, plan preview with go/no-go confirmation, session checkpoints with `/rewind`, hooks for CI guardrails, and a tool-use loop with pre-write language validation (TypeScript / Python / JSON / C#).
-- **Voice that's actually pluggable.** Speech-to-text and text-to-speech are independent of the chat provider. Use Bandit cloud, OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.
+- **Voice that's actually pluggable.** By default voice follows the chat provider: Bandit cloud voice only while chat uses Bandit cloud. Or pick OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.
 - **Type a message while Bandit is replying.** The composer keeps accepting input while the agent streams — your follow-up shows as a "queued" pill and fires automatically when the current turn finishes. The Stop button next to the spinner cancels the active turn AND clears your queue.
 - **`!` runs straight in your integrated terminal.** Type `!npx create-vite my-app` in the composer and the next Enter opens VS Code's integrated terminal and runs the command there with full TTY (so interactive scaffolders work). The agent doesn't see the output; this is a user-invoked escape hatch with the same blocked-pattern guards as the safe path (`rm -rf`, `mkfs`, `dd if=` always refused). A yellow SHELL MODE banner appears in the composer the moment you type `!` so you can't miss the mode change.
 - **Cross-repo discovery built in.** Ask the agent to "open the auth-api repo" or "edit the stt-api Dockerfile" and it locates the repo via `find_directory` — sweeps `~/Documents/GitHub`, `~/GitHub`, `~/Projects`, `~/code`, `~/dev`, `~/repos`, `~/work`, `~/src`, plus the parent of the active workspace. No more "where is that repo?" round-trips.
@@ -49,7 +49,7 @@ Bandit Stealth is built by Burtson Labs — a small independent shop, not a vent
 
 **The deal:**
 
-- **Local is free, forever.** Point Bandit at Ollama and you never owe us a dollar. No account, no network calls on your code — and telemetry is **off by default** (opt-in, see below).
+- **Local is free, forever.** Point Bandit at Ollama and you never owe us a dollar. No account, nothing sent to Burtson Labs, and telemetry is **off by default** (opt-in, see below).
 - **Cloud is optional.** If you'd rather skip the local setup, the hosted gateway runs tuned models with thinking mode ready to go. Rolling-window limits and transparent usage in the Account tab.
 - **The roadmap is public.** Every release note and open rough edge lives in the repo. File an issue and you're talking to the people writing the code.
 
@@ -189,7 +189,7 @@ Servers spawn lazily on first invocation. A failed server logs its error and the
 
 ## Voice — pluggable providers, independent of chat
 
-Speech-to-text and text-to-speech are configured separately from the chat provider. Run Ollama locally for chat and pair it with whichever voice setup matches your privacy / cost / latency preference. The Bandit-API-key gate only fires when you've actually picked Bandit cloud as your voice provider — local-only setups (Ollama chat + self-hosted Whisper + Piper TTS) work without a cloud account.
+Speech-to-text and text-to-speech have their own provider settings. The default, `auto`, follows the chat provider: Bandit cloud voice while chat uses Bandit cloud, and no voice otherwise until you pick one. Bandit never sends text or recorded audio to Bandit cloud while chat uses Ollama or an OpenAI-compatible server, even if a Bandit key is saved. Local-only setups (Ollama chat + self-hosted Whisper + Piper TTS) work without a cloud account. In offline mode only a provider on `localhost` is used.
 
 Open **Settings → Voice** to configure:
 
@@ -199,7 +199,8 @@ Open **Settings → Voice** to configure:
 - **Custom URL** — any endpoint that takes multipart audio in and returns JSON `{ text }`.
 
 **Text-to-speech providers**
-- **Bandit cloud** — Brian voice through the Bandit gateway.
+- **Follow chat provider** (`auto`, default) — Bandit cloud voice only while chat uses Bandit cloud.
+- **Bandit cloud** — Brian voice through the Bandit gateway, only while chat uses Bandit cloud.
 - **OpenAI** — `/v1/audio/speech` with `tts-1` / `tts-1-hd`. Works with OpenAI itself, LiteLLM, any compatible proxy.
 - **ElevenLabs** — `/v1/text-to-speech/{voice}` with `xi-api-key` auth.
 - **Piper** — local Piper HTTP server (POST text/plain or JSON). Zero-cost, fully offline.
@@ -210,8 +211,8 @@ Open **Settings → Voice** to configure:
 | `banditStealth.voice.autoSpeak` | `false` | Auto-narrate short assistant responses (>120 words are skipped). |
 | `banditStealth.voice.maxAutoSpeakWords` | `120` | Word-count cap for auto-speak. |
 | `banditStealth.voice.micEnabled` | `false` | Show the mic button in the composer for voice prompts. |
-| `banditStealth.voice.stt.provider` | `bandit` | `bandit` / `openai-whisper` / `custom`. |
-| `banditStealth.voice.tts.provider` | `bandit` | `bandit` / `openai` / `elevenlabs` / `piper` / `custom`. |
+| `banditStealth.voice.stt.provider` | `auto` | `auto` (follow chat provider) / `bandit` / `openai-whisper` / `custom`. |
+| `banditStealth.voice.tts.provider` | `auto` | `auto` (follow chat provider) / `bandit` / `openai` / `elevenlabs` / `piper` / `custom`. |
 | `banditStealth.voice.stt.url` / `tts.url` | — | Endpoint URL when the provider isn't `bandit`. |
 | `banditStealth.voice.stt.apiKey` / `tts.apiKey` | — | Bearer / API key for the chosen provider. |
 | `banditStealth.voice.stt.model` / `tts.model` | `whisper-1` / `tts-1` | Model name for OpenAI-compatible providers. |
@@ -308,9 +309,18 @@ Beyond the per-write approval gate, you can lock down what the agent is allowed 
 
 Same format and behavior as the [CLI](../bandit-cli/README.md#settings-file--hooks-permissions-security-guard) — settings written once apply to both the IDE and the terminal.
 
+### Network and offline mode
+
+- **Tools that contact another host ask first** in the default `ask` mode: `web_fetch`, `web_search`, `fetch_image`, `git_push`, `git_pull`, the Bandit Cloud artifact tools, and MCP tools from servers not marked `"local": true`. The approval card shows the full URL, the search text, or the git remote's URL. Plan mode refuses them. Allow rules in `.bandit/settings.json` and the `auto`/`dangerous` modes work as before. `fetch_image` refuses private, loopback and link-local addresses, like `web_fetch`.
+- **Artifact and image-generation tools** exist only while the chat provider is Bandit cloud; a saved key alone does not add them.
+- **Images in chat replies are not loaded automatically.** A remote image shows as its address; click it to load that one image (fetched by the extension through the same address guard as `web_fetch`).
+- **MCP servers** get your Bandit key only if their entry says `"auth": "bandit"` (and Burtson Labs' own server).
+- **models.dev** (a public model catalogue) is fetched only for an OpenAI-compatible server on a public address, never for one on `localhost` or your local network. `BANDIT_NO_MODELS_DEV=1` turns it off.
+- **Offline mode** — `banditStealth.offline`, `BANDIT_OFFLINE=1`, `"offline": true` in `~/.bandit/settings.json` or `.bandit/settings.json`, or `"network": { "offline": true }` in the machine policy file (`/etc/bandit/policy.json`, `/Library/Application Support/Bandit/policy.json`, `C:\ProgramData\Bandit\policy.json`). Any one turns it on. Bandit then contacts only the model server you configured: no models.dev, no web/image/artifact tools, no Bandit Cloud provider, account, usage, voice, remote control or telemetry, no cloud voice providers, no remote MCP servers, and any network tool call is refused with a message. Commands you approve through `run_command` still run in your shell with its network access.
+
 ### Telemetry (opt-in, off by default)
 
-Bandit is **telemetry-capable but ships with it off**. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. **Prompt and response text are never sent**; only metadata, run through secret redaction.
+Bandit is **telemetry-capable but ships with it off**. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. Each trace carries the model name, the first 160 characters of your prompt, each tool's name and the first 120 characters of its main argument (a file path, command, URL or search text), all run through secret redaction. Response text is never sent. `"mode": "metrics-only"` sends metrics without traces. Offline mode turns telemetry off.
 
 - **Bandit Cloud users** can flip it on to see their usage in Bandit's hosted dashboards — it ships to `otlp.burtson.ai` authenticated with your Bandit account.
 - **Everyone else** can point it at their own OTLP collector (Grafana/Tempo, an OTel Collector, App Insights, …).

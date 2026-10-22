@@ -39,6 +39,7 @@ import {
 import { registerCommands } from './commands/registerCommands';
 import { migrateSettingSecrets } from './helpers/secretMigration';
 import { BanditStealthViewProvider } from './provider/BanditStealthViewProvider';
+import { isExtensionOffline } from './helpers/offlineMode';
 
 // Re-export for command files and other consumers that import the class
 // by type from `./extension` — preserves the existing import surface.
@@ -218,7 +219,9 @@ export function activate(context: vscode.ExtensionContext): void {
       const openaiBaseUrl = activationCfg.get<string>('openaiBaseUrl', '') ?? '';
       const openaiModel = activationCfg.get<string>('openaiModel', '') ?? '';
       if (openaiBaseUrl && openaiModel) {
-        void queryModelsDevCapabilities(openaiModel, openaiBaseUrl)
+        // Skipped for a local/LAN base URL and in offline mode (the runtime's
+        // modelsDevAllowed), and with BANDIT_NO_MODELS_DEV=1.
+        void queryModelsDevCapabilities(openaiModel, openaiBaseUrl, { disabled: isExtensionOffline() })
           .then(caps => {
             if (caps) {registerModelCapabilities(openaiModel, caps);}
           })
