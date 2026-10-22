@@ -189,6 +189,26 @@ export const disableRemoteImages = (md: MarkdownIt): void => {
     const src = token.attrGet?.('src') ?? '';
     const alt = typeof token.content === 'string' ? token.content : '';
     const label = alt ? `${alt}: ${src}` : src;
+    // An absolute http(s) image can be loaded on request: the span carries
+    // the URL in `data-remote-image-src` and a host that supports it (the
+    // VS Code extension) fetches it only when the user clicks, through its
+    // own guarded fetch, and swaps in a data: URI. Nothing here loads it.
+    let host = '';
+    if (/^https?:\/\//i.test(src)) {
+      try {
+        host = new URL(src).host;
+      } catch {
+        host = '';
+      }
+    }
+    if (host) {
+      const esc = md.utils.escapeHtml;
+      return `<span class="bandit-blocked-image" role="button" tabindex="0"`
+        + ` data-remote-image-src="${esc(src)}"`
+        + ` title="Image not loaded. Click to load it from ${esc(host)}.">`
+        + `[image] ${esc(label)} (click to load from ${esc(host)})`
+        + `</span>`;
+    }
     return `<span class="bandit-blocked-image" title="Image not loaded">`
       + `[image] ${md.utils.escapeHtml(label)}`
       + `</span>`;

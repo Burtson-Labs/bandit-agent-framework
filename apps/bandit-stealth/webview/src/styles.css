@@ -4130,3 +4130,20 @@ body.bandit-theme-midnight {
 .stealth-shell * {
   letter-spacing: normal;
 }
+
+/* Remote images in model markdown load only on click (util/remoteImages.ts). */
+.bandit-blocked-image[data-remote-image-src] {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.bandit-blocked-image[data-state="loading"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.bandit-blocked-image[data-state="failed"] {
+  color: var(--vscode-errorForeground);
+}
+.bandit-loaded-image {
+  max-width: 100%;
+  height: auto;
+}

@@ -52,6 +52,9 @@ export type WebviewMessage =
   | { type: "contextFilesAdded"; files: { path: string; preview?: string }[] }
   | { type: "imageAttachmentsAdded"; images: string[] }
   | { type: "workspaceFileSuggestions"; entries: Array<{ path: string; isDir: boolean }> }
+  // Reply to a click-to-load image request (util/remoteImages.ts).
+  | { type: "remoteImageLoaded"; url: string; dataUri: string }
+  | { type: "remoteImageFailed"; url: string; error: string }
   | { type: "suggestions"; items: string[] }
   | { type: "contextInjectionSkipped"; reason?: string; prompt?: string }
   | {

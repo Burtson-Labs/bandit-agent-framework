@@ -79,6 +79,7 @@ import { dispatchPlanMessage } from "./messageDispatch/planMessages";
 import { dispatchTraceMessage } from "./messageDispatch/traceMessages";
 import { dispatchVoiceMessage } from "./messageDispatch/voiceMessages";
 import { dispatchWorkspaceMessage } from "./messageDispatch/workspaceMessages";
+import { handleRemoteImageResult, installRemoteImageLoader } from "./util/remoteImages";
 import { useLiveDiffEntries } from "./hooks/useLiveDiffEntries";
 import { useMentionPicker } from "./hooks/useMentionPicker";
 import { useMicrophoneRecording } from "./hooks/useMicrophoneRecording";
@@ -1459,6 +1460,9 @@ export function App(): JSX.Element {
     };
     document.addEventListener("click", handleWorkspaceLinkClick);
 
+    // Click-to-load for remote images in model markdown (util/remoteImages).
+    const uninstallRemoteImages = installRemoteImageLoader((msg) => vscode.postMessage(msg));
+
     // capture scrollTop on the card's synopsis `<pre>`. Same
     // pattern as the open-state listener above: capture-phase scroll on
     // document so the handler reaches descendants without waiting for
@@ -1488,6 +1492,7 @@ export function App(): JSX.Element {
       document.removeEventListener("click", handleDiffSummaryClick);
       document.removeEventListener("click", handleReasoningSummaryClick);
       document.removeEventListener("click", handleWorkspaceLinkClick);
+      uninstallRemoteImages();
       document.removeEventListener("scroll", handleSubagentSynopsisScroll, true);
       codeCopyResetTimers.current.forEach((timerId) => window.clearTimeout(timerId));
       codeCopyResetTimers.current.clear();
@@ -1751,6 +1756,10 @@ export function App(): JSX.Element {
         })
       ) {return;}
       if (dispatchWorkspaceMessage(message, { handleWorkspaceFileSuggestions })) {return;}
+      if (message.type === "remoteImageLoaded" || message.type === "remoteImageFailed") {
+        handleRemoteImageResult(message);
+        return;
+      }
       if (
         dispatchBackgroundTaskMessage(message, {
           setBackgroundTasksList,

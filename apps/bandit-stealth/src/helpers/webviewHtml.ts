@@ -61,7 +61,11 @@ export function buildWebviewHtml(options: BuildWebviewHtmlOptions): string {
   const configJson = JSON.stringify({ logoSrc: logoUri.toString(), nativeTitleActions: true }).replace(/</g, '\\u003c');
   const csp = [
     "default-src 'none'",
-    `img-src ${webview.cspSource} https: data:`,
+    // No remote images. Model-written markdown could otherwise make the panel
+    // GET any URL on render (an exfiltration channel). A remote image loads
+    // only when the user clicks it: the extension fetches it through the SSRF
+    // guard and passes a data: URI (helpers/remoteImage.ts).
+    `img-src ${webview.cspSource} data:`,
     `font-src ${webview.cspSource}`,
     `style-src ${webview.cspSource}`,
     // media-src explicitly covers <audio> sources. Without this, the

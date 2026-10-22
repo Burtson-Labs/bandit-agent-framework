@@ -82,6 +82,8 @@ export type IncomingMessage =
   | { type: 'refinePlanStep'; id: string }
   | { type: 'openFileFromDiff'; path: string }
   | { type: 'openContextFile'; path: string }
+  // Click-to-load: the user clicked a remote image in model markdown.
+  | { type: 'loadRemoteImage'; url: string }
   | { type: 'diffPreviewAction'; path: string; action: 'apply' | 'explain' | 'discard' }
   | { type: 'undoAgentChange' }
   | { type: 'requestAccountProfile' }
@@ -145,6 +147,8 @@ export type OutgoingMessage =
   | { type: 'contextFilesAdded'; files: Array<{ path: string; preview?: string }> }
   | { type: 'imageAttachmentsAdded'; images: string[] }
   | { type: 'workspaceFileSuggestions'; entries: Array<{ path: string; isDir: boolean }> }
+  | { type: 'remoteImageLoaded'; url: string; dataUri: string }
+  | { type: 'remoteImageFailed'; url: string; error: string }
   // Next-prompt prediction: likely next prompts, rendered as composer chips.
   | { type: 'suggestions'; items: string[] }
   | { type: 'agentPlan'; plan?: Plan; history?: SerializedPlanRun[]; activeRunId?: string | null }

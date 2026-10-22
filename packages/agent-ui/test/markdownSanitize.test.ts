@@ -85,6 +85,27 @@ describe('layer 1 — renderer blocks remote images', () => {
   });
 });
 
+describe('click-to-load marker', () => {
+  it('marks an absolute http(s) image for click-to-load without loading it', () => {
+    const out = render('![chart](https://images.example/c.png?x=1&y=2)');
+    expect(out).not.toMatch(/<img/i);
+    expect(out).toContain('data-remote-image-src="https://images.example/c.png?x=1&amp;y=2"');
+    expect(out).toContain('click to load from images.example');
+    expect(out).toContain('role="button"');
+  });
+
+  it('does not offer click-to-load for relative, protocol-relative or data: sources', () => {
+    for (const payload of ['![](//attacker.example/p.png)', '![](img/a.png)', '![](data:image/png;base64,AAAA)']) {
+      expect(render(payload), payload).not.toContain('data-remote-image-src');
+    }
+  });
+
+  it('escapes the URL inside the attribute', () => {
+    const out = render('![](https://a.example/x.png"onmouseover="alert(1))');
+    expect(out).not.toMatch(/onmouseover="alert/);
+  });
+});
+
 describe('layer 2 — sanitizer strips remote-loading tags', () => {
   it('strips a raw remote-loading tag (covers html:true renderers)', () => {
     // One element per assertion — see the happy-dom caveat in the file header.

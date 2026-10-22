@@ -35,6 +35,8 @@ import * as vscode from 'vscode';
 import type { IncomingMessage } from '../../messages';
 import type { ProviderContext } from '../context';
 import type { FeedbackRating } from '../../services/conversationTypes';
+import { fetchRemoteImageAsDataUri } from '../../helpers/remoteImage';
+import { extensionOfflineMode, offlineRefusal } from '../../helpers/offlineMode';
 
 export interface BridgeMessageDeps {
   /** Submit a feedback rating for an assistant message. The
@@ -162,6 +164,21 @@ export async function handleDismissIntentSuggestions(ctx: ProviderContext): Prom
   await ctx.syncState();
 }
 
+/**
+ * Click-to-load: fetch the one image the user clicked, through the SSRF
+ * guard, and hand the webview a data: URI (its CSP allows no remote images).
+ */
+export async function handleLoadRemoteImage(ctx: ProviderContext, url: string): Promise<void> {
+  const mode = extensionOfflineMode();
+  const result = await fetchRemoteImageAsDataUri(url, {
+    offline: mode.offline,
+    offlineReason: mode.offline ? offlineRefusal('loading remote images', mode) : undefined
+  });
+  ctx.postMessage(result.ok
+    ? { type: 'remoteImageLoaded', url, dataUri: result.dataUri }
+    : { type: 'remoteImageFailed', url, error: result.error });
+}
+
 export function handleCancelBackgroundTask(ctx: ProviderContext, taskId: string): void {
   ctx.backgroundTasks.cancel(taskId);
 }
@@ -192,6 +209,9 @@ export async function dispatchBridgeMessage(
       return true;
     case 'openContextFile':
       await handleOpenContextFile(ctx, message.path);
+      return true;
+    case 'loadRemoteImage':
+      await handleLoadRemoteImage(ctx, message.url);
       return true;
     case 'submitFeedback':
       await handleSubmitFeedback(ctx, deps, message.messageId, message.rating);
