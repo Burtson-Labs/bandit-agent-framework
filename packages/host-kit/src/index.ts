@@ -63,7 +63,7 @@ export { buildRestoreArtifactTool } from './tools/restoreArtifactTool';
 export { buildGetArtifactTool } from './tools/getArtifactTool';
 export { buildUpdateArtifactTool } from './tools/updateArtifactTool';
 export { buildEmailArtifactTool } from './tools/emailArtifactTool';
-export { buildFetchImageTool } from './tools/fetchImageTool';
+export { buildFetchImageTool, type FetchImageToolOptions } from './tools/fetchImageTool';
 export { buildGenerateImageTool, type GenerateImageToolOptions } from './tools/generateImageTool';
 export { inlineHtmlImages, type InlineImagesOptions, type InlineImagesResult } from './imageInline';
 // Sandbox execution seam — swappable boundary for running commands (local host
@@ -95,7 +95,9 @@ export {
   registerMcpServersFromDisk,
   globalMcpServersPath,
   persistMcpActivation,
-  addMcpServerToConfig
+  addMcpServerToConfig,
+  mcpServerWantsBanditKey,
+  mcpServerDeclaredLocal
 } from './mcp';
 export {
   buildGitHubServerConfig,
@@ -183,6 +185,8 @@ export {
   isPrivateHost,
   vetHost,
   runGuardedWebFetch,
+  guardedGet,
+  type GuardedGetResult,
   type LookupAllFn,
   type PinnedTransport,
   type PinnedAddress,
@@ -225,9 +229,31 @@ export {
   emptyPolicy,
   mergePolicies,
   SessionPermissionStore,
+  NETWORK_TOOLS,
+  isNetworkTool,
+  isKnownLocalMcpTool,
+  mcpServerOf,
+  setMcpServerLocal,
   type PermissionPolicy,
   type PermissionDecision
 } from './permissions';
+export {
+  OFFLINE_ENV,
+  OfflineBlockedError,
+  envTurnsOfflineOn,
+  installOfflineFetchGuard,
+  isLoopbackHost,
+  isPrivateOrLocalHost,
+  machinePolicyPath,
+  offlineMessage,
+  readPolicyOffline,
+  resolveOfflineMode,
+  type OfflineFetchGuardOptions,
+  type OfflineMode,
+  type OfflineSource,
+  type ResolveOfflineInput
+} from './offline';
+export { PROJECT_GITIGNORE, ensureProjectGitignore, mkdirInProjectBandit } from './projectDir';
 export {
   openTurnLog,
   previewText,
