@@ -310,8 +310,10 @@ jobs:
           body: |
             ## Highlights
 
-            - Privacy fix: Apply, Explain and Discard in the diff review no longer send the file path or diff anywhere.
-            - Thumbs ratings are sent only when you click one while signed in to Bandit with feedback on; nothing is sent for Ollama or other providers.
+            - Tools that reach the network (web fetch and search, images, git push and pull, artifact publishing, non-local MCP tools) now ask first and show the full address; plan mode refuses them.
+            - Offline mode: one setting leaves your model server as the only host Bandit contacts.
+            - Voice and your Bandit key stay with Bandit cloud only when you chat with Bandit cloud; remote images load only on click.
+            - Queued messages are editable, survive a reload, come back to the composer on Stop, and can be queued while an approval card is open.
 
             ## Install
 

@@ -2,8 +2,10 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
-## Unreleased
+## 1.7.455 (2026-10-22)
 
+- **Queued messages are editable and never lost.** Messages sent while the agent works are listed above the composer; each can be edited or removed. Stop, or a turn that fails, puts the queued messages back in the composer unsent instead of dropping them or sending them into the same error. The queue survives a window reload. You can now type and queue while an approval or question card is open without answering it, and Stop answers an open card (denies an approval, dismisses a question).
+- **Stop no longer re-sends what it put back** in the composer (seen in code-server, where the Stop button turned into Send during the same click).
 - **Tools that contact another host ask first.** `web_fetch`, `web_search`, `fetch_image`, `git_push`, `git_pull`, the Bandit Cloud artifact tools and MCP tools from servers not marked `"local": true` used to run without a prompt in the default `ask` mode. They ask now, and the card shows the full URL, the search text or the git remote's URL. Plan mode refuses them; allow rules and auto mode work as before.
 - **`fetch_image` refuses private, loopback and link-local addresses**, like `web_fetch`, and is no longer treated as read-only.
 - **Remote images in chat replies load only when you click them.** The panel's content security policy no longer allows remote images; a click fetches that one image through the `web_fetch` address guard.
