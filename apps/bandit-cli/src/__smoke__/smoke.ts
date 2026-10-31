@@ -122,7 +122,17 @@ async function main(): Promise<void> {
       path.join(hookProject, '.bandit/settings.json'),
       JSON.stringify({ hooks: { PreToolUse: [{ match: 'run_command', command: 'true' }] } })
     );
-    const hooks = await loadHookSettings(hookProject);
+    // A fresh checkout is not trusted: its hooks are dropped and reported.
+    const untrusted = await loadHookSettings(hookProject, { trusted: false });
+    assert(failures, (untrusted.hooks?.PreToolUse ?? []).length === 0, 'untrusted workspace hooks are not loaded');
+    assert(
+      failures,
+      untrusted.ignoredUntrusted?.length === 1 && untrusted.ignoredUntrusted[0].keys.includes('hooks') && untrusted.ignoredUntrusted[0].hookCount === 1,
+      'dropped hooks are reported in ignoredUntrusted'
+    );
+    // Trusted (here via the CI env switch): the hooks round-trip.
+    const hooks = await loadHookSettings(hookProject, { env: { BANDIT_TRUST_PROJECT_SETTINGS: '1' } });
+    assert(failures, hooks.workspaceTrusted === true, 'BANDIT_TRUST_PROJECT_SETTINGS=1 trusts the workspace');
     assert(failures, (hooks.hooks?.PreToolUse ?? []).length === 1, 'hook settings round-trip');
     assert(failures, hooks.hooks?.PreToolUse?.[0].match === 'run_command', 'hook match survived parse');
 
