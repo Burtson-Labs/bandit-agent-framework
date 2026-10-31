@@ -791,6 +791,13 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
     </aside>
     <main id="content" class="content-pane">
       <div class="content">
+<blockquote>
+<p><strong>Not the published CLI.</strong> <code>@burtson-labs/bandit-stealth-cli</code> is built and published from
+<a href="https://github.com/Burtson-Labs/bandit-stealth">Burtson-Labs/bandit-stealth</a> (<code>apps/bandit-cli</code>).
+This copy is kept for the framework’s own CI (smoke, BanditBench, integration) and is marked
+<code>private</code> so it can never be published under the same npm name. Port changes to the
+bandit-stealth copy; whether to remove this one is an open maintainer decision.</p>
+</blockquote>
 <a href="https://burtson.ai">
   <picture>
     <img src="https://cdn.burtson.ai/logos/bandit-stealth.png" alt="Bandit Stealth" width="140" style="width: 140px !important; max-width: 140px !important; height: auto; display: inline-block;" />
@@ -1266,6 +1273,7 @@ bandit &quot;explain @src/auth/login.ts&quot;        # one-shot with a file ment
 <li><code>~/.bandit/settings.json</code> — global (all workspaces)</li>
 <li><code>&lt;workspace&gt;/.bandit/settings.json</code> (and <code>.bandit/settings.local.json</code>) — per-project</li>
 </ul>
+<p>The workspace files are <strong>trusted per folder</strong>. Until the folder is trusted they can only narrow Bandit (<code>deny</code>/<code>ask</code> rules, a narrower <code>permissions.mode</code>, <code>offline</code>, extra guard rules); their <code>hooks</code>, <code>permissions.allow</code>, a wider mode and <code>security.guard.enabled: false</code> are ignored. Trust is recorded in <code>~/.bandit/trusted-workspaces.json</code> (<code>{ &quot;trusted&quot;: [&quot;/path/to/project&quot;] }</code>; a trusted folder covers its subfolders) — the VS Code extension writes it from <strong>Bandit Stealth: Trust this folder’s .bandit settings</strong>, or add the folder yourself. <code>BANDIT_TRUST_PROJECT_SETTINGS=1</code> trusts the current workspace for one process, for CI. The global <code>~/.bandit/settings.json</code> is your own file and always applies, and “Always allow” choices you save from a permission prompt keep working in an untrusted folder.</p>
 <pre><code class="language-jsonc">{
   // Built-in pre-tool security guard. OPT-IN, off by default. Blocks the
   // handful of tool calls that are almost never legitimate, BEFORE they run —

@@ -283,6 +283,8 @@ Separate from `config.json`, a **settings** file controls what the agent is allo
 - `~/.bandit/settings.json` — global (all workspaces)
 - `<workspace>/.bandit/settings.json` (and `.bandit/settings.local.json`) — per-project
 
+The workspace files are **trusted per folder**. Until the folder is trusted they can only narrow Bandit (`deny`/`ask` rules, a narrower `permissions.mode`, `offline`, extra guard rules); their `hooks`, `permissions.allow`, a wider mode and `security.guard.enabled: false` are ignored. Trust is recorded in `~/.bandit/trusted-workspaces.json` (`{ "trusted": ["/path/to/project"] }`; a trusted folder covers its subfolders) — the VS Code extension writes it from **Bandit Stealth: Trust this folder's .bandit settings**, or add the folder yourself. `BANDIT_TRUST_PROJECT_SETTINGS=1` trusts the current workspace for one process, for CI. The global `~/.bandit/settings.json` is your own file and always applies, and "Always allow" choices you save from a permission prompt keep working in an untrusted folder.
+
 ```jsonc
 {
   // Built-in pre-tool security guard. OPT-IN, off by default. Blocks the

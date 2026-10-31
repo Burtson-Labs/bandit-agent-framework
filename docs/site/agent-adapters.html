@@ -802,10 +802,10 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p><a href="./glossary.html#llm" class="glossary-link" title="Glossary">LLM</a> providers, <a href="./glossary.html#embedding" class="glossary-link" title="Glossary">embedding</a> models, vector stores, GitHub, the VS Code extension API, and the web — intentionally thin shims that normalize one external API surface into the shape <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/agent-core</code></a> expects.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s here</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s here</h2>
 <table>
 <thead>
 <tr>
@@ -836,9 +836,9 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 </tr>
 </tbody>
 </table>
-<h2><img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status</h2>
 <p>Stable. Adding a new provider goes here; adding a new tool generally does NOT (that’s <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/agent-core/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/agent-core</code></a> or <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/packages/host-kit/" target="_blank" rel="noopener noreferrer"><code>@burtson-labs/host-kit</code></a>).</p>
-<h2><img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> When to extend this package</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> When to extend this package</h2>
 <ul>
 <li><strong>New LLM provider</strong> — add a class under <code>provider/</code> that implements the <code>ChatProvider</code> shape from <code>@burtson-labs/agent-core</code>. See <code>OllamaProvider</code> for the reference implementation.</li>
 <li><strong>New embedding backend</strong> — same pattern under <code>provider/</code>. Embedding adapters are simpler — single method, deterministic output.</li>

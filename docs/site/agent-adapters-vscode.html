@@ -802,17 +802,17 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Bridges <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a> to the VS Code workspace API — filesystem reads/writes via <code>workspace.fs</code>, URI handling via <code>Uri.file</code>, status messages via <code>window.showInformationMessage</code>, and event posting to a webview.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters-vscode @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <ul>
 <li><code>VscodeLike</code> — minimal structural type for the <code>vscode</code> namespace so the adapter compiles outside a real extension host (useful in tests)</li>
 <li><code>VscodeAdapterFs</code> — <code>workspace.fs</code> shim used by step executors that read/write files</li>
 <li>An adapter that streams <code>AgentEvent</code>s through <code>postMessage</code> so the webview can render plan + diff + log timelines</li>
 <li><code>Buffer</code> import comes from the <code>buffer</code> package so the adapter runs in the extension’s Node host without relying on globals</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import * as vscode from &quot;vscode&quot;;
 import { createVscodeAdapter } from &quot;@burtson-labs/agent-adapters-vscode&quot;;
 

@@ -802,17 +802,17 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Thin <a href="./glossary.html#streaming" class="glossary-link" title="Glossary">streaming</a> wrappers that normalize one provider API surface into the shape <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a> expects, so the agent runtime is provider-agnostic.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters-provider @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <ul>
 <li><code>ProviderClient</code> — base provider abstraction consumed by <code>agent-core</code>’s tool-use loop</li>
 <li><code>DeterministicProviderClient</code> — replay-friendly client for tests and trace fixtures</li>
 <li><code>ProviderChatOptions</code> — normalized request shape across providers</li>
 <li>A polyfilled <code>TextDecoder</code> fallback for runtimes that don’t ship one (some constrained worker environments)</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import { DeterministicProviderClient } from &quot;@burtson-labs/agent-adapters-provider&quot;;
 import { createAgentRuntime } from &quot;@burtson-labs/agent-core&quot;;
 

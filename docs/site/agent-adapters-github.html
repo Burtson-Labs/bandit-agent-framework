@@ -802,17 +802,17 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Run an agent inside a workflow and surface its plan, execution, and report as a GitHub check run — backed by <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a>.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters-github @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <ul>
 <li><code>GithubAdapterOptions</code> — extends <code>CreateAgentRuntimeOptions</code> with <code>repository</code>, <code>headSha</code>, and <code>workflowName</code></li>
 <li><code>GithubCheckRunPayload</code> — the shape POSTed to the GitHub <code>/check-runs</code> endpoint after a planned run</li>
 <li><code>GithubCheckRunOutput</code> — title / summary / text fields that render in the workflow UI</li>
 <li>An adapter that maps agent plan + execution + report into a single check-run payload</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import { createGithubAdapter } from &quot;@burtson-labs/agent-adapters-github&quot;;
 
 const adapter = createGithubAdapter({

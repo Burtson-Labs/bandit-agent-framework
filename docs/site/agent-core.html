@@ -802,10 +802,10 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Owns the <code>ToolUseLoop</code> — the iteration controller that drives every Bandit agent run, parent or <a href="./glossary.html#subagent" class="glossary-link" title="Glossary">subagent</a>, in both the VS Code extension and the CLI host.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick start</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick start</h2>
 <p><code>agent-core</code> is provider-agnostic — pair it with a provider client (<code>@burtson-labs/agent-adapters-provider</code> wraps Ollama, OpenAI-compatible endpoints, and the hosted Bandit gateway) and a host-side tool set (<code>@burtson-labs/host-kit</code> ships the extras the CLI and extension use). The minimal shape:</p>
 <pre><code class="language-ts">import { createAgentRuntime } from &quot;@burtson-labs/agent-core&quot;;
 
@@ -863,7 +863,7 @@ const report = await runtime.report();
 </tr>
 </tbody>
 </table>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <table>
 <thead>
 <tr>
@@ -906,7 +906,7 @@ const report = await runtime.report();
 </tr>
 </tbody>
 </table>
-<h2><img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Running tests</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/beaker.svg" width="22" align="absmiddle"> Running tests</h2>
 <pre><code class="language-bash">pnpm --filter @burtson-labs/agent-core test
 </code></pre>
 <p>The suite is split across <strong>synthetic contract tests</strong> (one file per detector cluster) and <strong>real-trace replay tests</strong> (turn logs from <code>.bandit/turns/</code> replayed through a fresh loop):</p>
@@ -966,13 +966,13 @@ const report = await runtime.report();
 </table>
 <h3>Adding a regression fixture from a real failure trace</h3>
 <p>When you see a weird agent behavior in a real run, drop the turn-log fixture into the test suite so a future loop change can’t silently regress it. <strong>See <a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/fixtures/turns/README.md" target="_blank" rel="noopener noreferrer">test/fixtures/turns/README.md</a></strong> for the full guide — replay-completeness limits, naming conventions, what to assert, and a copy-paste test template.</p>
-<h2><img src="https://api.iconify.design/lucide/book-open.svg?color=%23a60ee5&width=22" align="absmiddle"> Conventions</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/book-open.svg" width="22" align="absmiddle"> Conventions</h2>
 <ul>
 <li><strong>Every detector is one-shot per turn.</strong> Each <code>tool_loop:*_nudge</code> event fires at most once before the loop terminates or the model recovers. Adding a new detector means adding the gate flag + a contract test.</li>
 <li><strong>Constructor options must flow through to runtime.</strong> <code>ToolUseLoopOptions</code> set at construction time apply to every <code>runWithMessages</code> call. The merge happens in <code>runWithMessages</code> — see <code>effectiveOptions = { ...defaultOptions, ...perCall }</code>. New options need a corresponding entry in <a href="https://github.com/Burtson-Labs/bandit-agent-framework/blob/main/packages/agent-core/test/constructorOptionsContract.test.ts" target="_blank" rel="noopener noreferrer">test/constructorOptionsContract.test.ts</a> (the file’s exhaustiveness check fails build if you forget).</li>
 <li><strong>Helpers go in <code>test/_helpers.ts</code>; the replay harness in <code>test/_replay.ts</code>.</strong> Both file names start with <code>_</code> so they’re excluded from vitest’s <code>test/**/*.test.ts</code> glob.</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/network.svg?color=%23a60ee5&width=22" align="absmiddle"> Position in the framework</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/network.svg" width="22" align="absmiddle"> Position in the framework</h2>
 <pre><code>[host: VS Code extension or CLI]
               │
               ▼

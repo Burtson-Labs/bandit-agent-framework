@@ -84,6 +84,7 @@ The global `~/.bandit/settings.json` is merged **under** the workspace `.bandit/
 - **`security.guard`** — an opt-in, in-process safety net that blocks catastrophic tool calls (`rm -rf /`, `curl … | sh`, disk wipes, credential exfil, writes to system/credential paths) before they run. Extend it with `blockCommands` / `protectPaths`. Off by default.
 - **`hooks`** — shell commands at lifecycle points. `PreToolUse` can **block** (non-zero exit aborts the call); `PostToolUse` / `Stop` / `UserPromptSubmit` are fire-and-forget — great for formatters, version bumps, notifications, CI triggers. Placeholders: `{{name}}`, `{{primary}}`, `{{duration}}`. Full reference in [`host-kit`](./host-kit.html).
 - **`permissions`** — allow/deny rules so trusted tools skip the approval prompt.
+- **Trust** — the workspace files only *narrow* Bandit until you trust the folder: their `hooks`, `permissions.allow`, a wider `permissions.mode` and `security.guard.enabled: false` are ignored, and the host says so. Trust is per folder in `~/.bandit/trusted-workspaces.json` — set from the extension's **Trust this folder's .bandit settings** command, by hand, or with `BANDIT_TRUST_PROJECT_SETTINGS=1` for one process (CI). The global file is always honoured.
 
 ---
 

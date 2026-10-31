@@ -802,16 +802,16 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Wires <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a>’s runtime to a Node process — shell execution, filesystem reads/writes, and an <code>AgentRuntime</code> factory configured for server-side hosts.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters-node @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <ul>
 <li><code>runCommand</code> / <code>CommandRunOptions</code> / <code>CommandRunResult</code> — promise-wrapped <code>child_process.exec</code> with cwd, env, and timeout knobs</li>
 <li>Node-targeted <code>AgentRuntime</code> factory built on top of <code>createAgentRuntime</code> from <code>agent-core</code></li>
 <li>Step executors that read/write files through <code>fs/promises</code></li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import { runCommand } from &quot;@burtson-labs/agent-adapters-node&quot;;
 
 const result = await runCommand(&quot;pnpm test&quot;, {

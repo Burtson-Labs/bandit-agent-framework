@@ -802,16 +802,16 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Run an <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a> runtime in the browser — agent events are dispatched through a configurable <code>EventTarget</code> so any host (a React app, a webview, a worker) can subscribe with normal DOM event listeners.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-adapters-web @burtson-labs/agent-core
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s inside</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s inside</h2>
 <ul>
 <li><code>WebAdapter</code> — wraps an <code>AgentRuntime</code> with <code>plan</code> / <code>execute</code> / <code>report</code> plus a <code>subscribe(listener)</code> returning an unsubscribe function</li>
 <li><code>WebAdapterOptions</code> — extends <code>CreateAgentRuntimeOptions</code> with <code>target</code> (custom <code>EventTarget</code>) and <code>eventName</code> for the dispatched event type</li>
 <li><code>MinimalEventTarget</code> — structural type for hosts that ship a partial event target (workers, custom impls)</li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import { createWebAdapter } from &quot;@burtson-labs/agent-adapters-web&quot;;
 
 const adapter = createWebAdapter({

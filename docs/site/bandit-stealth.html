@@ -798,14 +798,14 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <a href="https://www.npmjs.com/package/@burtson-labs/bandit-stealth-cli"><img src="https://img.shields.io/npm/v/%40burtson-labs%2Fbandit-stealth-cli?label=CLI%20on%20npm&amp;logo=npm&amp;color=cb3837" alt="CLI on npm"></a>
 <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></p>
 <hr>
-<p>Bandit reads your codebase, writes changes, runs commands, and stays out of your way. Local-first by default on any Ollama model — your code never leaves your machine. Optional Bandit cloud when you want managed <a href="./glossary.html#inference" class="glossary-link" title="Glossary">inference</a> with zero local setup.</p>
+<p>Bandit reads your codebase, writes changes, runs commands, and stays out of your way. Local-first by default on any Ollama model: the conversation goes to the Ollama server you configure, and tools that would contact another host ask first (see <a href="#network-and-offline-mode">Network and offline mode</a>). Optional Bandit cloud when you want managed <a href="./glossary.html#inference" class="glossary-link" title="Glossary">inference</a> with zero local setup.</p>
 <ul>
 <li><strong>Your choice of model.</strong> Runs locally on any Ollama model — Gemma 4, Qwen 3.6, Devstral, your custom fine-tune. Or point at Bandit’s hosted gateway for managed inference with thinking mode and zero local setup.</li>
 <li><strong>Works alongside you.</strong> Bandit autonomously explores your code, reads and writes files, runs shell commands — every write gated by a unified-diff approval so you’re never surprised.</li>
 <li><strong>Permission modes with a floor you can trust.</strong> Read-only <strong>plan</strong> mode, prompt-everything <strong>ask</strong>, and <strong>auto</strong> for routine work — cycled with shift+tab and always visible on screen. Destructive calls (deletes, force-push, credential files, egress) ask every time, in every mode, and that’s not configurable.</li>
 <li><strong>Integrated with the editor.</strong> Auto-context attaches the right files without you picking them. <code>@</code>-mention any file (or folder — drill in until you find it). Inline diffs stream into the editor as the agent works.</li>
 <li><strong>Powerful agentic features.</strong> Skills the agent can author itself, plan preview with go/no-go confirmation, session checkpoints with <code>/rewind</code>, hooks for CI guardrails, and a tool-use loop with pre-write language validation (TypeScript / Python / JSON / C#).</li>
-<li><strong>Voice that’s actually pluggable.</strong> Speech-to-text and text-to-speech are independent of the chat provider. Use Bandit cloud, OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.</li>
+<li><strong>Voice that’s actually pluggable.</strong> By default voice follows the chat provider: Bandit cloud voice only while chat uses Bandit cloud. Or pick OpenAI-compatible Whisper (faster-whisper-server / whisper.cpp HTTP / OpenAI / LiteLLM), ElevenLabs, a local Piper server, or any custom URL. Run Ollama locally for chat + a self-hosted Whisper for voice and never touch a cloud account.</li>
 <li><strong>Type a message while Bandit is replying.</strong> The composer keeps accepting input while the agent streams — your follow-up shows as a “queued” pill and fires automatically when the current turn finishes. The Stop button next to the spinner cancels the active turn AND clears your queue.</li>
 <li><strong><code>!</code> runs straight in your integrated terminal.</strong> Type <code>!npx create-vite my-app</code> in the composer and the next Enter opens VS Code’s integrated terminal and runs the command there with full TTY (so interactive scaffolders work). The agent doesn’t see the output; this is a user-invoked escape hatch with the same blocked-pattern guards as the safe path (<code>rm -rf</code>, <code>mkfs</code>, <code>dd if=</code> always refused). A yellow SHELL MODE banner appears in the composer the moment you type <code>!</code> so you can’t miss the mode change.</li>
 <li><strong>Cross-repo discovery built in.</strong> Ask the agent to “open the auth-api repo” or “edit the stt-api Dockerfile” and it locates the repo via <code>find_directory</code> — sweeps <code>~/Documents/GitHub</code>, <code>~/GitHub</code>, <code>~/Projects</code>, <code>~/code</code>, <code>~/dev</code>, <code>~/repos</code>, <code>~/work</code>, <code>~/src</code>, plus the parent of the active workspace. No more “where is that repo?” round-trips.</li>
@@ -827,7 +827,7 @@ bandit
 <p>Bandit Stealth is built by Burtson Labs — a small independent shop, not a venture-funded research lab. The goal is simple: make agentic coding tools that work well without gating them behind enterprise pricing.</p>
 <p><strong>The deal:</strong></p>
 <ul>
-<li><strong>Local is free, forever.</strong> Point Bandit at Ollama and you never owe us a dollar. No account, no network calls on your code — and telemetry is <strong>off by default</strong> (opt-in, see below).</li>
+<li><strong>Local is free, forever.</strong> Point Bandit at Ollama and you never owe us a dollar. No account, nothing sent to Burtson Labs, and telemetry is <strong>off by default</strong> (opt-in, see below).</li>
 <li><strong>Cloud is optional.</strong> If you’d rather skip the local setup, the hosted gateway runs tuned models with thinking mode ready to go. Rolling-window limits and transparent usage in the Account tab.</li>
 <li><strong>The roadmap is public.</strong> Every release note and open rough edge lives in the repo. File an issue and you’re talking to the people writing the code.</li>
 </ul>
@@ -983,7 +983,7 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <p>Servers spawn lazily on first invocation. A failed server logs its error and the rest of the agent loop keeps running on native tools only. Off by default — no config file means no behavior change.</p>
 <hr>
 <h2>Voice — pluggable providers, independent of chat</h2>
-<p>Speech-to-text and text-to-speech are configured separately from the chat provider. Run Ollama locally for chat and pair it with whichever voice setup matches your privacy / cost / latency preference. The Bandit-API-key gate only fires when you’ve actually picked Bandit cloud as your voice provider — local-only setups (Ollama chat + self-hosted Whisper + Piper TTS) work without a cloud account.</p>
+<p>Speech-to-text and text-to-speech have their own provider settings. The default, <code>auto</code>, follows the chat provider: Bandit cloud voice while chat uses Bandit cloud, and no voice otherwise until you pick one. Bandit never sends text or recorded audio to Bandit cloud while chat uses Ollama or an OpenAI-compatible server, even if a Bandit key is saved. Local-only setups (Ollama chat + self-hosted Whisper + Piper TTS) work without a cloud account. In offline mode only a provider on <code>localhost</code> is used.</p>
 <p>Open <strong>Settings → Voice</strong> to configure:</p>
 <p><strong>Speech-to-text providers</strong></p>
 <ul>
@@ -993,7 +993,8 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 </ul>
 <p><strong>Text-to-speech providers</strong></p>
 <ul>
-<li><strong>Bandit cloud</strong> — Brian voice through the Bandit gateway.</li>
+<li><strong>Follow chat provider</strong> (<code>auto</code>, default) — Bandit cloud voice only while chat uses Bandit cloud.</li>
+<li><strong>Bandit cloud</strong> — Brian voice through the Bandit gateway, only while chat uses Bandit cloud.</li>
 <li><strong>OpenAI</strong> — <code>/v1/audio/speech</code> with <code>tts-1</code> / <code>tts-1-hd</code>. Works with OpenAI itself, LiteLLM, any compatible proxy.</li>
 <li><strong>ElevenLabs</strong> — <code>/v1/text-to-speech/{voice}</code> with <code>xi-api-key</code> auth.</li>
 <li><strong>Piper</strong> — local Piper HTTP server (POST text/plain or JSON). Zero-cost, fully offline.</li>
@@ -1025,13 +1026,13 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 </tr>
 <tr>
 <td><code>banditStealth.voice.stt.provider</code></td>
-<td><code>bandit</code></td>
-<td><code>bandit</code> / <code>openai-whisper</code> / <code>custom</code>.</td>
+<td><code>auto</code></td>
+<td><code>auto</code> (follow chat provider) / <code>bandit</code> / <code>openai-whisper</code> / <code>custom</code>.</td>
 </tr>
 <tr>
 <td><code>banditStealth.voice.tts.provider</code></td>
-<td><code>bandit</code></td>
-<td><code>bandit</code> / <code>openai</code> / <code>elevenlabs</code> / <code>piper</code> / <code>custom</code>.</td>
+<td><code>auto</code></td>
+<td><code>auto</code> (follow chat provider) / <code>bandit</code> / <code>openai</code> / <code>elevenlabs</code> / <code>piper</code> / <code>custom</code>.</td>
 </tr>
 <tr>
 <td><code>banditStealth.voice.stt.url</code> / <code>tts.url</code></td>
@@ -1235,8 +1236,18 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 }
 </code></pre>
 <p>Same format and behavior as the <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/README.md#settings-file--hooks-permissions-security-guard" target="_blank" rel="noopener noreferrer">CLI</a> — settings written once apply to both the IDE and the terminal.</p>
+<p><strong>A folder’s <code>.bandit</code> settings need your trust.</strong> The files in a checkout were written by whoever wrote the repository. Until you trust the folder, <code>.bandit/settings.json</code> and <code>.bandit/settings.local.json</code> can only narrow Bandit — <code>deny</code> and <code>ask</code> rules, a narrower <code>permissions.mode</code>, <code>offline</code>, extra guard rules. Their <code>hooks</code>, <code>permissions.allow</code>, a wider mode and <code>security.guard.enabled: false</code> are ignored, and the first turn in the folder says what was ignored and offers <strong>Trust this folder</strong>. From the Command Palette, <strong>Bandit Stealth: Trust this folder’s .bandit settings</strong> confirms what trusting enables (the folder’s hooks run as shell commands on your machine) and <strong>Stop trusting this folder’s .bandit settings</strong> reverses it. Trust is remembered per folder in <code>~/.bandit/trusted-workspaces.json</code> and shared with the CLI; <code>BANDIT_TRUST_PROJECT_SETTINGS=1</code> trusts the current workspace for one process (CI). Your own <code>~/.bandit/settings.json</code> is always honoured, and “Always allow” choices you make from a permission card keep working in an untrusted folder. Bandit does not offer its own trust while VS Code has the workspace in Restricted Mode.</p>
+<h3>Network and offline mode</h3>
+<ul>
+<li><strong>Tools that contact another host ask first</strong> in the default <code>ask</code> mode: <code>web_fetch</code>, <code>web_search</code>, <code>fetch_image</code>, <code>git_push</code>, <code>git_pull</code>, the Bandit Cloud artifact tools, and MCP tools from servers not marked <code>&quot;local&quot;: true</code>. The approval card shows the full URL, the search text, or the git remote’s URL. Plan mode refuses them. Allow rules in <code>.bandit/settings.json</code> and the <code>auto</code>/<code>dangerous</code> modes work as before. <code>fetch_image</code> refuses private, loopback and link-local addresses, like <code>web_fetch</code>.</li>
+<li><strong>Artifact and image-generation tools</strong> exist only while the chat provider is Bandit cloud; a saved key alone does not add them.</li>
+<li><strong>Images in chat replies are not loaded automatically.</strong> A remote image shows as its address; click it to load that one image (fetched by the extension through the same address guard as <code>web_fetch</code>).</li>
+<li><strong>MCP servers</strong> get your Bandit key only if their entry says <code>&quot;auth&quot;: &quot;bandit&quot;</code> (and Burtson Labs’ own server).</li>
+<li><strong>models.dev</strong> (a public model catalogue) is fetched only for an OpenAI-compatible server on a public address, never for one on <code>localhost</code> or your local network. <code>BANDIT_NO_MODELS_DEV=1</code> turns it off.</li>
+<li><strong>Offline mode</strong> — <code>banditStealth.offline</code>, <code>BANDIT_OFFLINE=1</code>, <code>&quot;offline&quot;: true</code> in <code>~/.bandit/settings.json</code> or <code>.bandit/settings.json</code>, or <code>&quot;network&quot;: { &quot;offline&quot;: true }</code> in the machine policy file (<code>/etc/bandit/policy.json</code>, <code>/Library/Application Support/Bandit/policy.json</code>, <code>C:\ProgramData\Bandit\policy.json</code>). Any one turns it on. Bandit then contacts only the model server you configured: no models.dev, no web/image/artifact tools, no Bandit Cloud provider, account, usage, voice, remote control or telemetry, no cloud voice providers, no remote MCP servers, and any network tool call is refused with a message. Commands you approve through <code>run_command</code> still run in your shell with its network access.</li>
+</ul>
 <h3>Telemetry (opt-in, off by default)</h3>
-<p>Bandit is <strong>telemetry-capable but ships with it off</strong>. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. <strong>Prompt and response text are never sent</strong>; only metadata, run through secret redaction.</p>
+<p>Bandit is <strong>telemetry-capable but ships with it off</strong>. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. Each trace carries the model name, the first 160 characters of your prompt, each tool’s name and the first 120 characters of its main argument (a file path, command, URL or search text), all run through secret redaction. Response text is never sent. <code>&quot;mode&quot;: &quot;metrics-only&quot;</code> sends metrics without traces. Offline mode turns telemetry off.</p>
 <ul>
 <li><strong>Bandit Cloud users</strong> can flip it on to see their usage in Bandit’s hosted dashboards — it ships to <code>otlp.burtson.ai</code> authenticated with your Bandit account.</li>
 <li><strong>Everyone else</strong> can point it at their own OTLP collector (Grafana/Tempo, an OTel Collector, App Insights, …).</li>

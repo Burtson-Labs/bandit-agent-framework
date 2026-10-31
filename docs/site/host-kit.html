@@ -802,22 +802,23 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Writing a new host (a Cursor sidebar, a JetBrains plugin, a custom CLI)? Pull from here.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/host-kit
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/puzzle.svg?color=%23a60ee5&width=22" align="absmiddle"> What’s in the box</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/blocks.svg" width="22" align="absmiddle"> What’s in the box</h2>
 <ul>
 <li><strong>Memory loader</strong> — discovers and merges <code>BANDIT.md</code> / <code>CLAUDE.md</code> / <code>AGENTS.md</code> files across workspace + global locations; deduplicates overlapping content at load time; <code>consolidateMemory()</code> unifies multiple entry files into a single canonical <code>BANDIT.md</code> (symlink on macOS/Linux, copy-with-drift-warning on Windows)</li>
 <li><strong>Topic memory</strong> — lazy-load index at <code>.bandit/memory/MEMORY.md</code> (preferred) with back-compat reads from legacy root <code>MEMORY.md</code>; writes always go to <code>.bandit/memory/</code>; <code>migrateMemoryToBanditDir()</code> moves an existing root <code>memory/</code> layout into <code>.bandit/memory/</code> idempotently</li>
 <li><strong><code>@-mention</code> expansion</strong> — detects <code>@path/to/file</code> in user input and inlines file contents (with secret redaction) or attaches images as base64</li>
 <li><strong>Hook runner</strong> — executes PreToolUse / PostToolUse / Stop / UserPromptSubmit hooks; <code>loadHookSettings</code> merges the <strong>global</strong> <code>~/.bandit/settings.json</code> under the workspace <code>.bandit/settings.json</code> so hooks + permissions + the guard apply across every repo</li>
+<li><strong>Workspace trust</strong> — a workspace’s settings files only <strong>narrow</strong> Bandit until the user trusts the folder (<code>isWorkspaceTrusted</code> / <code>trustWorkspace</code> / <code>untrustWorkspace</code>, remembered in <code>~/.bandit/trusted-workspaces.json</code>, or <code>BANDIT_TRUST_PROJECT_SETTINGS=1</code> for one process); hooks, allow rules, a wider mode and <code>security.guard.enabled: false</code> from an untrusted workspace are dropped and listed in <code>settings.ignoredUntrusted</code> (file, keys, hook count) for the host to show. “Always allow” grants the user saved from a card are remembered under <code>~/.bandit</code> and keep working untrusted</li>
 <li><strong>Pre-tool security guard</strong> — <code>evaluateSecurityGuard(call, settings, ctx)</code>: an opt-in, in-process safety net (no shell spawn) that blocks catastrophic tool calls (<code>rm -rf /</code>, <code>curl … | sh</code>, disk wipes, credential exfil, writes to system/credential paths) before they run. Wired into <code>beforeToolExecute</code> in both hosts</li>
 <li><strong><a href="./glossary.html#mcp" class="glossary-link" title="Glossary">MCP</a> loader</strong> — reads <code>mcp-servers.json</code> (global + workspace, workspace wins), auto-injects <code>BANDIT_API_KEY</code>, registers servers with the pool</li>
 <li><strong>Turn trace reader</strong> — parses workspace and global <code>.bandit/turns/*.jsonl</code> into summaries and markdown timelines for CLI <code>/trace</code>, IDE <code>/trace</code>, tests, and future bug-bundle export</li>
 <li><strong>Insights</strong> — usage analytics aggregator (CLI sessions → human report)</li>
 <li><strong>Extra tool builders</strong> — <code>todo_write</code>, <code>web_fetch</code>, <code>web_search</code>, <code>task</code> (<a href="./glossary.html#subagent" class="glossary-link" title="Glossary">subagent</a>), <code>remember</code>, <code>test_run</code>, <code>pdf_read</code></li>
 </ul>
-<h2><img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> What you can do</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> What you can do</h2>
 <p><strong>Load and merge project memory</strong> — <code>BANDIT.md</code> / <code>CLAUDE.md</code> / <code>AGENTS.md</code>, deduped:</p>
 <pre><code class="language-ts">import { loadMemory, consolidateMemory } from '@burtson-labs/host-kit';
 
@@ -865,16 +866,16 @@ registry.register(buildTestRunTool());                 // detect framework + run
 const traces = await listTurnTraces(cwd);
 console.log(formatTurnTraceMarkdown(await readTurnTrace(cwd, traces[0].id)));
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status</h2>
 <p>Stable. Imported by both <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/" target="_blank" rel="noopener noreferrer"><code>apps/bandit-cli/</code></a> and <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-stealth/" target="_blank" rel="noopener noreferrer"><code>apps/bandit-stealth/</code></a> — breaking changes here require coordinated PRs to both hosts.</p>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick example</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick example</h2>
 <pre><code class="language-ts">import { loadMemory, expandMentions, registerMcpServersFromDisk } from '@burtson-labs/host-kit';
 
 const memory = await loadMemory(workspaceCwd);
 const { prompt, images } = await expandMentions(rawUserInput, workspaceCwd);
 const count = await registerMcpServersFromDisk(workspaceCwd, mcpPool);
 </code></pre>
-<h2><img src="https://api.iconify.design/lucide/flask-conical.svg?color=%23a60ee5&width=22" align="absmiddle"> Tests</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/beaker.svg" width="22" align="absmiddle"> Tests</h2>
 <pre><code class="language-bash">pnpm --filter @burtson-labs/host-kit test
 </code></pre>
 <h2>License</h2>

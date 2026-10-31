@@ -802,11 +802,11 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>Host-agnostic React components — they consume a normalized event stream from the runtime and don’t know whether they’re rendering inside Vite, a VS Code webview, or the workbench harness.</p>
 </div>
 <hr>
-<h2><img src="https://api.iconify.design/lucide/package.svg?color=%23a60ee5&width=22" align="absmiddle"> Install</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/download.svg" width="22" align="absmiddle"> Install</h2>
 <pre><code class="language-bash">pnpm add @burtson-labs/agent-ui
 </code></pre>
 <p>Peer-depends on React 19, MUI 7, and emotion — the host app provides them. The runtime side (the event stream the components consume) comes from <a href="https://www.npmjs.com/package/@burtson-labs/agent-core"><code>@burtson-labs/agent-core</code></a> or the pre-wired <a href="https://www.npmjs.com/package/@burtson-labs/stealth-core-runtime"><code>@burtson-labs/stealth-core-runtime</code></a>.</p>
-<h2><img src="https://api.iconify.design/lucide/zap.svg?color=%23a60ee5&width=22" align="absmiddle"> Quick start</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/zap.svg" width="22" align="absmiddle"> Quick start</h2>
 <p>Components are pure — they consume props and don’t reach for any host. Import the CSS once at your app root, then drop components in:</p>
 <pre><code class="language-tsx">import {
   MarkdownMessage,
@@ -896,9 +896,9 @@ function ChatPanel({ messages, onSend }) {
 </tr>
 </tbody>
 </table>
-<h2><img src="https://api.iconify.design/lucide/shield-check.svg?color=%23a60ee5&width=22" align="absmiddle"> Status</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/badge-check.svg" width="22" align="absmiddle"> Status</h2>
 <p>Stable. Used by the Bandit Stealth web app, the Bandit VS Code extension webview, and a mock-driven dev workbench. Breaking changes need a coordinated PR across the consumers.</p>
-<h2><img src="https://api.iconify.design/lucide/wrench.svg?color=%23a60ee5&width=22" align="absmiddle"> Authoring a new component</h2>
+<h2><img src="https://icons.burtson.ai/svg-accent/wrench.svg" width="22" align="absmiddle"> Authoring a new component</h2>
 <p>Components live under <code>src/components/</code>. Each one should:</p>
 <ol>
 <li>Consume props only — no global state, no host-specific imports</li>
