@@ -310,10 +310,10 @@ jobs:
           body: |
             ## Highlights
 
-            - Tools that reach the network (web fetch and search, images, git push and pull, artifact publishing, non-local MCP tools) now ask first and show the full address; plan mode refuses them.
-            - Offline mode: one setting leaves your model server as the only host Bandit contacts.
-            - Voice and your Bandit key stay with Bandit cloud only when you chat with Bandit cloud; remote images load only on click.
-            - Queued messages are editable, survive a reload, come back to the composer on Stop, and can be queued while an approval card is open.
+            - Security fix: a repository's `.bandit/settings.json` could run its hooks as shell commands and turn on dangerous mode without asking. Its hooks, allow rules and a wider mode now wait for your trust (Bandit Stealth: Trust this folder's .bandit settings); the first turn tells you what was ignored.
+            - Ask mode asks for anything that is not read-only; actions that set up persistence or remote access (start-up files, cron, LaunchAgents, `authorized_keys`, `ssh -R`, tunnels) always ask.
+            - A repository's `.vscode/settings.json` can no longer change the permission mode, endpoints or Python path; remote-control turns stay in plan mode.
+            - Workspace skill tools cannot replace built-ins or skip the command allow-list.
 
             ## Install
 

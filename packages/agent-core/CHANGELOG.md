@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.95
+
+- Workspace skill tools (`.bandit/skills/*.json`) carry `origin: 'manifest'`. The registry keeps an existing non-manifest tool over a manifest tool of the same name, so a repository can no longer ship a tool named `read_file` that replaces the built-in; a manifest tool's command goes through the same allow-list and blocked patterns as `run_command` (`runCommandRefusal`), so `sh` is not available under another name.
+- `run_tests` accepts only a known test runner for `runner` (vitest, jest, mocha, pytest, playwright, bun, deno) instead of spawning whatever was named.
+- The Python syntax check runs `python3 -I`, so a repository file named `ast.py` or `base64.py` is not what it imports.
+
 ## 1.6.94
 
 - Local models: tool history is replayed in the provider's native tool-call format on the native-tools path (`stealth-core-runtime` 1.4.85), so Qwen3 no longer answers with empty replies and Gemma no longer copies the text form and stops early. Measured on BanditBench (78 runs): gemma4:31b 61 → 73 with early stops 11 → 0, qwen3-coder:30b 33 → 69, qwen3.6:27b unchanged at 75.
