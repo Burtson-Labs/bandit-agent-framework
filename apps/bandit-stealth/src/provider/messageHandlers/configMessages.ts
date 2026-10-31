@@ -21,11 +21,16 @@ export async function handleSetConfig(
   deps: ConfigMessageDeps
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('banditStealth');
+  // The two gate settings are machine-scoped (package.json): they are the
+  // user's choice on this computer, never a line in a repository's
+  // .vscode/settings.json. Writing them to the Workspace target would be
+  // refused by VS Code for a machine-scoped setting, and used to commit the
+  // user's "auto" into the repo for everyone who cloned it.
   if (message.key === 'agent.autoApproveEdits') {
     await configuration.update(
       'agent.autoApproveEdits',
       message.value === true,
-      vscode.ConfigurationTarget.Workspace
+      vscode.ConfigurationTarget.Global
     );
     await deps.syncState();
   }
@@ -35,7 +40,7 @@ export async function handleSetConfig(
     // ignored so a malformed message can't push an invalid mode.
     const next = typeof message.value === 'string' ? message.value : '';
     if (next === 'ask' || next === 'auto' || next === 'plan') {
-      await configuration.update('agent.permissionMode', next, vscode.ConfigurationTarget.Workspace);
+      await configuration.update('agent.permissionMode', next, vscode.ConfigurationTarget.Global);
       await deps.syncState();
     }
   }

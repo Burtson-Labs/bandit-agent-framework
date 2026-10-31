@@ -278,6 +278,15 @@ export function activate(context: vscode.ExtensionContext): void {
                 'Disable auto-routing'
               ).then(choice => {
                 if (choice === 'Pull Model') {
+                  // The model id comes from settings a repository can set
+                  // (.vscode/settings.json). Only an Ollama model reference
+                  // reaches the terminal line; anything else is shown, not run.
+                  if (!/^[A-Za-z0-9][\w.\-/:@]*$/.test(primary)) {
+                    void vscode.window.showErrorMessage(
+                      `"${primary}" is not a valid Ollama model id, so it was not pulled. Check banditStealth.ollamaModel / ollamaCodingModel / ollamaVisionModel / agentOllamaModel.`
+                    );
+                    return;
+                  }
                   const terminal = vscode.window.createTerminal('Ollama');
                   terminal.show();
                   terminal.sendText(`ollama pull ${primary}`);

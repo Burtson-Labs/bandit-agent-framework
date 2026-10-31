@@ -75,6 +75,13 @@ export interface BeforeToolExecuteDeps {
   notifyUser: (kind: 'approval', title: string, message: string) => void;
   /** Session record of what the permission mode let through unprompted. */
   autoLedger: AutoApprovalLedger;
+  /**
+   * True while the current turn came from remote control (the web / phone
+   * surface). Such a turn runs in plan mode whatever the local setting says:
+   * the remote side is promised read-only, and a prompt that arrived over the
+   * network is not the person at this keyboard choosing auto or dangerous.
+   */
+  isRemoteTurn?: () => boolean;
 }
 
 /**
@@ -270,13 +277,20 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
     // before this was centralized. Mode is read fresh each call so flipping the
     // setting mid-run applies to the next tool use.
     const risk = classifyRisk({ name, params }, { workspaceRoot });
-    const mode = resolvePermissionMode({
-      settingsMode: vscode.workspace
-        .getConfiguration('banditStealth')
-        .get<string>('agent.permissionMode', 'ask')
-        ?? hookSettings.permissions?.mode,
-      env: process.env
-    }).mode;
+    // A remote-control turn is held to plan mode (read-only). The setting
+    // is machine-scoped, so a repository's .vscode/settings.json cannot
+    // supply it; the workspace .bandit/settings.json value is consulted only
+    // when the setting is unset, and host-kit already drops a widening value
+    // from an untrusted workspace.
+    const mode = deps.isRemoteTurn?.()
+      ? 'plan'
+      : resolvePermissionMode({
+        settingsMode: vscode.workspace
+          .getConfiguration('banditStealth')
+          .get<string>('agent.permissionMode', 'ask')
+          ?? hookSettings.permissions?.mode,
+        env: process.env
+      }).mode;
     const outcome = decidePermission({ mode, risk, policyDecision });
     const scopeInput = { toolName: name, params, primary, primaryFull };
 

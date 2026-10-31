@@ -442,4 +442,29 @@ describe('permission modes', () => {
     expect(result).toEqual({ allow: true });
     expect(gate.callCount()).toBe(0);
   });
+
+  // A remote-control turn is text that arrived from the gateway. The remote
+  // surface is promised plan mode, so the local setting — even `dangerous`
+  // — does not apply to it: writes and commands are denied, reads run.
+  it('holds a remote-control turn to plan mode whatever the local mode is', async () => {
+    const gate = makeFakeGate();
+    vscodeMock.permissionMode = 'dangerous';
+    vscodeMock.autoApproveEdits = true;
+    hostKitMock.evaluatePermission.mockReturnValue('allow');
+    let remote = true;
+    const before = buildBeforeToolExecute(makeDeps({ permissionGate: gate.service, isRemoteTurn: () => remote }));
+
+    const write = await before({ name: 'write_file', params: { path: 'foo.ts', content: 'x' } });
+    expect(write).toMatchObject({ allow: false });
+    expect((write as { reason: string }).reason).toContain('plan mode');
+    const cmd = await before({ name: 'run_command', params: { cmd: 'npm', args: 'test' } });
+    expect(cmd).toMatchObject({ allow: false });
+    const read = await before({ name: 'read_file', params: { path: 'foo.ts' } });
+    expect(read).toEqual({ allow: true });
+    expect(gate.callCount()).toBe(0);
+
+    // Back at the keyboard, the local mode applies again.
+    remote = false;
+    expect(await before({ name: 'write_file', params: { path: 'foo.ts', content: 'x' } })).toEqual({ allow: true });
+  });
 });

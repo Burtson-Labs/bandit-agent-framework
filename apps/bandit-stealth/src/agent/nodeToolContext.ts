@@ -30,6 +30,26 @@ function expandHome(p: string): string {
   return p;
 }
 
+/**
+ * On Windows `runCommand` goes through cmd.exe to resolve `.cmd` shims, and
+ * cmd.exe reads `&`, `|`, `<`, `>`, `^`, `%` and newlines out of the
+ * arguments as operators. The permission gate classifies a call by its
+ * program name, so `echo x & <program>` was a read-only command that started
+ * a second program. Returns the offending character, or null. POSIX spawns
+ * argv directly, where these are ordinary bytes. Exported for tests.
+ */
+export function cmdMetacharacterArg(
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform
+): string | null {
+  if (platform !== 'win32') {return null;}
+  for (const arg of args) {
+    const m = /[&|<>^%\r\n]/.exec(arg);
+    if (m) {return m[0] === '\n' || m[0] === '\r' ? 'newline' : m[0];}
+  }
+  return null;
+}
+
 const MAX_SEARCH_BYTES = 16 * 1024;   // 16 KB of search results
 const MAX_COMMAND_BYTES = 32 * 1024;  // 32 KB of command output
 const SEARCH_TIMEOUT_MS = 10_000;
@@ -147,6 +167,15 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
     const expandedArgs = args.map(expandHome);
     const expandedCwd = cwd ? expandHome(cwd) : this.workspaceRoot;
 
+    // Windows runs through cmd.exe (below), which reads `&`, `|`, `<`, `>`,
+    // `^` and `%` out of the arguments as operators. The gate classified the
+    // call by argv[0], so `echo x & <program>` was a read-only command that
+    // ran a second program. Refuse those characters before they reach a shell.
+    const shellMeta = cmdMetacharacterArg(expandedArgs);
+    if (shellMeta) {
+      return { stdout: '', stderr: `argument contains a cmd.exe operator (${shellMeta}); run_command passes arguments to one program only — split the command instead`, exitCode: 1 };
+    }
+
     return new Promise((resolve) => {
       let stdout = '';
       let stderr = '';
@@ -219,7 +248,10 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
       if (fileGlob) {
         args.push('--glob', fileGlob);
       }
-      args.push(pattern, dir);
+      // `-e` and `--`: the pattern and the directory are operands, never
+      // options. Without them a pattern such as `--pre=<program>` was an rg
+      // flag, and rg would run that program on every file it searched.
+      args.push('-e', pattern, '--', dir);
 
       let output = '';
       const proc = cp.spawn('rg', args, { shell: false });
@@ -275,7 +307,10 @@ export class NodeToolExecutionContext implements ToolExecutionContext {
         '--color=never',
         ...excludeDirArgs,
         ...includeArgs,
+        // Operands, not options — same reason as the rg path above.
+        '-e',
         pattern,
+        '--',
         effectiveDir
       ];
 

@@ -214,6 +214,11 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
   // Set just before injecting a web-originated turn, so handlePrompt knows not
   // to re-mirror the user message the web already displayed.
   private remoteOriginPrompt: string | null = null;
+  // True while a web-originated turn runs. The permission gate reads it and
+  // holds that turn to plan mode (read-only) whatever the local setting says:
+  // the remote surface is promised plan mode, and a prompt that arrived over
+  // the network is not the person at this keyboard choosing auto.
+  private remoteTurnActive = false;
   private statusText = 'Ready';
   private ollamaStatus: 'ready' | 'offline' | 'no-model' | 'unknown' = 'unknown';
   private ollamaModelMissing: string | undefined;
@@ -2082,8 +2087,23 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
       onRemoteTurn: (prompt) => {
         // A turn arrived from the web — run it in THIS conversation as if the
         // user typed it. Tag it so handlePrompt doesn't re-mirror the prompt.
+        //
+        // Not quite as if the user typed it: a remote turn is text from the
+        // gateway, authenticated by the account token. The `!` shell shortcut
+        // and the slash commands are keyboard affordances for the person at
+        // this machine, and the remote side is promised plan mode, so both
+        // are refused here and the turn runs read-only (see remoteTurnActive).
+        const lead = prompt.trim();
+        if (lead.startsWith('!') || lead.startsWith('/')) {
+          void this.remoteSession?.mirrorUser(prompt);
+          console.warn('[bandit][remote] refused a remote prompt that starts with ! or /');
+          return;
+        }
         this.remoteOriginPrompt = prompt;
-        void this.handlePrompt(prompt, undefined, 'agent');
+        this.remoteTurnActive = true;
+        void this.handlePrompt(prompt, undefined, 'agent').finally(() => {
+          this.remoteTurnActive = false;
+        });
       }
     });
     try {
@@ -2330,6 +2350,7 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         workspaceRoot,
         userGoal,
         turnLog,
+        isRemoteTurn: () => this.remoteTurnActive,
         notifyUser: (kind, title, message) => this.notifyUser(kind, title, message),
         autoLedger: this.autoLedger
       });

@@ -336,26 +336,31 @@
             "description": "Model name to request from the Bandit API or Ollama. `bandit-logic` is the recommended default \u2014 it's our agent-tuned wrapper around Qwen 3.6 27B, optimized for tool-use loops in the Bandit harness."
           },
           "banditStealth.apiUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "https://api.burtson.ai/completions",
             "description": "Bandit API URL. Trailing /completions or /chat/completions will be trimmed automatically."
           },
           "banditStealth.embeddingsUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "https://api.burtson.ai/api/stealth/embeddings",
             "description": "Base URL for the Bandit embeddings service used for repository indexing and semantic search."
           },
           "banditStealth.intentUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "https://api.burtson.ai/intent",
             "description": "Bandit intent endpoint used to interpret goals before completions."
           },
           "banditStealth.pythonPath": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "Absolute path to a Python 3 executable. Leave empty to let Bandit Stealth auto-detect python3/python."
           },
           "banditStealth.insightsAi": {
+            "scope": "machine",
             "type": "string",
             "enum": [
               "auto",
@@ -366,6 +371,7 @@
             "description": "Whether the /insights command may ask the cloud LLM to summarize your aggregate session data. 'auto' = prompt once on first use and remember the answer. 'allow' = always include the AI summary. 'deny' = never include it. Local Ollama users skip the prompt entirely (data never leaves the machine)."
           },
           "banditStealth.feedbackUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "https://api.burtson.ai/feedback",
             "description": "Bandit feedback endpoint for the thumbs ratings you click. Ratings are sent only when you are signed in to Bandit; nothing is sent for Ollama or other providers, and diff reviews are never sent."
@@ -386,11 +392,13 @@
             "description": "LLM provider. ollama (default): local, private, free. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint \u2014 LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
           },
           "banditStealth.openaiBaseUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "Base URL for an OpenAI-compatible endpoint. Examples: http://localhost:1234/v1 (LM Studio), http://localhost:8080/v1 (llama.cpp / vLLM), https://api.together.xyz/v1, https://openrouter.ai/api/v1, https://api.groq.com/openai/v1, https://api.deepseek.com/v1, https://api.openai.com/v1. The provider appends /chat/completions automatically. Required when provider is openai-compatible."
           },
           "banditStealth.openaiApiKey": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates \u2014 you don't need to do anything. Set the key from the Bandit panel instead.",
@@ -402,21 +410,25 @@
             "description": "Model id sent to the OpenAI-compatible endpoint. Each upstream uses its own naming \u2014 e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo on Together, openai/gpt-4o on OpenRouter, your local model name on LM Studio."
           },
           "banditStealth.openaiHeaders": {
+            "scope": "machine",
             "type": "object",
             "default": {},
             "description": "Extra HTTP headers sent to the OpenAI-compatible endpoint. Useful for OpenRouter attribution headers (HTTP-Referer, X-Title), org IDs, etc. Authorization is set automatically from openaiApiKey."
           },
           "banditStealth.ollamaUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "http://localhost:11434",
             "description": "Primary local Ollama endpoint (Mac localhost or LAN). Legacy alias for ollamaBaseUrl. Never point this at RunPod."
           },
           "banditStealth.ollamaBaseUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "http://localhost:11434",
             "description": "Primary local Ollama endpoint (Mac localhost or LAN). Never point this at RunPod \u2014 use provider:bandit + model:bandit-core-2 for RunPod."
           },
           "banditStealth.ollamaNodeUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "Optional secondary Ollama endpoint for an external GPU node (e.g. RTX 5090). When set, Ollama requests are routed here instead of ollamaBaseUrl. Leave empty to use local only."
@@ -491,11 +503,13 @@
             "description": "Speech-to-text provider. 'auto' (default) follows the chat provider: Bandit Cloud STT while the chat provider is Bandit Cloud, otherwise no dictation until you choose a local server; audio is never sent to Bandit Cloud while chat uses Ollama or an OpenAI-compatible server. 'bandit' uses the Bandit cloud STT endpoint (requires a Bandit API key, and only while the chat provider is Bandit Cloud). 'openai-whisper' targets any Whisper-compatible HTTP endpoint (faster-whisper-server, whisper.cpp HTTP, OpenAI, LiteLLM, vLLM). 'custom' lets you point at any URL with the same multipart shape."
           },
           "banditStealth.voice.stt.url": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "STT endpoint URL. Required when provider is 'openai-whisper' or 'custom' (e.g. https://api.openai.com/v1/audio/transcriptions, http://localhost:8000/v1/audio/transcriptions). Ignored when provider is 'bandit'."
           },
           "banditStealth.voice.stt.apiKey": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Set the key from Settings > Voice in the Bandit panel instead.",
@@ -520,11 +534,13 @@
             "description": "Text-to-speech provider. 'auto' (default) follows the chat provider: Bandit Cloud TTS while the chat provider is Bandit Cloud, otherwise no read-aloud until you choose a local server such as Piper; text is never sent to Bandit Cloud while chat uses Ollama or an OpenAI-compatible server. 'bandit' uses the Bandit cloud (requires a Bandit API key, and only while the chat provider is Bandit Cloud). 'openai' targets /v1/audio/speech. 'elevenlabs' uses ElevenLabs' /v1/text-to-speech/{voice} URL. 'piper' is a local Piper HTTP server. 'custom' is a free-form URL + JSON body shape."
           },
           "banditStealth.voice.tts.url": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "TTS endpoint URL or base URL. Required when provider isn't 'bandit'. For ElevenLabs leave empty to use the default https://api.elevenlabs.io; voiceId is appended at request time."
           },
           "banditStealth.voice.tts.apiKey": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Set the key from Settings > Voice in the Bandit panel instead.",
@@ -536,6 +552,7 @@
             "description": "Model name for OpenAI-compatible TTS (e.g. 'tts-1', 'tts-1-hd') or for ElevenLabs ('eleven_monolingual_v1'). Ignored by Piper / Bandit cloud."
           },
           "banditStealth.useTerminal": {
+            "scope": "machine",
             "type": "boolean",
             "default": false,
             "description": "Prefer the terminal-based CLI experience. When on, the Bandit activity-bar icon opens the bandit CLI in VS Code's integrated terminal instead of the webview chat panel. Requires @burtson-labs/bandit-stealth-cli on PATH (npm i -g @burtson-labs/bandit-stealth-cli)."
@@ -546,6 +563,7 @@
             "description": "Auto-attach relevant workspace files to each prompt. When on, Bandit scans your active editor, recently-opened files, and goal hints to pick up to 5 files likely to be useful. Off by default \u2014 auto-context can burn through thousands of tokens per turn before the model even sees your prompt. Prefer explicit @-mentions; turn this on when you want less typing and have headroom to spend."
           },
           "banditStealth.ollamaHeaders": {
+            "scope": "machine",
             "type": "object",
             "default": {},
             "additionalProperties": {
@@ -609,6 +627,7 @@
             "description": "When true and the current repo is indexed in GatewayApi, use Qdrant semantic search for context. Falls back to local nomic-embed-text when Gateway is unavailable or repo is not indexed."
           },
           "banditStealth.gatewayUrl": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "description": "GatewayApi base URL (e.g. https://api.burtson.ai). Required to use Qdrant semantic search and workspace binding. Leave empty to use local embeddings only."
@@ -629,6 +648,7 @@
             "description": "Top-p nucleus sampling value for the Bandit API."
           },
           "banditStealth.systemPrompt": {
+            "scope": "machine",
             "type": "string",
             "default": "You are Bandit Stealth, an expert coding assistant that helps users write and reason about code inside VS Code.",
             "description": "Optional system prompt that is prepended to every request."
@@ -639,6 +659,7 @@
             "description": "When enabled, commits Bandit makes on your behalf include a `Co-authored-by: Bandit <bandit@burtson.ai>` trailer so GitHub shows the Bandit ninja avatar on PR / blame / contributor views. Set BANDIT_NO_COAUTHOR=1 in your editor's process environment to force off."
           },
           "banditStealth.webSearch.tavilyApiKey": {
+            "scope": "machine",
             "type": "string",
             "default": "",
             "markdownDeprecationMessage": "Moved to the OS keychain. A value set here is transferred to secure storage and this setting is cleared the next time Bandit activates. Use the 'Bandit: Set Tavily Key' command instead.",
@@ -701,11 +722,13 @@
             "description": "When enabled, the agent automatically creates a git branch (bandit/{goal-slug}) before starting a goal. Changes are isolated and easy to discard if the run goes wrong. Requires git to be installed and the workspace to be a git repository."
           },
           "banditStealth.agent.autoApproveEdits": {
+            "scope": "machine",
             "type": "boolean",
             "default": false,
-            "description": "When enabled, write_file and apply_edit tool calls skip the in-chat permission card and land immediately. run_command always still prompts, as do edits that would write outside the workspace."
+            "description": "When enabled, write_file and apply_edit tool calls skip the in-chat permission card and land immediately. run_command always still prompts, as do edits that would write outside the workspace. User setting only: a repository's .vscode/settings.json cannot turn it on."
           },
           "banditStealth.agent.permissionMode": {
+            "scope": "machine",
             "type": "string",
             "enum": [
               "plan",
