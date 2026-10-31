@@ -22,10 +22,18 @@
  *   }
  *
  * Evaluation order: deny > allow > ask > default.
- * Default for dangerous tools (write_file, apply_edit, replace_range, run_command) is 'ask'.
- * Default for tools that reach the network or publish (NETWORK_TOOLS, and MCP
- * tools from a server not marked `"local": true`) is 'ask'.
- * Default for read-only local tools is 'allow'.
+ * Default for the known read-only local tools (READ_ONLY_TOOLS) and for
+ * read-named tools of an MCP server marked `"local": true` is 'allow'.
+ * Default for EVERYTHING else is 'ask' — a tool Bandit cannot vouch for as
+ * read-only is not run on a name alone.
+ *
+ * Until 2026-10-31 the default was the other way round: only five named
+ * tools asked and anything else ran. That let `watch_command` (the same
+ * allow-list as run_command), `test_run` (the repository's own test script),
+ * the local-git writers and any tool a workspace skill defined — including
+ * one that runs a command — execute in the default `ask` mode with no card.
+ * Auto mode is unaffected by the inversion: `decidePermission` still runs
+ * `routine` calls unprompted, and read-only names stay routine.
  */
 
 export type PermissionDecision = 'allow' | 'ask' | 'deny';
@@ -35,6 +43,27 @@ export interface PermissionPolicy {
   deny: string[];
   ask: string[];
 }
+
+/**
+ * Local tools that inspect and change nothing. The only built-in names that
+ * run without a prompt by default, and the names plan mode lets through
+ * (riskTiers.ts reads the same set). A tool that executes anything — a test
+ * runner, a git writer, a subagent, a workspace skill's command — is not
+ * here on purpose; it asks until the user or the mode says otherwise.
+ */
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'read_file', 'list_files', 'ls', 'search_code', 'find_directory',
+  'read_memory', 'todo_write', 'check_task', 'list_tasks', 'ask_user',
+  // Built-in git readers. `git status|log|diff` via run_command is already
+  // routine (ROUTINE_GIT); the dedicated tools fell through to unknown-tool and
+  // were sent to the auto-mode reviewer or the permission prompt.
+  'git_status', 'git_log', 'git_diff',
+  // Host read tools: session task and dev-server inspection (CLI), the
+  // repository's test-file listing and semantic index (agent-core skills),
+  // the diff review and the IDE's self-description.
+  'check_monitor', 'list_servers', 'server_output', 'list_test_files',
+  'semantic_search', 'review_changes', 'explain', 'stealth_about', 'read_pdf'
+]);
 
 /** Tools that mutate state or execute code and therefore require ask-by-default. */
 const DANGEROUS_TOOLS = new Set(['write_file', 'apply_edit', 'replace_range', 'apply_patch', 'run_command']);
@@ -251,7 +280,12 @@ export function evaluatePermission(
   // Network-capable tools (web, image, git remote, artifacts) and MCP tools
   // from servers not declared local ask before they contact anything.
   if (isNetworkTool(toolName)) return 'ask';
-  return 'allow';
+  if (READ_ONLY_TOOLS.has(toolName)) return 'allow';
+  // A read-named tool of an MCP server the user declared local.
+  if (isKnownLocalMcpTool(toolName)) return 'allow';
+  // Anything else — a test runner, a git writer, a subagent, a tool a
+  // workspace skill defined — is not known to be read-only, so it asks.
+  return 'ask';
 }
 
 function matchesAny(

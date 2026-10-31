@@ -22,6 +22,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { SecurityGuardSettings } from './securityGuard';
 import { mkdirInProjectBandit } from './projectDir';
+import { isWorkspaceTrusted, loadUserGrants, rememberUserGrant } from './workspaceTrust';
 
 export type HookEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
 
@@ -40,6 +41,15 @@ export interface PermissionsBlock {
   mode?: string;
 }
 
+/** A setting an untrusted workspace tried to widen, and where it came from. */
+export interface IgnoredUntrustedSetting {
+  /** Absolute path of the settings file. */
+  file: string;
+  /** Setting keys that were dropped: `hooks`, `permissions.allow`,
+   *  `permissions.mode`, `security.guard.enabled`. */
+  keys: string[];
+}
+
 export interface HookSettings {
   hooks?: Partial<Record<HookEvent, HookRule[]>>;
   permissions?: PermissionsBlock;
@@ -49,46 +59,111 @@ export interface HookSettings {
   /** Offline mode (see offline.ts). Any settings file that sets it to true
    *  turns it on; a later file cannot turn it back off. */
   offline?: boolean;
+  /** Whether the workspace's own settings files were honoured in full
+   *  (see workspaceTrust.ts). Absent on a settings object a host built by
+   *  hand. */
+  workspaceTrusted?: boolean;
+  /** What the workspace's files tried to widen while untrusted. Empty or
+   *  absent when nothing was dropped. Hosts show this once, with how to
+   *  trust the folder. */
+  ignoredUntrusted?: IgnoredUntrustedSetting[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-export async function loadHookSettings(cwd: string, opts?: { homeDir?: string }): Promise<HookSettings> {
+/** Narrow → wide. An untrusted workspace may move the mode left, never right. */
+const MODE_RANK: Record<string, number> = { plan: 0, ask: 1, auto: 2, dangerous: 3 };
+
+export interface LoadHookSettingsOptions {
+  /** Overrides the global `~/.bandit` location (tests). */
+  homeDir?: string;
+  /** Decide trust here instead of consulting the trust store — a host that
+   *  already asked the user passes its answer. */
+  trusted?: boolean;
+  /** Process env. Injectable for tests. */
+  env?: Record<string, string | undefined>;
+}
+
+export async function loadHookSettings(cwd: string, opts?: LoadHookSettingsOptions): Promise<HookSettings> {
   // Global (~/.bandit) first, then workspace, then workspace .local — later
   // files extend the earlier ones (hook/permission arrays concatenate; the
   // security guard's scalar fields take the last value defined). This is what
   // makes a user's GLOBAL hooks + guard apply to every repo, with per-project
   // overrides on top. `opts.homeDir` overrides the global location (tests).
-  const candidates = [
-    path.join(opts?.homeDir ?? os.homedir(), '.bandit', 'settings.json'),
-    path.resolve(cwd, '.bandit/settings.json'),
-    path.resolve(cwd, '.bandit/settings.local.json')
+  //
+  // The workspace files belong to whoever wrote the repository, not
+  // necessarily to the user. Until the user trusts the folder they may only
+  // NARROW what Bandit does: hooks (host-executed shell), allow rules and a
+  // wider mode are dropped and reported in `ignoredUntrusted`. The user's own
+  // "always allow" choices are remembered under ~/.bandit and still apply —
+  // see workspaceTrust.ts for why that split exists.
+  const trusted = opts?.trusted ?? await isWorkspaceTrusted(cwd, { homeDir: opts?.homeDir, env: opts?.env });
+  const candidates: Array<{ file: string; workspace: boolean }> = [
+    { file: path.join(opts?.homeDir ?? os.homedir(), '.bandit', 'settings.json'), workspace: false },
+    { file: path.resolve(cwd, '.bandit/settings.json'), workspace: true },
+    { file: path.resolve(cwd, '.bandit/settings.local.json'), workspace: true }
   ];
-  const merged: HookSettings = { hooks: {}, permissions: { allow: [], deny: [], ask: [] } };
-  for (const p of candidates) {
+  const userGrants = trusted ? [] : await loadUserGrants(cwd, { homeDir: opts?.homeDir }).catch(() => [] as string[]);
+  const merged: HookSettings = {
+    hooks: {},
+    permissions: { allow: [], deny: [], ask: [] },
+    workspaceTrusted: trusted,
+    ignoredUntrusted: []
+  };
+  for (const { file, workspace } of candidates) {
+    const restricted = workspace && !trusted;
+    const dropped: string[] = [];
     try {
-      const raw = await fs.promises.readFile(p, 'utf-8');
+      const raw = await fs.promises.readFile(file, 'utf-8');
       const parsed = JSON.parse(raw) as HookSettings;
       if (parsed.hooks) {
-        for (const ev of Object.keys(parsed.hooks) as HookEvent[]) {
-          merged.hooks![ev] = [...(merged.hooks![ev] ?? []), ...(parsed.hooks[ev] ?? [])];
+        const events = (Object.keys(parsed.hooks) as HookEvent[]).filter((ev) => (parsed.hooks?.[ev] ?? []).length > 0);
+        if (restricted) {
+          if (events.length > 0) dropped.push('hooks');
+        } else {
+          for (const ev of events) {
+            merged.hooks![ev] = [...(merged.hooks![ev] ?? []), ...(parsed.hooks[ev] ?? [])];
+          }
         }
       }
       if (parsed.permissions) {
-        merged.permissions!.allow = [...(merged.permissions!.allow ?? []), ...(parsed.permissions.allow ?? [])];
+        const allow = parsed.permissions.allow ?? [];
+        if (restricted) {
+          // Only the rules the user persisted from a card survive; anything
+          // else in the repository's allow list is the repository's wish.
+          const own = allow.filter((rule) => userGrants.includes(rule));
+          if (own.length < allow.length) dropped.push('permissions.allow');
+          merged.permissions!.allow = [...(merged.permissions!.allow ?? []), ...own];
+        } else {
+          merged.permissions!.allow = [...(merged.permissions!.allow ?? []), ...allow];
+        }
         merged.permissions!.deny = [...(merged.permissions!.deny ?? []), ...(parsed.permissions.deny ?? [])];
         merged.permissions!.ask = [...(merged.permissions!.ask ?? []), ...(parsed.permissions.ask ?? [])];
         // Scalar, so last file wins — workspace overrides global, .local
-        // overrides workspace. Matches how the guard's scalars merge.
-        if (parsed.permissions.mode) merged.permissions!.mode = parsed.permissions.mode;
+        // overrides workspace. Matches how the guard's scalars merge. An
+        // untrusted workspace can only move it towards plan.
+        if (parsed.permissions.mode) {
+          const next = parsed.permissions.mode.trim().toLowerCase();
+          const current = merged.permissions!.mode?.trim().toLowerCase() ?? 'ask';
+          const widens = (MODE_RANK[next] ?? MODE_RANK.ask) > (MODE_RANK[current] ?? MODE_RANK.ask);
+          if (restricted && widens) dropped.push('permissions.mode');
+          else merged.permissions!.mode = parsed.permissions.mode;
+        }
       }
       if (parsed.offline === true) merged.offline = true;
       if (parsed.security?.guard) {
         const g = parsed.security.guard;
         const cur = merged.security?.guard ?? {};
+        let enabled = g.enabled ?? cur.enabled;
+        if (restricted && g.enabled === false) {
+          // A repository does not get to switch the guard off — neither the
+          // user's global setting nor a host's on-by-default.
+          dropped.push('security.guard.enabled');
+          enabled = cur.enabled;
+        }
         merged.security = {
           guard: {
-            enabled: g.enabled ?? cur.enabled,
+            enabled,
             blockCommands: [...(cur.blockCommands ?? []), ...(g.blockCommands ?? [])],
             protectPaths: [...(cur.protectPaths ?? []), ...(g.protectPaths ?? [])]
           }
@@ -97,6 +172,7 @@ export async function loadHookSettings(cwd: string, opts?: { homeDir?: string })
     } catch {
       // Missing / invalid — skip silently.
     }
+    if (dropped.length > 0) merged.ignoredUntrusted!.push({ file, keys: dropped });
   }
   return merged;
 }
@@ -105,8 +181,12 @@ export async function loadHookSettings(cwd: string, opts?: { homeDir?: string })
  * Persist an entry in the workspace settings.json permissions.allow list.
  * Called when the user picks "Always allow" in a permission prompt and wants
  * the choice to survive restarts. Creates .bandit/settings.json if missing.
+ *
+ * The rule is also remembered under `~/.bandit` (workspaceTrust.ts) so it
+ * keeps applying while the workspace itself is not trusted: the user chose
+ * it, the repository did not.
  */
-export async function persistAllowEntry(cwd: string, entry: string): Promise<void> {
+export async function persistAllowEntry(cwd: string, entry: string, opts?: { homeDir?: string }): Promise<void> {
   const dir = path.resolve(cwd, '.bandit');
   const file = path.resolve(dir, 'settings.json');
   await mkdirInProjectBandit(cwd, dir);
@@ -123,6 +203,7 @@ export async function persistAllowEntry(cwd: string, entry: string): Promise<voi
     existing.permissions.allow.push(entry);
   }
   await fs.promises.writeFile(file, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+  await rememberUserGrant(cwd, entry, { homeDir: opts?.homeDir }).catch(() => undefined);
 }
 
 export interface HookContext {

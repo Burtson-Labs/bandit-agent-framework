@@ -35,6 +35,44 @@ describe('evaluatePermission default behavior', () => {
     expect(evaluatePermission('apply_patch', 'src/x.ts', emptyPolicy())).toBe('ask');
     expect(evaluatePermission('run_command', 'rm -rf /', emptyPolicy())).toBe('ask');
   });
+
+  // Until 2026-10-31 only those five tools asked and every other name ran.
+  // watch_command shares run_command's allow-list, test_run runs the
+  // repository's test script, the git writers fire hooks, and a workspace
+  // skill can define any name at all — none of them is known read-only.
+  it('asks for every tool it cannot vouch for as read-only', () => {
+    for (const name of [
+      'watch_command', 'test_run', 'run_tests', 'run_background_command', 'monitor_job', 'start_server',
+      'git_commit', 'git_checkout', 'git_stash', 'git_branch', 'task', 'remember', 'create_skill',
+      'switch_model', 'lint_all', 'some_new_tool'
+    ]) {
+      expect(evaluatePermission(name, '', emptyPolicy()), name).toBe('ask');
+    }
+  });
+
+  it('keeps the known read-only local tools, and local MCP reads, unprompted', () => {
+    for (const name of [
+      'read_file', 'list_files', 'ls', 'search_code', 'find_directory', 'read_memory', 'todo_write',
+      'check_task', 'list_tasks', 'ask_user', 'git_status', 'git_log', 'git_diff',
+      'check_monitor', 'list_servers', 'server_output', 'list_test_files', 'semantic_search',
+      'review_changes', 'explain', 'stealth_about', 'read_pdf'
+    ]) {
+      expect(evaluatePermission(name, '', emptyPolicy()), name).toBe('allow');
+    }
+    setMcpServerLocal('notes', true);
+    try {
+      expect(evaluatePermission('notes.getNote', '', emptyPolicy())).toBe('allow');
+      expect(evaluatePermission('notes.createNote', '', emptyPolicy())).toBe('ask');
+    } finally {
+      setMcpServerLocal('notes', false);
+    }
+  });
+
+  it('still lets an explicit allow rule run a non-read-only tool', () => {
+    const policy = { ...emptyPolicy(), allow: ['test_run', 'git_commit'] };
+    expect(evaluatePermission('test_run', '', policy)).toBe('allow');
+    expect(evaluatePermission('git_commit', '', policy)).toBe('allow');
+  });
 });
 
 describe('evaluatePermission — MCP mutating-name gate', () => {

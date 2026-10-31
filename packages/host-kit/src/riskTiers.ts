@@ -31,7 +31,8 @@
  */
 import * as path from 'path';
 import * as os from 'os';
-import { isKnownLocalMcpTool } from './permissions';
+import { isKnownLocalMcpTool, READ_ONLY_TOOLS } from './permissions';
+import { patchTargets } from './patchTargets';
 
 export type RiskTier = 'routine' | 'elevated' | 'critical';
 
@@ -57,14 +58,9 @@ export interface RiskContext {
   homeDir?: string;
 }
 
-const READ_ONLY_TOOLS = new Set([
-  'read_file', 'list_files', 'ls', 'search_code', 'find_directory',
-  'read_memory', 'todo_write', 'check_task', 'list_tasks', 'ask_user',
-  // Built-in git readers. `git status|log|diff` via run_command is already
-  // routine (ROUTINE_GIT); the dedicated tools fell through to unknown-tool and
-  // were sent to the auto-mode reviewer or the permission prompt.
-  'git_status', 'git_log', 'git_diff'
-]);
+// READ_ONLY_TOOLS lives in permissions.ts: the same set is the policy's
+// default-allow list, so "runs without a prompt" and "read-only in plan mode"
+// cannot drift apart.
 
 const EDIT_TOOLS = new Set(['apply_edit', 'replace_range']);
 
@@ -88,18 +84,63 @@ const READ_ONLY_COMMANDS = new Set([
   'ls', 'cat', 'head', 'tail', 'grep', 'jq', 'yq', 'wc', 'which', 'echo', 'pwd'
 ]);
 
-/** Read-only git subcommands. Anything not listed is treated as state-changing. */
+/** Read-only git subcommands. Anything not listed is treated as state-changing.
+ *  `git remote` is handled separately: bare / `-v` / `show` / `get-url` read,
+ *  `add` / `set-url` / `remove` rewrite `.git/config`. */
 const ROUTINE_GIT = new Set([
   'status', 'log', 'diff', 'show', 'blame', 'ls-files', 'rev-parse',
-  'describe', 'shortlog', 'whatchanged', 'cat-file', 'remote'
+  'describe', 'shortlog', 'whatchanged', 'cat-file'
 ]);
+
+/** `git remote` forms that only print. */
+function isGitRemoteRead(argv: string[]): boolean {
+  const rest = argv.slice(2);
+  if (rest.length === 0) return true;
+  if (rest.every((a) => a === '-v' || a === '--verbose')) return true;
+  return rest[0] === 'show' || rest[0] === 'get-url';
+}
+
+/**
+ * Options that turn a git read into a write or an exec: `--output` writes the
+ * formatted log or diff to any file, `-c` / `--config-env` inject config
+ * (`core.fsmonitor`, `diff.external`, …), `--ext-diff` / `--textconv` run
+ * configured programs, `--exec` runs a command, the pack options name a
+ * program on the remote side. `git log -1 --format=<payload> --output=<path>`
+ * was a file write that plan mode let through as read-only.
+ */
+const GIT_REVIEW_OPTION = /^(?:-c|-C|-o|--output|--config-env|--ext-diff|--textconv|--filters|--exec|--upload-pack|--receive-pack|--git-dir|--work-tree|--exec-path)(?:=|$)/;
+
+/** A git invocation (argv[0] already normalized to `git`) that only reads. */
+function isGitRead(argv: string[]): boolean {
+  const sub = argv[1] ?? '';
+  if (argv.slice(1).some((a) => GIT_REVIEW_OPTION.test(a))) return false;
+  return ROUTINE_GIT.has(sub) || (sub === 'remote' && isGitRemoteRead(argv));
+}
+
+/** `yq` edits files in place with `-i`; `--split-exp` writes new ones. */
+function readOnlyCommandWrites(argv: string[]): boolean {
+  if (argv[0] !== 'yq') return false;
+  return argv.slice(1).some((a) => /^(?:-i|--inplace|-s|--split-exp)(?:=|$)/.test(a) || /^-[a-zA-Z]*i[a-zA-Z]*$/.test(a));
+}
+
+/**
+ * `find` prints paths — until it is told to run something or delete. Those
+ * flags turn a listing into arbitrary execution with the user's privileges,
+ * which is exactly what auto mode must not wave through under a "read-only
+ * command" label.
+ */
+function findExecutes(argv: string[]): boolean {
+  return argv[0] === 'find' && argv.some((a) => /^-(exec|execdir|ok|okdir|delete|fprint0?|fprintf|fls)$/.test(a));
+}
 
 /**
  * Subcommands that only build/test/inspect for package managers that ALSO have
  * destructive subcommands. Anything else on these binaries escalates.
  */
 const ROUTINE_SUBCOMMANDS: Record<string, Set<string>> = {
-  npm: new Set(['test', 'run-script', 'ls', 'list', 'view', 'outdated', 'why', 'ping']),
+  // `run-script` is `npm run` under another name: a project-defined script,
+  // which the design rule above says is never routine.
+  npm: new Set(['test', 'ls', 'list', 'view', 'outdated', 'why', 'ping']),
   pnpm: new Set(['test', 'ls', 'list', 'why', 'outdated']),
   yarn: new Set(['test', 'list', 'why', 'outdated']),
   cargo: new Set(['build', 'check', 'test', 'clippy', 'fmt', 'tree']),
@@ -119,6 +160,42 @@ const CRITICAL_COMMAND_RULES: CommandRule[] = [
     id: 'destructive-fs',
     why: 'Deletes or overwrites files irreversibly.',
     test: (c) => /\b(rm|rmdir|shred|srm)\b/.test(c) || /\bdd\b/.test(c) || /\bmkfs\b/.test(c)
+  },
+  {
+    // The 2026-10-29 trojanized-extension playbook: a reverse SSH tunnel or
+    // a tunnelling agent gives someone else a shell on this machine. None of
+    // these binaries are on run_command's allow-list, but they can be reached
+    // through a wrapper (`env`, `xargs`, `find -exec`, `python -c`, `osascript`),
+    // so the rule matches the whole command line, not just argv[0].
+    id: 'remote-access',
+    why: 'Opens remote access to this machine or a tunnel out of it.',
+    test: (c) =>
+      /\b(ssh|sshd|autossh|mosh|ngrok|cloudflared|tailscale|zerotier|frpc|frps|socat|rathole|localtunnel)\b/.test(c)
+      || /\bssh-(keygen|add|agent|copy-id)\b/.test(c)
+      || /\bsystemsetup\b[\s\S]*remotelogin/i.test(c)
+  },
+  {
+    // Anything that makes code run again after this session ends: cron,
+    // launchd, systemd, Windows scheduled tasks / Run keys, login items.
+    id: 'persistence',
+    why: 'Installs something that runs at login, on a schedule, or at boot.',
+    test: (c) =>
+      /\b(crontab|schtasks|launchctl|systemctl|loginctl|update-rc\.d|chkconfig|rc-update)\b/.test(c)
+      || /\bsc(\.exe)?\s+(create|config)\b/i.test(c)
+      || /\breg(\.exe)?\s+add\b[\s\S]*\\(Run|RunOnce|Winlogon)\b/i.test(c)
+      || /\b(New|Register|Set)-ScheduledTask\b/i.test(c)
+      || /\bdefaults\s+write\b[\s\S]*(loginwindow|LoginItems|LaunchAgents)/i.test(c)
+      || /\bosascript\b[\s\S]*login\s+item/i.test(c)
+  },
+  {
+    id: 'applescript-shell',
+    why: 'Runs a shell command through AppleScript, possibly as administrator.',
+    test: (c) => /\bosascript\b[\s\S]*(do\s+shell\s+script|administrator\s+privileges)/i.test(c)
+  },
+  {
+    id: 'find-exec',
+    why: 'Runs a command or deletes files for every match.',
+    test: (_c, argv) => findExecutes(argv)
   },
   {
     id: 'privilege-escalation',
@@ -184,7 +261,7 @@ const ELEVATED_COMMAND_RULES: CommandRule[] = [
   {
     id: 'git-state-change',
     why: 'Changes git state in this repository.',
-    test: (c, argv) => (argv[0] === 'git' || argv[0]?.endsWith('/git') === true) && !ROUTINE_GIT.has(argv[1] ?? '')
+    test: (c, argv) => (argv[0] === 'git' || argv[0]?.endsWith('/git') === true) && !isGitRead(argv)
   },
   {
     id: 'github-cli',
@@ -208,6 +285,27 @@ const ELEVATED_COMMAND_RULES: CommandRule[] = [
 ];
 
 const CREDENTIAL_PATH = /(^|\/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.netrc|\.npmrc|\.pypirc)(\/|$)|(^|\/)\.env(\.|$)|id_rsa|id_ed25519|credentials$/i;
+
+/**
+ * Files that make code run later, or let someone else in: login shells'
+ * rc files, launchd / cron / systemd / autostart entries, git hooks and
+ * config (`core.hooksPath`, `core.sshCommand`, credential helpers),
+ * `authorized_keys`, the Windows Startup folder. A write to one of these is
+ * never routine, inside the workspace or out — a repository's own
+ * `.git/hooks/pre-commit` runs on the user's next commit.
+ */
+const PERSISTENCE_PATH = new RegExp([
+  String.raw`(^|[\\/])Library[\\/](LaunchAgents|LaunchDaemons|StartupItems)([\\/]|$)`,
+  String.raw`(^|[\\/])\.config[\\/](autostart|systemd)([\\/]|$)`,
+  String.raw`(^|[\\/])etc[\\/](cron\.d|cron\.daily|cron\.hourly|cron\.weekly|cron\.monthly|crontab|systemd|rc\.local|profile\.d|profile|sudoers|sudoers\.d|pam\.d|ld\.so\.preload|launchd\.conf|periodic)([\\/]|$)`,
+  String.raw`(^|[\\/])var[\\/]spool[\\/]cron([\\/]|$)`,
+  String.raw`(^|[\\/])\.(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zshenv|zlogin|zlogout|profile|xinitrc|xsession|xprofile|gitconfig|git-credentials|hushlogin|mkshrc|kshrc|cshrc|tcshrc|config[\\/]fish[\\/]config\.fish)$`,
+  String.raw`(^|[\\/])\.git[\\/](hooks|config)([\\/]|$)`,
+  String.raw`(^|[\\/])\.husky([\\/]|$)`,
+  String.raw`authorized_keys2?$`,
+  String.raw`(^|[\\/])\.ssh[\\/](config|rc|environment)$`,
+  String.raw`Start Menu[\\/]Programs[\\/]Startup([\\/]|$)`
+].join('|'), 'i');
 
 /** Split a run_command invocation into a normalized argv + full string. */
 function commandParts(params: Record<string, string>): { full: string; argv: string[] } {
@@ -234,6 +332,29 @@ function isOutsideWorkspace(rawPath: string, ctx: RiskContext): boolean {
 /** Any param value that names a credential file. */
 function touchesCredentials(params: Record<string, string>): boolean {
   return Object.values(params).some((v) => typeof v === 'string' && CREDENTIAL_PATH.test(v));
+}
+
+/** Params that name a location or a command line, as opposed to file
+ *  content — a README that mentions `~/.bashrc` is not a write to it. */
+const LOCATION_PARAMS = ['path', 'cwd', 'cmd', 'args', 'url', 'file', 'target', 'destination', 'dest'];
+
+/** Any location-shaped param (or patch target) in a startup / login / git-hook place. */
+function touchesPersistence(name: string, params: Record<string, string>): boolean {
+  const values = LOCATION_PARAMS.map((k) => params[k]).filter((v): v is string => typeof v === 'string');
+  if (name === 'apply_patch') values.push(...patchTargets(params));
+  return values.some((v) => PERSISTENCE_PATH.test(v));
+}
+
+/**
+ * The paths a call writes. `path` for the single-file tools; for
+ * `apply_patch` the targets named inside the patch body, which is where a
+ * patch aimed at `~/.zshrc` or `../../Library/LaunchAgents/x.plist` would
+ * otherwise hide from the outside-workspace check.
+ */
+function writeTargets(name: string, params: Record<string, string>): string[] {
+  if (name === 'apply_patch') return patchTargets(params);
+  const p = params.path ?? '';
+  return p ? [p] : [];
 }
 
 /**
@@ -270,11 +391,14 @@ export function classifyRisk(
       return { tier: 'critical', rule: 'credential-path', why: 'Touches a credentials or secrets file.' };
     }
 
+    if (touchesPersistence(name, params)) {
+      return { tier: 'critical', rule: 'persistence-path', why: 'Touches a file that runs at login, on a schedule, or on the next git command.' };
+    }
+
     // Any file-touching tool aimed outside the workspace is critical
     // regardless of which tool it is — that is the boundary the user
     // actually reasons about.
-    const pathParam = params.path ?? '';
-    if (pathParam && isOutsideWorkspace(pathParam, ctx)) {
+    if (writeTargets(name, params).some((p) => isOutsideWorkspace(p, ctx))) {
       return { tier: 'critical', rule: 'outside-workspace', why: 'Writes outside your project folder.' };
     }
 
@@ -346,20 +470,33 @@ export function classifyRisk(
       const bin = argv[0] ?? '';
       const sub = argv[1] ?? '';
       if (bin === 'git') {
-        return ROUTINE_GIT.has(sub)
+        return isGitRead(argv)
           ? { tier: 'routine', rule: 'git-read', why: 'Reads git state.', readOnly: true }
           : { tier: 'elevated', rule: 'git-state-change', why: 'Changes git state in this repository.' };
       }
+      // A build or test run executes whatever that directory's project
+      // defines. Inside the workspace that is the project the user opened;
+      // in another directory it is somebody else's code, so it is not routine.
+      const cwdOutside = !!params.cwd && isOutsideWorkspace(params.cwd, ctx);
       const allowedSubs = ROUTINE_SUBCOMMANDS[bin];
       if (allowedSubs) {
+        if (allowedSubs.has(sub) && cwdOutside) {
+          return { tier: 'elevated', rule: 'outside-workspace-cwd', why: 'Runs a build or test step in a directory outside your project folder.' };
+        }
         return allowedSubs.has(sub)
           ? { tier: 'routine', rule: 'build-or-test', why: 'Builds or tests this project.' }
           : { tier: 'elevated', rule: 'package-manager', why: `Runs \`${bin} ${sub}\`, which can change project state.` };
       }
       if (READ_ONLY_COMMANDS.has(bin)) {
+        if (readOnlyCommandWrites(argv)) {
+          return { tier: 'elevated', rule: 'in-place-edit', why: 'Rewrites files in place.' };
+        }
         return { tier: 'routine', rule: 'read-only-command', why: 'Inspects files or state without changing them.', readOnly: true };
       }
       if (ROUTINE_COMMANDS.has(bin)) {
+        if (cwdOutside) {
+          return { tier: 'elevated', rule: 'outside-workspace-cwd', why: 'Runs a build or test step in a directory outside your project folder.' };
+        }
         return { tier: 'routine', rule: 'build-or-test', why: 'Builds, checks, or inspects this project.' };
       }
       // Recognized-but-unclassified binary. Not routine — see the design rule

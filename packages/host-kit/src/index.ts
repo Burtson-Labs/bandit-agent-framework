@@ -132,8 +132,24 @@ export {
   type HookSettings,
   type HookContext,
   type HookResult,
-  type PermissionsBlock
+  type PermissionsBlock,
+  type LoadHookSettingsOptions,
+  type IgnoredUntrustedSetting
 } from './hooks';
+export {
+  isWorkspaceTrusted,
+  trustWorkspace,
+  untrustWorkspace,
+  loadTrustedWorkspaces,
+  loadUserGrants,
+  rememberUserGrant,
+  envTrustsProjectSettings,
+  normalizeWorkspaceRoot,
+  trustedWorkspacesPath,
+  TRUST_PROJECT_SETTINGS_ENV,
+  type WorkspaceTrustOptions
+} from './workspaceTrust';
+export { patchTargets } from './patchTargets';
 export {
   evaluateSecurityGuard,
   type SecurityGuardSettings,

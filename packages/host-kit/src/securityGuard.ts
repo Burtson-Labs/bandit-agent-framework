@@ -15,6 +15,7 @@
  */
 import * as path from 'path';
 import * as os from 'os';
+import { patchTargets } from './patchTargets';
 
 export interface SecurityGuardSettings {
   /** Master switch. Off by default. Set in `.bandit/settings.json` (or the
@@ -72,32 +73,6 @@ const PRIVILEGED_CONFIG_SUFFIXES: Array<{ suffix: string; what: string }> = [
   { suffix: '/.vscode/settings.json', what: 'the auto-approve setting that suppresses the edit permission card' },
   { suffix: '/.vscode/tasks.json', what: 'tasks the editor can run automatically on folder open' }
 ];
-
-/**
- * Every path a write-family call could land on.
- *
- * `write_file` / `apply_edit` / `replace_range` / `delete_file` name their
- * target in `path`. `apply_patch` does not have to: it accepts a whole patch
- * whose targets live in `+++ b/<path>` headers (unified diff) or
- * `*** Update|Add|Delete File: <path>` lines (Codex envelope), with `path` as
- * an optional override. Reading only `params.path` would leave a patch-shaped
- * bypass wide open, so the patch body is parsed for targets too.
- */
-function privilegedWriteTargets(params: Record<string, string>): string[] {
-  const targets: string[] = [];
-  if (params.path) targets.push(params.path);
-  const patch = params.patch;
-  if (typeof patch === 'string' && patch) {
-    const headerRe = /^(?:\+\+\+\s+(?:b\/)?(.+?)\s*$|\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$)/gm;
-    let m: RegExpExecArray | null;
-    while ((m = headerRe.exec(patch)) !== null) {
-      const p = (m[1] ?? m[2] ?? '').trim();
-      // `/dev/null` is the unified-diff marker for "no such side", not a path.
-      if (p && p !== '/dev/null') targets.push(p);
-    }
-  }
-  return targets;
-}
 
 /**
  * Always-on check: is this write aimed at a file that controls the agent's own
@@ -222,7 +197,8 @@ export function evaluateSecurityGuard(
   // must not mean "injected content may rewrite the permission boundary."
   try {
     if (WRITE_TOOLS.has(call.name)) {
-      for (const target of privilegedWriteTargets(call.params ?? {})) {
+      // Patch bodies name their own targets — see patchTargets.ts.
+      for (const target of patchTargets(call.params ?? {})) {
         const privileged = checkPrivilegedConfigWrite(target, ctx);
         if (!privileged.allow) return privileged;
       }
