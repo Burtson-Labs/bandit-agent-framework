@@ -48,6 +48,9 @@ export interface IgnoredUntrustedSetting {
   /** Setting keys that were dropped: `hooks`, `permissions.allow`,
    *  `permissions.mode`, `security.guard.enabled`. */
   keys: string[];
+  /** How many hook rules were dropped, when `keys` includes `hooks` — for
+   *  a host's "3 hooks, permissions.mode" notice. */
+  hookCount?: number;
 }
 
 export interface HookSettings {
@@ -113,13 +116,17 @@ export async function loadHookSettings(cwd: string, opts?: LoadHookSettingsOptio
   for (const { file, workspace } of candidates) {
     const restricted = workspace && !trusted;
     const dropped: string[] = [];
+    let droppedHooks = 0;
     try {
       const raw = await fs.promises.readFile(file, 'utf-8');
       const parsed = JSON.parse(raw) as HookSettings;
       if (parsed.hooks) {
         const events = (Object.keys(parsed.hooks) as HookEvent[]).filter((ev) => (parsed.hooks?.[ev] ?? []).length > 0);
         if (restricted) {
-          if (events.length > 0) dropped.push('hooks');
+          if (events.length > 0) {
+            dropped.push('hooks');
+            droppedHooks = events.reduce((n, ev) => n + (parsed.hooks?.[ev]?.length ?? 0), 0);
+          }
         } else {
           for (const ev of events) {
             merged.hooks![ev] = [...(merged.hooks![ev] ?? []), ...(parsed.hooks[ev] ?? [])];
@@ -172,7 +179,9 @@ export async function loadHookSettings(cwd: string, opts?: LoadHookSettingsOptio
     } catch {
       // Missing / invalid — skip silently.
     }
-    if (dropped.length > 0) merged.ignoredUntrusted!.push({ file, keys: dropped });
+    if (dropped.length > 0) {
+      merged.ignoredUntrusted!.push({ file, keys: dropped, ...(droppedHooks > 0 ? { hookCount: droppedHooks } : {}) });
+    }
   }
   return merged;
 }

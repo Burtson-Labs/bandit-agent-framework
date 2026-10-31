@@ -297,7 +297,8 @@ describe('loadHookSettings — untrusted workspace', () => {
     expect(s.ignoredUntrusted).toEqual([
       {
         file: path.resolve(tmpRoot, '.bandit/settings.json'),
-        keys: ['hooks', 'permissions.allow', 'permissions.mode', 'security.guard.enabled']
+        keys: ['hooks', 'permissions.allow', 'permissions.mode', 'security.guard.enabled'],
+        hookCount: 2
       }
     ]);
   });
