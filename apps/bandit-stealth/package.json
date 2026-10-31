@@ -42,6 +42,12 @@
     "burtson-labs"
   ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Bandit runs tools, hooks and commands in the workspace, so it stays off until you trust the workspace in VS Code. Trusting a folder's own .bandit settings is a separate, later step (Bandit Stealth: Trust this folder's .bandit settings)."
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -180,6 +186,16 @@
         "title": "Trace Logs \u2014 Open Viewer",
         "category": "Bandit Stealth",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "banditStealth.trustWorkspaceSettings",
+        "title": "Trust this folder's .bandit settings",
+        "category": "Bandit Stealth"
+      },
+      {
+        "command": "banditStealth.untrustWorkspaceSettings",
+        "title": "Stop trusting this folder's .bandit settings",
+        "category": "Bandit Stealth"
       }
     ],
     "keybindings": [
@@ -303,6 +319,14 @@
         },
         {
           "command": "banditStealth.resetApiKey"
+        },
+        {
+          "command": "banditStealth.trustWorkspaceSettings",
+          "when": "isWorkspaceTrusted && workspaceFolderCount != 0"
+        },
+        {
+          "command": "banditStealth.untrustWorkspaceSettings",
+          "when": "workspaceFolderCount != 0"
         }
       ]
     },

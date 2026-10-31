@@ -10,6 +10,8 @@ import { indexRepo } from './indexRepo';
 import { openInTerminal, toggleUseTerminal } from './terminal';
 import { insightsCommand } from './insights';
 import { cyclePermissionMode } from './cyclePermissionMode';
+import { trustWorkspaceSettings, untrustWorkspaceSettings } from './workspaceTrust';
+import { TRUST_WORKSPACE_COMMAND, UNTRUST_WORKSPACE_COMMAND } from '../helpers/workspaceTrust';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -35,6 +37,8 @@ export function registerCommands(
     vscode.commands.registerCommand('banditStealth.traceViewer', () => provider.openTraceViewer()),
     vscode.commands.registerCommand('banditStealth.switchModel', () => switchModel(updateStatusBarText, context)),
     vscode.commands.registerCommand('banditStealth.cyclePermissionMode', () => cyclePermissionMode(updateStatusBarText)),
+    vscode.commands.registerCommand(TRUST_WORKSPACE_COMMAND, () => trustWorkspaceSettings()),
+    vscode.commands.registerCommand(UNTRUST_WORKSPACE_COMMAND, () => untrustWorkspaceSettings()),
     vscode.commands.registerCommand('banditStealth.agent.startGoal', (inputGoal?: string) =>
       startGoal(provider, runtimeController, inputGoal)
     ),

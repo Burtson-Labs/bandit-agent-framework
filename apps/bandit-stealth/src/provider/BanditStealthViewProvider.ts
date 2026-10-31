@@ -37,6 +37,7 @@ import { createProvider, type ProviderKind, type ProviderSettings, buildSlimCont
 import type { StealthAgentRuntime} from '../agent/agentRuntime';
 import { type IUndoManager } from '../agent/agentRuntime';
 import { buildTurnRunContext } from '../agent/toolLoopSetup';
+import { notifyUntrustedWorkspaceSettings } from '../helpers/workspaceTrust';
 import { composeFinalAssistantEntry, finalizeTurnAlways, finalizeTurnError, finalizeTurnSuccess } from '../agent/turnFinalize';
 import { TurnState } from '../agent/turnState';
 import { buildChatFn } from '../agent/chatFn';
@@ -2231,6 +2232,9 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
         hookSettings,
         todoStore
       } = turnRunCtx;
+      // host-kit drops a repository's hooks, allow rules and a wider mode
+      // until the folder is trusted; say so once per folder per window.
+      notifyUntrustedWorkspaceSettings(workspaceRoot, hookSettings);
       // Mutable per-turn state for the tool-use loop's event bridge.
       // Owns every variable previously declared as a local `let` /
       // `const Map()` here so the event handlers can be extracted into
