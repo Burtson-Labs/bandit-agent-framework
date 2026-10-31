@@ -77,7 +77,7 @@ describe('skill-loader buildToolFromManifest — argv safety', () => {
     const tool = buildToolFromManifest({
       name: 'two_args',
       description: '',
-      command: 'tool {{a}} {{b}}',
+      command: 'node {{a}} {{b}}',
       parameters: [
         { name: 'a', description: '', required: true },
         { name: 'b', description: '', required: true }
@@ -92,7 +92,7 @@ describe('skill-loader buildToolFromManifest — argv safety', () => {
     const tool = buildToolFromManifest({
       name: 'maybe',
       description: '',
-      command: 'tool --flag {{maybe}}',
+      command: 'node --flag {{maybe}}',
       parameters: [{ name: 'maybe', description: '', required: false }]
     });
     // Some providers pass the key through with an undefined value when the
@@ -107,7 +107,7 @@ describe('skill-loader buildToolFromManifest — argv safety', () => {
     const tool = buildToolFromManifest({
       name: 'maybe',
       description: '',
-      command: 'tool --flag {{ref}}',
+      command: 'node --flag {{ref}}',
       parameters: [{ name: 'ref', description: '', required: true }]
     });
     await tool.execute({}, makeCtx(captured));
@@ -121,7 +121,7 @@ describe('skill-loader buildToolFromManifest — argv safety', () => {
     const tool = buildToolFromManifest({
       name: 'twice',
       description: '',
-      command: 'tool --from {{x}} --to {{x}}',
+      command: 'node --from {{x}} --to {{x}}',
       parameters: [{ name: 'x', description: '', required: true }]
     });
     await tool.execute({ x: 'main' }, makeCtx(captured));
@@ -144,10 +144,13 @@ describe('skill-loader buildToolFromManifest — argv safety', () => {
       ...makeCtx(captured),
       async runCommand() { return { stdout: '', stderr: 'boom', exitCode: 1 }; }
     };
+    // `node` rather than an invented binary: manifest commands are held to
+    // run_command's allow-list since 2026-10-31, so an unknown program is
+    // refused before the context is ever called.
     const tool = buildToolFromManifest({
       name: 'fails',
       description: '',
-      command: 'tool'
+      command: 'node'
     });
     const r = await tool.execute({}, ctx);
     expect(r.isError).toBe(true);

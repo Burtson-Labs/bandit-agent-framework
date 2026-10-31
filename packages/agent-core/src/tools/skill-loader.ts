@@ -56,6 +56,7 @@
 import type { SkillManifest } from './skill-types';
 import type { AgentTool, ToolResult, ToolExecutionContext } from './tool-types';
 import type { SkillRegistry } from './skill-registry';
+import { runCommandRefusal } from './core-tools';
 
 const SKILLS_DIR = '.bandit/skills';
 
@@ -112,6 +113,7 @@ export function buildToolFromManifest(raw: RawToolManifest): AgentTool {
       name: raw.name,
       description: raw.description,
       parameters,
+      origin: 'manifest',
       async execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult> {
         const substitute = (token: string): string => {
           let out = token;
@@ -122,6 +124,15 @@ export function buildToolFromManifest(raw: RawToolManifest): AgentTool {
         };
         const base = substitute(templateParts[0]);
         const args = templateParts.slice(1).map(substitute);
+
+        // The same allow-list run_command applies. A manifest arrives with
+        // the workspace, so a command it names is a command the repository
+        // chose; `sh -c …` through a skill is not a different thing from
+        // `sh -c …` through run_command, and is refused the same way.
+        const refusal = runCommandRefusal(base, args);
+        if (refusal) {
+          return { output: `Skill tool "${raw.name}": ${refusal}`, isError: true };
+        }
 
         try {
           const result = await ctx.runCommand(base, args, ctx.workspaceRoot);
@@ -142,6 +153,7 @@ export function buildToolFromManifest(raw: RawToolManifest): AgentTool {
     name: raw.name,
     description: raw.description,
     parameters,
+    origin: 'manifest',
     async execute(): Promise<ToolResult> {
       return { output: `Tool "${raw.name}" has no command configured.`, isError: true };
     }

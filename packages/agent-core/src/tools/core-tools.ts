@@ -2177,6 +2177,22 @@ const ALLOWED_COMMANDS = new Set([
 const BLOCKED_PATTERNS = [/rm\s+-rf/, /rmdir/, /format/, /mkfs/, /dd\s+if=/];
 
 /**
+ * The run_command allow-list and blocked patterns, as one check other
+ * command-running tools can apply before they call `ctx.runCommand`. Returns
+ * the refusal message, or null when the command may run. A workspace skill's
+ * `command` used to bypass both — `sh`, `bash` and friends included.
+ */
+export function runCommandRefusal(cmd: string, args: string[]): string | null {
+  const baseCmd = cmd.split(/[\\/]/).pop() ?? cmd;
+  if (!ALLOWED_COMMANDS.has(baseCmd)) {return rejectionMessage(baseCmd);}
+  const fullCommand = [cmd, ...args].join(' ');
+  for (const blocked of BLOCKED_PATTERNS) {
+    if (blocked.test(fullCommand)) {return `Error: command contains a blocked pattern (${blocked.source})`;}
+  }
+  return null;
+}
+
+/**
  * Map of well-known CLIs the agent might be asked to install but that
  * aren't on the allow-list themselves (terraform, kubectl when not yet
  * installed, ripgrep, jq, etc). When the agent calls `run_command` with

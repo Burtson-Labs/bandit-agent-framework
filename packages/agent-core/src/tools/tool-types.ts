@@ -213,6 +213,13 @@ export interface AgentTool {
   description: string;
   parameters: AgentToolParameter[];
   execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult>;
+  /**
+   * `manifest` for a tool declared in a `.bandit/skills/*.json` file —
+   * content that arrived with the workspace, not with Bandit. The registry
+   * refuses to let such a tool take the name of a tool that is already
+   * registered, so a repository cannot stand in for `read_file`.
+   */
+  origin?: 'manifest';
 }
 
 /**

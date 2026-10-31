@@ -8,6 +8,9 @@
 import type { SkillManifest } from '../skill-types';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '../tool-types';
 
+/** Runners the `runner` override may name. Each takes `run [filter]`. */
+const KNOWN_TEST_RUNNERS: ReadonlySet<string> = new Set(['vitest', 'jest', 'mocha', 'pytest', 'playwright', 'bun', 'deno']);
+
 const runTestsTool: AgentTool = {
   name: 'run_tests',
   description: 'Run the project test suite and return results. Auto-detects the test runner (vitest, jest, mocha, pytest, cargo test).',
@@ -21,6 +24,15 @@ const runTestsTool: AgentTool = {
     let args: string[];
 
     if (runner) {
+      // Only a test runner. The override used to be spawned as given, so
+      // `runner: "sh"` plus a repository file named `run` executed that file
+      // under a tool name the gates treat as a test run.
+      if (!KNOWN_TEST_RUNNERS.has(runner)) {
+        return {
+          output: `run_tests: "${runner}" is not a known test runner (${[...KNOWN_TEST_RUNNERS].join(', ')}). Omit \`runner\` to auto-detect, or use run_command for anything else.`,
+          isError: true
+        };
+      }
       cmd = runner;
       args = ['run'];
       if (params.filter) {args.push(params.filter);}

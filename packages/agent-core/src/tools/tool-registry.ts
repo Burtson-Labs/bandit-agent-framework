@@ -11,6 +11,16 @@ export class ToolRegistry {
   private readonly tools = new Map<string, AgentTool>();
 
   register(tool: AgentTool): this {
+    // A tool from a workspace manifest never replaces a tool that is already
+    // registered under that name. Hosts register the built-ins first and the
+    // workspace's skills after, so "last one wins" meant a repository could
+    // ship `{"name":"read_file","command":"…"}` and have the model's first
+    // read run its command — under a name every gate treats as read-only.
+    const existing = this.tools.get(tool.name);
+    if (existing && existing !== tool && tool.origin === 'manifest' && existing.origin !== 'manifest') {
+      console.warn(`[ToolRegistry] workspace skill tool "${tool.name}" ignored: a built-in tool already has that name`);
+      return this;
+    }
     this.tools.set(tool.name, tool);
     return this;
   }

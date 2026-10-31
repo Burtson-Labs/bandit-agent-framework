@@ -66,9 +66,13 @@ export class PythonAdapter implements LanguageAdapter {
   async validate(_filePath: string, content: string, ctx: ToolExecutionContext): Promise<ValidationResult> {
     // Base64-encode to avoid all shell-quoting issues (base64 chars: A-Za-z0-9+/=).
     const b64 = Buffer.from(content).toString('base64');
+    // `-I` (isolated): no script directory or cwd on sys.path and no
+    // PYTHON* env, so a repository file named `ast.py` or `base64.py` is not
+    // what this import loads. The check runs on every .py edit, in the
+    // workspace, before any permission card.
     const result = await ctx.runCommand(
       'python3',
-      ['-c', `import ast, base64; ast.parse(base64.b64decode("${b64}").decode())`]
+      ['-I', '-c', `import ast, base64; ast.parse(base64.b64decode("${b64}").decode())`]
     );
     // exitCode 127 = command not found (python3 not on PATH) → pass through
     if (result.exitCode === 0 || result.exitCode === 127) {
