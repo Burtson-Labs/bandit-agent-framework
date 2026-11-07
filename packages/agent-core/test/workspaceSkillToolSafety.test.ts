@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { ToolRegistry } from '../src/tools/tool-registry';
 import { buildToolFromManifest } from '../src/tools/skill-loader';
 import { runCommandRefusal } from '../src/tools/core-tools';
-import { testGenSkill } from '../src/tools/skills/test-gen-skill';
+import { runnerCommand, testGenSkill } from '../src/tools/skills/test-gen-skill';
 import type { AgentTool, ToolExecutionContext } from '../src/index';
 
 function ctxRecording(ran: Array<{ base: string; args: string[] }>): ToolExecutionContext {
@@ -126,6 +126,30 @@ describe('run_tests — the runner override is a test runner', () => {
     const ran: Array<{ base: string; args: string[] }> = [];
     const result = await runTests.execute({ runner: 'vitest', filter: 'auth' }, ctxRecording(ran));
     expect(result.isError).toBe(false);
-    expect(ran).toEqual([{ base: 'vitest', args: ['run', 'auth'] }]);
+    expect(ran).toEqual([{ base: 'npx', args: ['--no-install', 'vitest', 'run', 'auth'] }]);
+  });
+
+  it('runs each runner\'s test command, never `<runner> run`', async () => {
+    const ran: Array<{ base: string; args: string[] }> = [];
+    for (const runner of ['deno', 'bun', 'playwright', 'jest', 'mocha', 'pytest']) {
+      const result = await runTests.execute({ runner, filter: 'x.test.ts' }, ctxRecording(ran));
+      expect(result.isError, runner).toBe(false);
+    }
+    expect(ran).toEqual([
+      { base: 'deno', args: ['test', 'x.test.ts'] },
+      { base: 'bun', args: ['test', 'x.test.ts'] },
+      { base: 'npx', args: ['--no-install', 'playwright', 'test', 'x.test.ts'] },
+      { base: 'npx', args: ['--no-install', 'jest', '--ci', 'x.test.ts'] },
+      { base: 'npx', args: ['--no-install', 'mocha', 'x.test.ts'] },
+      { base: 'python3', args: ['-m', 'pytest', '-q', 'x.test.ts'] }
+    ]);
+    for (const call of ran) {expect(call.args).not.toContain('run');}
+  });
+
+  it('has a test command for every runner the override accepts', () => {
+    for (const runner of ['vitest', 'jest', 'mocha', 'pytest', 'playwright', 'bun', 'deno']) {
+      expect(runnerCommand(runner), runner).not.toBeNull();
+    }
+    expect(runnerCommand('sh')).toBeNull();
   });
 });

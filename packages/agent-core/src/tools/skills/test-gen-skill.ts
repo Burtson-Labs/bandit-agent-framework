@@ -8,15 +8,45 @@
 import type { SkillManifest } from '../skill-types';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '../tool-types';
 
-/** Runners the `runner` override may name. Each takes `run [filter]`. */
+/** Runners the `runner` override may name: exactly the ones runnerCommand has a test command for. */
 const KNOWN_TEST_RUNNERS: ReadonlySet<string> = new Set(['vitest', 'jest', 'mocha', 'pytest', 'playwright', 'bun', 'deno']);
+
+/**
+ * The command run_tests runs for a runner and optional filter, or null for a
+ * runner it has no test command for. npx never installs. Every runner used to
+ * get `<runner> run [filter]`: `deno run x.ts` and `bun run x.ts` execute a
+ * script under a tool name the gates treat as a test run, and `jest run`,
+ * `mocha run`, `pytest run` and `playwright run` are not test commands.
+ */
+export function runnerCommand(runner: string, filter?: string): { cmd: string; args: string[] } | null {
+  const f = filter ? [filter] : [];
+  switch (runner.toLowerCase()) {
+    case 'vitest':
+      return { cmd: 'npx', args: ['--no-install', 'vitest', 'run', ...f] };
+    case 'jest':
+      return { cmd: 'npx', args: ['--no-install', 'jest', '--ci', ...f] };
+    case 'mocha':
+      return { cmd: 'npx', args: ['--no-install', 'mocha', ...f] };
+    case 'playwright':
+      return { cmd: 'npx', args: ['--no-install', 'playwright', 'test', ...f] };
+    case 'deno':
+      return { cmd: 'deno', args: ['test', ...f] };
+    case 'bun':
+      return { cmd: 'bun', args: ['test', ...f] };
+    case 'pytest':
+      return { cmd: 'python3', args: ['-m', 'pytest', '-q', ...f] };
+    default:
+      // Never guess a command for a runner it does not know.
+      return null;
+  }
+}
 
 const runTestsTool: AgentTool = {
   name: 'run_tests',
   description: 'Run the project test suite and return results. Auto-detects the test runner (vitest, jest, mocha, pytest, cargo test).',
   parameters: [
     { name: 'filter', description: 'Optional test name or file pattern to filter (e.g. "auth", "src/utils/*.test.ts")' },
-    { name: 'runner', description: 'Override the test runner (e.g. "vitest", "jest", "pytest"). Auto-detected if omitted.' }
+    { name: 'runner', description: 'Override the test runner (vitest, jest, mocha, playwright, pytest, deno, bun). Auto-detected if omitted.' }
   ],
   async execute(params, ctx: ToolExecutionContext): Promise<ToolResult> {
     const runner = params.runner?.trim();
@@ -33,9 +63,15 @@ const runTestsTool: AgentTool = {
           isError: true
         };
       }
-      cmd = runner;
-      args = ['run'];
-      if (params.filter) {args.push(params.filter);}
+      const command = runnerCommand(runner, params.filter);
+      if (!command) {
+        return {
+          output: `run_tests: no test command for "${runner}". Omit \`runner\` to auto-detect, or use run_command for anything else.`,
+          isError: true
+        };
+      }
+      cmd = command.cmd;
+      args = command.args;
     } else {
       // Auto-detect: check for common test runner config files
       const detectors: Array<{ files: string[]; cmd: string; args: string[] }> = [
