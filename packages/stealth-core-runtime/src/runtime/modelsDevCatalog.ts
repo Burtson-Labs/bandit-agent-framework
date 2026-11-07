@@ -254,17 +254,27 @@ export async function queryOpenAICompatibleModelInfo(
     });
     if (!response.ok) {return null;}
     const body = (await response.json()) as {
-      data?: Array<{ id?: string; max_model_len?: number; context_length?: number }>;
+      data?: Array<{
+        id?: string;
+        max_model_len?: number;
+        context_length?: number;
+        meta?: { n_ctx?: number };
+      }>;
     };
     const entries = Array.isArray(body.data) ? body.data : [];
     const lower = modelId.toLowerCase();
     const entry = entries.find(e => typeof e.id === 'string' && e.id.toLowerCase() === lower);
     if (!entry) {return { exists: false };}
+    // vLLM and SGLang: max_model_len. OpenRouter: context_length. llama.cpp
+    // server: meta.n_ctx, the window it was started with (-c), not the
+    // model's trained maximum (meta.n_ctx_train), which it cannot serve.
     const contextWindow = typeof entry.max_model_len === 'number'
       ? entry.max_model_len
       : typeof entry.context_length === 'number'
         ? entry.context_length
-        : undefined;
+        : typeof entry.meta?.n_ctx === 'number' && entry.meta.n_ctx > 0
+          ? entry.meta.n_ctx
+          : undefined;
     return { exists: true, contextWindow };
   } catch {
     return null;

@@ -10,6 +10,7 @@ export { StealthEmbeddingClient } from './embeddingClient';
 export {
   createProvider,
   buildOllamaErrorHint,
+  buildOpenAICompatibleErrorHint,
   AGENT_NUM_PREDICT_BACKSTOP,
   OLLAMA_OUTPUT_TRUNCATED_SENTINEL,
   type ChatProvider,

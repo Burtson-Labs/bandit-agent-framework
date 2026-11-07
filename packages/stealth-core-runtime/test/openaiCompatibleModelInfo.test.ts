@@ -38,6 +38,15 @@ describe('queryOpenAICompatibleModelInfo — GET /v1/models probe', () => {
     expect(info).toEqual({ exists: true, contextWindow: 64000 });
   });
 
+  it('reads the llama.cpp server window (meta.n_ctx), not the trained maximum', async () => {
+    stubFetch(() => ({
+      ok: true,
+      body: { data: [{ id: 'gemma4-12b', owned_by: 'llamacpp', meta: { n_ctx: 4096, n_ctx_train: 262144 } }] }
+    }));
+    const info = await queryOpenAICompatibleModelInfo('gemma4-12b', 'http://localhost:8080/v1');
+    expect(info).toEqual({ exists: true, contextWindow: 4096 });
+  });
+
   it('normalizes chat-completions and /v1 suffixes to one /v1/models URL', async () => {
     const calls = stubFetch(() => ({ ok: true, body: { data: [] } }));
     await queryOpenAICompatibleModelInfo('m', 'http://localhost:1234/v1/chat/completions');

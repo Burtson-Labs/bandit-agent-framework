@@ -445,6 +445,30 @@ export async function* streamOllamaResponse(response: Response, opts: StreamOlla
  * Cloud tags come in both shapes — `-cloud` (`kimi-k2:1t-cloud`) and `:cloud`
  * (`kimi-k2.7-code:cloud`) — or the baseUrl points at ollama.com.
  */
+/**
+ * The next step for the errors self-hosted servers return most (seen live on
+ * llama.cpp and vLLM, 2026-11-07). Empty when there is nothing to add.
+ */
+export function buildOpenAICompatibleErrorHint(status: number, apiUrl: string, detail: string): string {
+  if (
+    status === 400 &&
+    /exceed_context_size|exceeds the available context|maximum context length|context length is|too many tokens|prompt is too long/i.test(detail)
+  ) {
+    return ' — the server\'s context window is smaller than the prompt. Start the server with a larger window (vLLM --max-model-len, SGLang --context-length, llama.cpp -c, LM Studio: context length), or use a smaller agent prompt (CLI: --small-context).';
+  }
+  if (status === 404 && /model/i.test(detail)) {
+    const models = apiUrl.replace(/\/chat\/completions$/, '/models');
+    return ` — the server does not serve that model id. ${models} lists the ids it does (vLLM: the --served-model-name it was started with).`;
+  }
+  if (status === 404 && !/\/v1\/chat\/completions$/.test(apiUrl)) {
+    return ' — the base URL usually ends at /v1 (e.g. http://localhost:8000/v1).';
+  }
+  if (status === 401) {
+    return ' — the server wants an API key (vLLM and SGLang: the --api-key they were started with).';
+  }
+  return '';
+}
+
 export function buildOllamaErrorHint(status: number, model: string, baseUrl: string, detail: string): string {
   if (status === 403 && /subscription|upgrade for access|ollama\.com\/upgrade/i.test(detail)) {
     return ' — this Ollama Cloud model requires a paid Ollama plan. Upgrade at https://ollama.com/upgrade, or try a local model (e.g. `qwen3.6:27b`, `gemma4:26b`) which needs no subscription.';
@@ -655,7 +679,23 @@ function createDirectOpenAICompatibleProvider(
     chat(request: AIChatRequest): AsyncIterable<AIChatResponse> {
       const controller = new AbortController();
       const iterator = async function* (): AsyncGenerator<AIChatResponse> {
+        // The caller's signal (Esc, the no-token watchdog, the loop detector)
+        // must cancel the HTTP request, as on the Ollama path. Without it an
+        // abandoned request kept generating: on a one-GPU llama.cpp or vLLM
+        // server the watchdog's retries stacked up behind it, three
+        // generations at once, each slower (2026-11-07).
+        const callerSignal = request.signal;
+        const onCallerAbort = () => controller.abort();
+        if (callerSignal) {
+          if (callerSignal.aborted) {controller.abort();}
+          else {callerSignal.addEventListener('abort', onCallerAbort, { once: true });}
+        }
         try {
+          // No max_tokens, even when the caller sets options.num_predict (the
+          // CLI sends a 32k runaway backstop on every agent turn): vLLM and
+          // OpenAI reject a max_tokens that does not fit the window, and the
+          // server default is the rest of the window. A runaway is stopped by
+          // the caller's abort instead.
           const payload = serializeBanditPayload(request, { strictOpenAI: true });
           const response = await fetchWithRetry(apiUrl, {
             method: 'POST',
@@ -665,7 +705,8 @@ function createDirectOpenAICompatibleProvider(
           }, { fetchImpl });
           if (!response.ok) {
             const detail = await safeReadText(response);
-            throw new Error(`openai-compatible request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}`);
+            const hint = buildOpenAICompatibleErrorHint(response.status, apiUrl, detail);
+            throw new Error(`openai-compatible request failed: ${response.status} ${response.statusText}${detail ? ` – ${detail}` : ''}${hint}`);
           }
           if (payload.stream) {
             yield* streamBanditResponse(response);
@@ -674,10 +715,18 @@ function createDirectOpenAICompatibleProvider(
             if (data.error?.message) {
               throw new Error(data.error.message);
             }
-            const text = extractTextFromBanditResponse(data);
-            const thinking = typeof data.choices?.[0]?.message?.thinking === 'string'
-              ? data.choices[0].message.thinking
-              : undefined;
+            const choice = data.choices?.[0];
+            // Cut off by max_tokens or the window: never replay a
+            // half-written call or call it a finished answer (the Ollama
+            // path's done_reason "length" rule).
+            let text = choice?.finish_reason === 'length'
+              ? OLLAMA_OUTPUT_TRUNCATED_SENTINEL
+              : extractTextFromBanditResponse(data);
+            if (choice?.finish_reason === 'length') {
+              const partial = typeof choice.message?.content === 'string' ? choice.message.content : '';
+              if (partial) {text = `${partial}\n\n${OLLAMA_OUTPUT_TRUNCATED_SENTINEL}`;}
+            }
+            const thinking = readReasoning(choice?.message);
             yield {
               message: {
                 content: text,
@@ -688,12 +737,27 @@ function createDirectOpenAICompatibleProvider(
             };
           }
         } finally {
+          callerSignal?.removeEventListener('abort', onCallerAbort);
           controller.abort();
         }
       };
       return iterator();
     }
   };
+}
+
+/**
+ * Reasoning text from an OpenAI-compatible message: `thinking` (the Bandit
+ * gateway), `reasoning_content` (vLLM, SGLang, llama.cpp, DeepSeek) or
+ * `reasoning` (newer vLLM).
+ */
+function readReasoning(
+  message: { thinking?: unknown; reasoning_content?: unknown; reasoning?: unknown } | undefined
+): string | undefined {
+  for (const value of [message?.thinking, message?.reasoning_content, message?.reasoning]) {
+    if (typeof value === 'string' && value) {return value;}
+  }
+  return undefined;
 }
 
 function buildOpenAICompatibleHeaders(
@@ -1110,6 +1174,9 @@ interface BanditResponseBody {
        * (message.thinking) for reasoning-capable models. Separate from
        * content so hosts can render it in a collapsed disclosure block. */
       thinking?: string;
+      /** Reasoning as vLLM, SGLang and llama.cpp name it. */
+      reasoning_content?: string;
+      reasoning?: string;
       /** Native tool calls forwarded by the gateway from Ollama's
        * upstream message.tool_calls. OpenAI-compat shape:
        * { id, type:"function", function: { name, arguments } }
@@ -1123,6 +1190,7 @@ interface BanditResponseBody {
         function?: { name?: string; arguments?: unknown };
       }>;
     };
+    finish_reason?: string | null;
   }>;
   error?: {
     message?: string;
@@ -1138,6 +1206,9 @@ interface BanditStreamChunk {
        * emits this under delta.thinking (mirrors Ollama's message.thinking
        * field from upstream). */
       thinking?: string;
+      /** vLLM, SGLang, llama.cpp and DeepSeek stream reasoning here. */
+      reasoning_content?: string;
+      reasoning?: string;
     };
     message?: {
       role?: string;
@@ -1220,7 +1291,7 @@ async function* streamBanditResponse(response: Response): AsyncGenerator<AIChatR
    * top-level message.thinking (direct Ollama pass-through). */
   const readChunkThinking = (chunk: BanditStreamChunk): string => {
     const choice = chunk.choices?.[0];
-    const fromDelta = typeof choice?.delta?.thinking === 'string' ? choice.delta.thinking : '';
+    const fromDelta = readReasoning(choice?.delta) ?? '';
     if (fromDelta) {
       return fromDelta;
     }
