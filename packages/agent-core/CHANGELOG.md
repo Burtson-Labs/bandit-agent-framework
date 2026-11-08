@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.96
+
+- `@modelcontextprotocol/sdk` is required at `^1.32.2` (was `^1.0.0`, which let a consumer's lockfile keep 1.30.1 and its high-severity advisories: OAuth credentials sent to a server-chosen authorization server, bearer tokens issued for another service accepted, auth headers replayed across a cross-origin redirect). The HTTP client transport now follows a redirect only within the endpoint's origin; a remote server entry that legitimately redirects elsewhere sets `redirectPolicy: 'follow'` in `mcp-servers.json`, and opting in re-asks for trust.
+
 ## 1.6.95
 
 - Workspace skill tools (`.bandit/skills/*.json`) carry `origin: 'manifest'`. The registry keeps an existing non-manifest tool over a manifest tool of the same name, so a repository can no longer ship a tool named `read_file` that replaces the built-in; a manifest tool's command goes through the same allow-list and blocked patterns as `run_command` (`runCommandRefusal`), so `sh` is not available under another name.

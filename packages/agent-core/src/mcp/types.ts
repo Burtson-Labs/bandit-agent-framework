@@ -61,6 +61,15 @@ export interface McpServerConfig {
    *  authenticate. */
   auth?: McpAuthConfig;
   /**
+   * Redirect handling for the remote URL. The MCP SDK (1.32 and later)
+   * follows a redirect only when it stays on the endpoint's origin, so a
+   * bearer token or API key is never replayed to another host. Set
+   * `'follow'` only for an endpoint that legitimately redirects across
+   * origins; the auth headers then go wherever the redirect points, and
+   * the change re-asks for trust.
+   */
+  redirectPolicy?: 'same-origin' | 'follow';
+  /**
    * Optional disable flag — set to true to keep the server in the
    * config (so the user doesn't lose their tokens) without spawning
    * it. Mirrors the standard MCP `disabled` field.

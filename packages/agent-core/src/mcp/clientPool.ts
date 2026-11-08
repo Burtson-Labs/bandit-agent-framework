@@ -82,7 +82,12 @@ export function fingerprintServerConfig(name: string, config: McpServerConfig): 
       name,
       kind: 'url' as const,
       url: config.url,
-      authKind: describeAuth(config.auth)
+      authKind: describeAuth(config.auth),
+      // Mixed in only when set to 'follow': opting into cross-origin
+      // redirects changes where the auth header can end up, so it
+      // re-asks for trust. Omitting it otherwise keeps every existing
+      // fingerprint stable.
+      ...(config.redirectPolicy === 'follow' ? { redirectPolicy: 'follow' as const } : {})
     };
     return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
   }
@@ -474,9 +479,15 @@ export class McpClientPool {
         }
       }
       const headers = this.buildAuthHeaders(entry.config.auth);
+      // The SDK refuses a cross-origin redirect unless the config opts
+      // in (its default since 1.32): a redirect to another host would
+      // otherwise carry the auth header along.
       const transport = new StreamableHTTPClientTransport(
         new URL(entry.config.url),
-        { requestInit: { headers } }
+        {
+          requestInit: { headers },
+          ...(entry.config.redirectPolicy ? { redirectPolicy: entry.config.redirectPolicy } : {})
+        }
       );
       const client = new Client(
         { name: 'bandit', version: '1.0.0' },

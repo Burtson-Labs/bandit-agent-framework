@@ -106,3 +106,17 @@ describe('McpClientPool tool-list cache', () => {
     expect(pool.hasCachedTools('gmail')).toBe(false);
   });
 });
+
+describe('fingerprintServerConfig for remote servers', () => {
+  const REMOTE_CFG: McpServerConfig = { url: 'https://mcp.example.com/mcp', auth: 'bandit' };
+
+  it('is unchanged by the default redirect policy', () => {
+    const base = fingerprintServerConfig('remote', REMOTE_CFG);
+    expect(fingerprintServerConfig('remote', { ...REMOTE_CFG, redirectPolicy: 'same-origin' })).toBe(base);
+  });
+
+  it('changes when the config opts into cross-origin redirects', () => {
+    const base = fingerprintServerConfig('remote', REMOTE_CFG);
+    expect(fingerprintServerConfig('remote', { ...REMOTE_CFG, redirectPolicy: 'follow' })).not.toBe(base);
+  });
+});

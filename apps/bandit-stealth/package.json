@@ -818,10 +818,10 @@
     "@burtson-labs/host-kit": "workspace:*",
     "@burtson-labs/stealth-core-runtime": "workspace:*",
     "diff2html": "^3.4.52",
-    "dompurify": "^3.4.5",
+    "dompurify": "^3.4.17",
     "markdown-it": "^14.2.0",
     "typescript": "^5.3.3",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "author": {
     "name": "Burtson Labs LLC",

@@ -67,7 +67,7 @@
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
     "clsx": "^2.1.0",
-    "dompurify": "^3.4.5",
+    "dompurify": "^3.4.17",
     "highlight.js": "^11.10.0",
     "markdown-it": "^14.2.0",
     "morphdom": "^2.7.4"
@@ -83,7 +83,7 @@
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/react": "19.2.2",
-    "happy-dom": "^19.0.2",
+    "happy-dom": "^21.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "vitest": "^4.0.10"
