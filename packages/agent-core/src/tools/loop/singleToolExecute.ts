@@ -60,7 +60,15 @@ export interface ToolDispatchDeps {
   onEditToolSucceeded: () => void;
 }
 
-export type ToolDispatchResult = { name: string; output: string; isError?: boolean };
+export type ToolDispatchResult = {
+  name: string;
+  output: string;
+  isError?: boolean;
+  /** Carried through from ToolResult: pictures for the results message. */
+  images?: string[];
+  /** Carried through from ToolResult: where the output came from (the envelope's origin attribute). */
+  origin?: string;
+};
 
 export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCall) => Promise<ToolDispatchResult> {
   const {
@@ -248,13 +256,24 @@ export function createToolDispatcher(deps: ToolDispatchDeps): (tc: ParsedToolCal
       // goes through buildToolResultsMessage → formatToolResult,
       // which already applies the same redactor at the parser
       // boundary, so both paths converge on the same masked text.
+      const images = Array.isArray(result.images) && result.images.length > 0 ? result.images : undefined;
       emit('tool_loop:tool_result', {
         name: resolvedName,
         isError: result.isError,
         outputLength: result.output.length,
-        outputSnippet: applySecretRedactionIfEnabled(result.output.slice(0, 280))
+        outputSnippet: applySecretRedactionIfEnabled(result.output.slice(0, 280)),
+        // Provenance and attachments ride along for turn logs and cards; the
+        // image bytes themselves stay out of the event (they can be megabytes).
+        ...(result.origin ? { origin: result.origin } : {}),
+        ...(images ? { imageCount: images.length } : {})
       });
-      return { name: resolvedName, output: result.output, isError: result.isError };
+      return {
+        name: resolvedName,
+        output: result.output,
+        isError: result.isError,
+        ...(images ? { images } : {}),
+        ...(result.origin ? { origin: result.origin } : {})
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       emit('tool_loop:tool_error', { name: resolvedName, error: msg });

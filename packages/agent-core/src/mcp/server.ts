@@ -12,7 +12,48 @@
  * result with isError: true rather than throwing.
  */
 
-import type { AgentTool, ToolExecutionContext } from '../tools/tool-types';
+import type { AgentTool, DeclaredToolRisk, ToolExecutionContext, ToolResult } from '../tools/tool-types';
+
+/** MCP tool annotations for a declared risk (the inverse of toolAdapter's riskFromAnnotations). */
+export function annotationsFromRisk(risk: DeclaredToolRisk): {
+  readOnlyHint?: boolean;
+  destructiveHint: boolean;
+  openWorldHint?: boolean;
+} {
+  return {
+    ...(risk.readOnly ? { readOnlyHint: true } : {}),
+    destructiveHint: risk.tier === 'critical',
+    ...(risk.network !== undefined ? { openWorldHint: risk.network } : {})
+  };
+}
+
+type McpContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string };
+
+/**
+ * A Bandit ToolResult as an MCP call result: text, then one image block per
+ * attached image (bare base64 + mimeType, as the spec wants), and the
+ * provenance origin under `_meta.origin` so a Bandit on the other end puts
+ * it back on its envelope.
+ */
+export function mcpResultFromToolResult(result: ToolResult): {
+  isError: boolean;
+  content: McpContentBlock[];
+  _meta?: { origin: string };
+} {
+  const content: McpContentBlock[] = [{ type: 'text', text: result.output }];
+  for (const image of result.images ?? []) {
+    const m = /^data:([^;,]+);base64,(.*)$/s.exec(image);
+    if (m) {content.push({ type: 'image', data: m[2], mimeType: m[1] });}
+    else if (image) {content.push({ type: 'image', data: image, mimeType: 'image/png' });}
+  }
+  return {
+    isError: Boolean(result.isError),
+    content,
+    ...(result.origin ? { _meta: { origin: result.origin } } : {})
+  };
+}
 
 interface ServeOptions {
   /** Tools to expose. Hosts pass a ToolRegistry's contents — usually
@@ -113,7 +154,11 @@ export async function serveBanditMcp(options: ServeOptions): Promise<void> {
     tools: tools.map((t) => ({
       name: t.name,
       description: t.description,
-      inputSchema: toolInputSchema(t)
+      inputSchema: toolInputSchema(t),
+      // A declared risk becomes the standard MCP annotations, so another
+      // Bandit (or any annotation-aware client) classifies the tool the way
+      // its author did. Advisory on the wire, as the spec says.
+      ...(t.risk ? { annotations: annotationsFromRisk(t.risk) } : {})
     }))
   }));
 
@@ -131,10 +176,7 @@ export async function serveBanditMcp(options: ServeOptions): Promise<void> {
     try {
       const args = coerceArgs(request.params.arguments);
       const result = await tool.execute(args, options.toolCtx);
-      return {
-        isError: Boolean(result.isError),
-        content: [{ type: 'text', text: result.output }]
-      };
+      return mcpResultFromToolResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log(`tool call ${request.params.name} threw: ${msg}`);

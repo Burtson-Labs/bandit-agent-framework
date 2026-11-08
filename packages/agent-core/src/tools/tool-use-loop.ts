@@ -19,7 +19,7 @@
 
 import type { ToolExecutionContext, ChatFn, ToolLoopMessage } from './tool-types';
 import type { ToolRegistry } from './tool-registry';
-import { parseToolCalls, hasToolCalls, buildToolResultsMessage, looksLikeAttemptedToolCall, stripDanglingToolCallOpener, stripToolCallMarkup, stripReasoningChannels, stripToAnswerContent, hasFabricatedToolResult, applySecretRedactionIfEnabled, AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
+import { parseToolCalls, hasToolCalls, buildToolResultsMessage, collectToolResultImages, looksLikeAttemptedToolCall, stripDanglingToolCallOpener, stripToolCallMarkup, stripReasoningChannels, stripToAnswerContent, hasFabricatedToolResult, applySecretRedactionIfEnabled, AUTOMATED_NUDGE_PREFIX } from './tool-use-parser';
 import { normalizeToolCallBatch } from './loop/toolCallNormalize';
 import { createToolDispatcher } from './loop/singleToolExecute';
 import { resolveTurnGoal } from './loop/turnSetup';
@@ -2383,7 +2383,14 @@ export class ToolUseLoop {
           `For repo overviews, synthesize from direct reads/searches first. For truly parallel audits, re-issue extra ` +
           `subagents with run_in_background="true" so the parent can keep responding.]`;
       }
-      messages.push({ role: 'user', content: resultsMessage });
+      // Pictures a result carried (a screenshot) go on the same message as
+      // the text that describes them, so a vision model sees both together.
+      const resultImages = collectToolResultImages(toolResults);
+      messages.push(
+        resultImages
+          ? { role: 'user', content: resultsMessage, images: resultImages }
+          : { role: 'user', content: resultsMessage }
+      );
 
       // Mid-turn persistence hook. This iteration's assistant turn and tool
       // results are now committed to `messages`, so hand a copy to the host to

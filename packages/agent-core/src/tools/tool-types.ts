@@ -10,6 +10,45 @@ export interface ToolResult {
   output: string;
   /** True when the tool encountered an error (output contains the error message). */
   isError?: boolean;
+  /**
+   * Images the result carries (data: URLs, or bare base64 PNG/JPEG). The
+   * loop attaches them to the results message so a vision-capable model
+   * sees the picture itself, not a path to it. A screenshot tool (the IDE's
+   * Browser preview, the Chrome extension) is the motivating case: until
+   * this field existed the model received "saved to /tmp/x.png" and could
+   * not look at it. Hosts without a vision model may drop them.
+   */
+  images?: string[];
+  /**
+   * Where the output came from, when it is not the workspace: a URL origin
+   * (`https://example.com`) for a web page, a server name for an MCP
+   * result. The loop writes it on the result envelope
+   * (`<tool_result name="browser_read_page" origin="https://example.com">`)
+   * so the model, the permission card and the audit log give one answer to
+   * "where did this text come from". Untrusted content stays labelled as
+   * such however many times it is quoted.
+   */
+  origin?: string;
+}
+
+/**
+ * Risk a tool declares about itself, so hosts stop classifying tools by
+ * name. The tiers are host-kit's: `routine` runs unattended in auto mode,
+ * `elevated` asks, `critical` always asks and no saved grant covers it.
+ * `readOnly` is the strict subset plan mode allows through; `network` says
+ * the call contacts another host (its arguments leave the machine).
+ *
+ * A declaration is a floor for the tool's own behaviour, not a ceiling on
+ * the host's judgement: a host may still raise the tier from the call's
+ * arguments (a click on "Pay now" is critical however the click tool
+ * declares itself), never lower it.
+ */
+export interface DeclaredToolRisk {
+  tier: 'routine' | 'elevated' | 'critical';
+  readOnly?: boolean;
+  network?: boolean;
+  /** One sentence for the permission card's risk line. */
+  why?: string;
 }
 
 /**
@@ -220,6 +259,12 @@ export interface AgentTool {
    * registered, so a repository cannot stand in for `read_file`.
    */
   origin?: 'manifest';
+  /**
+   * What the tool says about its own risk (see DeclaredToolRisk). Hosts
+   * consult it before falling back to name-based classification; MCP
+   * adapters fill it from the server's tool annotations.
+   */
+  risk?: DeclaredToolRisk;
 }
 
 /**
@@ -229,6 +274,13 @@ export interface AgentTool {
 export interface ToolLoopMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /**
+   * Images attached to this message (data: URLs or bare base64). Set by the
+   * loop on a tool-results message when a result carried `images`; hosts'
+   * chat adapters forward them as image content parts. Absent on messages
+   * that have none, so adapters that ignore the field see no change.
+   */
+  images?: string[];
 }
 
 /**

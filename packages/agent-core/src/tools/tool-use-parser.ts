@@ -430,10 +430,31 @@ export function stripToolCallMarkup(text: string): string {
  * exists for debugging the redactor itself; default-on is the right
  * behavior for everyday use.
  */
-export function formatToolResult(name: string, output: string, isError?: boolean): string {
-  const tag = isError ? `<tool_result name="${name}" status="error">` : `<tool_result name="${name}">`;
+export function formatToolResult(
+  name: string,
+  output: string,
+  isError?: boolean,
+  meta?: { origin?: string }
+): string {
+  const attrs = [`name="${name}"`];
+  if (isError) {attrs.push('status="error"');}
+  // Provenance (ToolResult.origin): the attribute names where the text came
+  // from, so untrusted content stays labelled every time it is quoted. The
+  // value is sanitized rather than escaped — an origin is a URL origin or a
+  // server name, never free text, so anything outside that alphabet is
+  // dropped and the attribute can never close the tag or open another.
+  const origin = sanitizeOriginAttr(meta?.origin);
+  if (origin) {attrs.push(`origin="${origin}"`);}
+  const tag = `<tool_result ${attrs.join(' ')}>`;
   const safeOutput = neutralizeResultEnvelope(applySecretRedactionIfEnabled(output));
   return `${tag}\n${safeOutput}\n</tool_result>`;
+}
+
+/** The characters an origin attribute may carry: URL origins and plain names. */
+export function sanitizeOriginAttr(origin: string | undefined): string | undefined {
+  if (!origin) {return undefined;}
+  const cleaned = origin.replace(/[^A-Za-z0-9.:/_@%+~-]/g, '').slice(0, 200);
+  return cleaned || undefined;
 }
 
 /**
@@ -478,9 +499,29 @@ export function neutralizeResultEnvelope(text: string): string {
  * Used when the model made multiple tool calls in one response.
  */
 export function buildToolResultsMessage(
-  results: Array<{ name: string; output: string; isError?: boolean }>
+  results: Array<{ name: string; output: string; isError?: boolean; origin?: string }>
 ): string {
-  return results.map(r => formatToolResult(r.name, r.output, r.isError)).join('\n\n');
+  return results.map(r => formatToolResult(r.name, r.output, r.isError, { origin: r.origin })).join('\n\n');
+}
+
+/**
+ * The images a batch of results carries, in result order, deduplicated. The
+ * loop puts them on the results message (ToolLoopMessage.images) so hosts
+ * forward them to a vision model next to the text they belong to.
+ */
+export function collectToolResultImages(
+  results: Array<{ images?: string[] }>
+): string[] | undefined {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of results) {
+    for (const image of r.images ?? []) {
+      if (typeof image !== 'string' || !image || seen.has(image)) {continue;}
+      seen.add(image);
+      out.push(image);
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 // ─── Secret redaction wiring ───────────────────────────────────────

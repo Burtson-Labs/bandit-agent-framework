@@ -12,7 +12,7 @@
  * implementations. Always `<server>.<tool>`.
  */
 
-import type { AgentTool, AgentToolParameter, AgentToolParameterSchema, ToolExecutionContext, ToolResult } from '../tools/tool-types';
+import type { AgentTool, AgentToolParameter, AgentToolParameterSchema, DeclaredToolRisk, ToolExecutionContext, ToolResult } from '../tools/tool-types';
 import type { McpClientPool } from './clientPool';
 import { shouldActivateServer, isServerMentioned } from './activation';
 import { looksLikeAuthFailure, describeMcpAuthFailure, formatMcpToolError } from './authFailure';
@@ -32,10 +32,48 @@ interface JsonSchemaNode {
   enum?: Array<string | number | boolean>;
 }
 
+/**
+ * MCP tool annotations (2025-03-26 spec): hints a server gives about a
+ * tool's behaviour. Advisory by the spec's own words, which is why they only
+ * ever RAISE Bandit's classification, never lower it — see `riskFromAnnotations`.
+ */
+interface ToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 interface RemoteToolDef {
   name: string;
   description?: string;
   inputSchema?: JsonSchemaNode;
+  annotations?: ToolAnnotations;
+}
+
+/**
+ * A declared risk from MCP annotations. Only the hints that make a tool MORE
+ * careful are honoured: `destructiveHint: true` declares critical,
+ * `openWorldHint: true` marks it as reaching other hosts. `readOnlyHint` is
+ * deliberately NOT turned into `readOnly`: a server's own claim that it reads
+ * nothing is exactly what Bandit cannot verify (host-kit treats read-named
+ * MCP tools as routine but not plan-mode read-only for the same reason), so
+ * the host's name-based rules keep deciding that case.
+ */
+export function riskFromAnnotations(annotations: ToolAnnotations | undefined): DeclaredToolRisk | undefined {
+  if (!annotations) {return undefined;}
+  if (annotations.destructiveHint === true) {
+    return {
+      tier: 'critical',
+      network: annotations.openWorldHint === true,
+      why: 'The server declares this tool destructive.'
+    };
+  }
+  if (annotations.openWorldHint === true && annotations.readOnlyHint !== true) {
+    return { tier: 'elevated', network: true, why: 'The server declares this tool reaches outside the connected service.' };
+  }
+  return undefined;
 }
 
 /**
@@ -103,18 +141,43 @@ function convertInputSchema(schema: RemoteToolDef['inputSchema']): AgentToolPara
  * non-text blocks as a one-line marker so the model knows it received
  * non-text data without us inlining bytes.
  */
-function renderMcpResult(result: { content?: Array<{ type: string; text?: string }>; isError?: boolean }): ToolResult {
+export interface McpCallResultLike {
+  content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+  isError?: boolean;
+  /** MCP `_meta`: `origin` names where the content came from (a URL origin). */
+  _meta?: Record<string, unknown>;
+}
+
+export function renderMcpResult(result: McpCallResultLike): ToolResult {
   const blocks = result?.content ?? [];
   const textParts: string[] = [];
+  const images: string[] = [];
   for (const block of blocks) {
     if (block.type === 'text' && typeof block.text === 'string') {
       textParts.push(block.text);
+    } else if (block.type === 'image' && typeof block.data === 'string' && block.data) {
+      // Image content reaches the model as an image (ToolResult.images) and
+      // as a one-line marker in the text, so a host without a vision model
+      // still knows a picture was there. Dropped until 1.6.96, which is how
+      // a screenshot from a browser MCP server arrived as "(non-text content
+      // omitted)".
+      const mime = typeof block.mimeType === 'string' && block.mimeType ? block.mimeType : 'image/png';
+      images.push(block.data.startsWith('data:') ? block.data : `data:${mime};base64,${block.data}`);
+      const kb = Math.max(1, Math.round((block.data.length * 3) / 4 / 1024));
+      textParts.push(`[image attached: ${mime}, about ${kb} KB]`);
     } else {
       textParts.push(`[mcp:${block.type}] (non-text content omitted)`);
     }
   }
   const output = textParts.join('\n').trim() || '(empty MCP response)';
-  return { output, isError: Boolean(result?.isError) };
+  const metaOrigin = result?._meta?.origin;
+  const origin = typeof metaOrigin === 'string' && metaOrigin ? metaOrigin : undefined;
+  return {
+    output,
+    isError: Boolean(result?.isError),
+    ...(images.length > 0 ? { images } : {}),
+    ...(origin ? { origin } : {})
+  };
 }
 
 /**
@@ -140,10 +203,12 @@ export function mcpToolToAgentTool(
     ? `${remote.description} (via MCP server "${serverName}")`
     : `MCP tool "${remote.name}" exposed by server "${serverName}".`;
   const parameters = convertInputSchema(remote.inputSchema);
+  const risk = riskFromAnnotations(remote.annotations);
   return {
     name: namespacedName,
     description,
     parameters,
+    ...(risk ? { risk } : {}),
     async execute(params: Record<string, string>, _ctx: ToolExecutionContext): Promise<ToolResult> {
       try {
         // Bandit's tool-use loop hands us params as Record<string, string>
