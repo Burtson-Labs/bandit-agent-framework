@@ -8,6 +8,9 @@ export default defineConfig({
     // against the same DOM implementation the webview uses rather than
     // asserted on a string.
     environment: 'happy-dom',
+    // happy-dom's Node.prototype.nodeName returns '' and DOMPurify 3.4.12+
+    // reads the name through that getter; see the setup file.
+    setupFiles: ['test/_happy-dom-setup.ts'],
     // Parsing `<iframe src>` / `<link href>` makes happy-dom actually try to
     // fetch them, so the sanitizer tests would hit the network with the
     // attacker-shaped URLs they use as fixtures. Turning resource loading off
