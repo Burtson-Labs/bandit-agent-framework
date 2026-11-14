@@ -1,6 +1,8 @@
 /**
- * Bandit Artifacts (cloud) — publish a shareable artifact to S3Api and get back
- * a URL anyone with the link can open.
+ * Bandit Stash (cloud; formerly Bandit Artifacts) — save a file to the user's Stash
+ * via S3Api and get back a link to it. The exported names (publishArtifact,
+ * artifactKeyFromUrl, …) and the `/api/artifact/*` routes keep the old word on
+ * purpose: they are published API and wire contract.
  *
  * Auth: S3Api (like every [BurtsonAuthorize] service) validates a gateway JWT,
  * NOT the opaque `bai_` device key the CLI/extension hold. So a host with a
@@ -282,7 +284,7 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   // still transiently flake). 4xx (auth, too-large) are terminal — surface those.
   const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
   const backoffMs = opts.retryDelayMs ?? 300;
-  let lastError: Error = new Error('artifact upload failed');
+  let lastError: Error = new Error('upload to Stash failed');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res: Response;
@@ -294,20 +296,20 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
       });
     } catch (err) {
       // Network-level failure — transient, worth a retry.
-      lastError = new Error(`artifact upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      lastError = new Error(`upload to Stash failed: ${err instanceof Error ? err.message : String(err)}`);
       if (attempt < maxAttempts) { await sleep(backoffMs * attempt); continue; }
       throw lastError;
     }
 
     if (res.ok) {
       const body = (await res.json()) as Partial<PublishedArtifact>;
-      if (!body.url) throw new Error('artifact upload succeeded but no URL was returned');
+      if (!body.url) throw new Error('saved to Stash but no URL was returned');
       return { url: body.url, key: body.key ?? '', size: body.size ?? bytes.byteLength };
     }
 
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    lastError = new Error(`artifact upload failed: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    lastError = new Error(`upload to Stash failed: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
     // Only 5xx is retryable; 4xx is a terminal client error.
     if (res.status >= 500 && attempt < maxAttempts) { await sleep(backoffMs * attempt); continue; }
     throw lastError;
@@ -343,6 +345,19 @@ export interface ArtifactListItem {
 }
 
 /**
+ * Path of the Stash page on the Stealth dashboard. Still `artifacts`: the web app's
+ * `/stash` route ships separately, and `/artifacts` keeps working there as a redirect
+ * that preserves `?a=`. Flip this to `'stash'` once `/stash` is live in production
+ * (artifactKeyFromUrl already accepts both forms).
+ */
+export const STASH_DASHBOARD_PATH = 'artifacts';
+
+/** Dashboard deep-link that opens one Stash item, e.g. `https://stealth.banditailabs.com/artifacts?a=<key>`. */
+export function stashViewUrl(webBaseUrl: string, key: string): string {
+  return `${webBaseUrl.replace(/\/$/, '')}/${STASH_DASHBOARD_PATH}?a=${encodeURIComponent(key)}`;
+}
+
+/**
  * Extract the object key from a share URL (everything after `/api/artifact/`),
  * decoding per-segment percent-encoding. Returns the input unchanged when it's
  * already a key (no marker), so callers can pass either a URL or a raw key.
@@ -351,8 +366,9 @@ export function artifactKeyFromUrl(urlOrKey: string): string {
   const decodeSegs = (s: string) =>
     s.split('/').map((seg) => { try { return decodeURIComponent(seg); } catch { return seg; } }).join('/');
   // Dashboard deep-link — the link publish_artifact hands the user to VIEW/manage it,
-  // e.g. https://stealth.banditailabs.com/artifacts?a=<url-encoded key>. This is the URL
-  // people naturally paste back to revise, so resolve the key straight from ?a=.
+  // e.g. https://stealth.banditailabs.com/stash?a=<url-encoded key> (Bandit Stash) or the
+  // older …/artifacts?a=<key>. This is the URL people naturally paste back to revise, so
+  // resolve the key straight from ?a= whatever the page path is.
   const aParam = /[?&]a=([^&#]+)/.exec(urlOrKey);
   if (aParam) {
     try { return decodeURIComponent(aParam[1]); } catch { return aParam[1]; }
@@ -377,7 +393,7 @@ export async function listArtifacts(opts: ArtifactManageOptions): Promise<Artifa
   const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
   const res = await fetchImpl(`${base}/api/artifact/mine`, { headers: { authorization: `Bearer ${bearer}` } });
-  if (!res.ok) throw new Error(`could not list artifacts: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`could not list your Stash: HTTP ${res.status}`);
   const body = (await res.json()) as { artifacts?: ArtifactListItem[] };
   return body.artifacts ?? [];
 }
@@ -394,8 +410,8 @@ export async function deleteArtifact(opts: ArtifactManageOptions & { keyOrUrl: s
     headers: { authorization: `Bearer ${bearer}` },
   });
   if (!res.ok) {
-    if (res.status === 404) throw new Error(`no artifact found for "${opts.keyOrUrl}" (or it isn't yours)`);
-    throw new Error(`could not delete artifact: HTTP ${res.status}`);
+    if (res.status === 404) throw new Error(`no Stash item found for "${opts.keyOrUrl}" (or it isn't yours)`);
+    throw new Error(`could not delete the Stash item: HTTP ${res.status}`);
   }
 }
 
@@ -492,7 +508,7 @@ export async function restoreArtifact(opts: ArtifactManageOptions & { keyOrUrl: 
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    throw new Error(`could not restore artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    throw new Error(`could not restore the Stash item: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
   }
 }
 
@@ -510,7 +526,7 @@ export async function archiveArtifact(opts: ArtifactManageOptions & { keyOrUrl: 
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    throw new Error(`could not archive artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    throw new Error(`could not archive the Stash item: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
   }
 }
 
@@ -534,7 +550,7 @@ export async function getArtifact(opts: ArtifactManageOptions & { keyOrUrl: stri
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    throw new Error(`could not fetch artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    throw new Error(`could not fetch the Stash item: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
   }
   const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
   const content = await res.text();
@@ -580,7 +596,7 @@ export async function updateArtifact(
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
-    throw new Error(`could not update artifact: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+    throw new Error(`could not update the Stash item: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
   }
   const j = (await res.json()) as Partial<PublishedArtifact>;
   return { url: j.url ?? opts.keyOrUrl, key: j.key ?? key, size: j.size ?? bytes.byteLength };
@@ -706,7 +722,7 @@ export async function clearArtifacts(opts: ArtifactManageOptions & { scope?: 'pr
     method: 'DELETE',
     headers: { authorization: `Bearer ${bearer}` },
   });
-  if (!res.ok) throw new Error(`could not clear artifacts: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`could not clear your Stash: HTTP ${res.status}`);
   const body = (await res.json()) as { deleted?: number };
   return body.deleted ?? 0;
 }

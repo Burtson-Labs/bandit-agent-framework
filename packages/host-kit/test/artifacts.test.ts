@@ -19,7 +19,9 @@ import {
   setArtifactScope,
   getArtifact,
   updateArtifact,
-  artifactKeyFromUrl
+  artifactKeyFromUrl,
+  stashViewUrl,
+  STASH_DASHBOARD_PATH
 } from '../src/artifacts';
 
 describe('guessContentType', () => {
@@ -190,6 +192,28 @@ describe('artifactKeyFromUrl', () => {
     expect(artifactKeyFromUrl('https://stealth.banditailabs.com/artifacts?a=team-1%2Fx.html&foo=1#top'))
       .toBe('team-1/x.html');
   });
+  it('resolves the key from the Bandit Stash deep-link (/stash?a=<encoded key>)', () => {
+    // The dashboard page was renamed Artifacts → Stash; both paths must keep resolving,
+    // since old /artifacts?a= links live on in chat logs, emails and CLI output.
+    expect(artifactKeyFromUrl('https://stealth.banditailabs.com/stash?a=owner-203d14dda6c1a005%2F1039e77-briefing.html'))
+      .toBe('owner-203d14dda6c1a005/1039e77-briefing.html');
+    expect(artifactKeyFromUrl('https://stealth.banditailabs.com/stash?a=team-1%2Fa%20b.md&foo=1#top'))
+      .toBe('team-1/a b.md');
+    expect(artifactKeyFromUrl('https://stealth.banditailabs.com/stash?tab=shared&a=team-1%2Fx.html'))
+      .toBe('team-1/x.html');
+    // same key whichever path the link uses
+    const key = 'owner-x/abc-report.html';
+    for (const path of ['artifacts', 'stash']) {
+      expect(artifactKeyFromUrl(`https://stealth.banditailabs.com/${path}?a=${encodeURIComponent(key)}`)).toBe(key);
+    }
+    // the raw S3Api owner URL is unchanged by the rename
+    expect(artifactKeyFromUrl(`https://s3.burtson.ai/api/artifact/${key}`)).toBe(key);
+  });
+  it('stashViewUrl builds a dashboard deep-link that round-trips through artifactKeyFromUrl', () => {
+    const url = stashViewUrl('https://stealth.banditailabs.com/', 'team-1/a b.html');
+    expect(url).toBe(`https://stealth.banditailabs.com/${STASH_DASHBOARD_PATH}?a=team-1%2Fa%20b.html`);
+    expect(artifactKeyFromUrl(url)).toBe('team-1/a b.html');
+  });
   it('extracts the key from a URL with ANY host (even a hallucinated domain), ignoring the host', () => {
     // get_artifact/update_artifact always hit the real S3 base, so the host is irrelevant.
     expect(artifactKeyFromUrl('https://artifacts.bandit.sh/owner-203d14dda6c1a005/1039e77-briefing.html'))
@@ -226,7 +250,7 @@ describe('artifact management', () => {
   it('deleteArtifact surfaces a clear 404 (not found / not yours)', async () => {
     const fetchImpl = (async () => ({ ok: false, status: 404, json: async () => ({}) } as Response)) as unknown as typeof fetch;
     await expect(deleteArtifact({ s3ApiBaseUrl: 'https://s3.burtson.ai', token: 'jwt', keyOrUrl: 'team-x/gone.html', fetchImpl }))
-      .rejects.toThrow(/no artifact found/);
+      .rejects.toThrow(/no Stash item found/);
   });
 
   it('clearArtifacts DELETEs /mine and returns the deleted count', async () => {

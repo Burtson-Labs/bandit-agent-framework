@@ -48,6 +48,8 @@ export {
   normalizeArtifactMetaField,
   ARTIFACT_TITLE_MAX,
   ARTIFACT_DESCRIPTION_MAX,
+  stashViewUrl,
+  STASH_DASHBOARD_PATH,
   DEFAULT_AUTH_BASE_URL,
   type ArtifactMeta,
   type PublishArtifactOptions,
