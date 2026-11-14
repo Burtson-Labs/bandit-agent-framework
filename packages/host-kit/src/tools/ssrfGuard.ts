@@ -34,6 +34,19 @@
  *    mapped (::ffff:0:0/96), compatible (::/96), and NAT64
  *    (64:ff9b::/96) prefixes.
  *
+ * 5. Split-horizon DNS: a public site the user self-hosts (or any site
+ *    behind a home/office resolver override) resolves to a LAN address
+ *    locally — burtson.ai → 192.168.1.44 at home — so the guard refused
+ *    a page every outside visitor can read. When the local answer is
+ *    private and the name is a public DNS name, the guard asks public
+ *    resolvers once; if EVERY public record is public, it pins the
+ *    connection to that public address. That is exactly the server an
+ *    outside visitor reaches, so nothing internal becomes reachable: an
+ *    attacker domain answering private locally and public publicly just
+ *    gets its public server. Names with internal-only suffixes (.local,
+ *    .internal, .lan, .home.arpa, ...) never take this path. Set
+ *    BANDIT_WEB_FETCH_PUBLIC_DNS=0 to turn the fallback off.
+ *
  * Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out of the private-range
  * blocking — appropriate when the user intentionally points the agent
  * at internal docs. Resolution + pinning still happen; only the
@@ -79,6 +92,11 @@ export interface GuardedFetchOptions {
   /** Skip the private-range rejection (BANDIT_ALLOW_PRIVATE_WEB_FETCH=1). */
   allowPrivate?: boolean;
   lookup?: LookupAllFn;
+  /**
+   * Resolver consulted when the local answer is private (split-horizon
+   * DNS). Defaults to public resolvers; false disables the fallback.
+   */
+  publicLookup?: LookupAllFn | false;
   transport?: PinnedTransport;
   maxRedirects?: number;
   timeoutMs?: number;
@@ -233,6 +251,41 @@ const defaultLookupAll: LookupAllFn = async (hostname) => {
   return Array.isArray(records) ? records : [records];
 };
 
+/** Public resolvers asked when the local answer is private. */
+const PUBLIC_RESOLVERS = ['1.1.1.1', '8.8.8.8'];
+const PUBLIC_LOOKUP_TIMEOUT_MS = 3_000;
+
+/**
+ * Suffixes that only exist inside a network — never ask public DNS
+ * about them (it would leak the name and could only answer NXDOMAIN or
+ * a squatter's address).
+ */
+const INTERNAL_SUFFIXES = ['.local', '.localdomain', '.internal', '.intranet', '.lan', '.home', '.corp', '.private', '.home.arpa', '.test', '.invalid', '.example'];
+
+export function isPublicDnsName(hostname: string): boolean {
+  const lower = hostname.toLowerCase().replace(/\.$/, '');
+  if (!lower.includes('.')) return false; // single-label: search-domain/LAN name
+  if (isIP(lower) !== 0 || normalizeIPv4Numeric(lower)) return false;
+  return !INTERNAL_SUFFIXES.some((suffix) => lower.endsWith(suffix));
+}
+
+const defaultPublicLookup: LookupAllFn = async (hostname) => {
+  const resolver = new dns.Resolver({ timeout: PUBLIC_LOOKUP_TIMEOUT_MS, tries: 1 });
+  resolver.setServers(PUBLIC_RESOLVERS);
+  const [v4, v6] = await Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]);
+  const out: Array<{ address: string; family: number }> = [];
+  if (v4.status === 'fulfilled') for (const address of v4.value) out.push({ address, family: 4 });
+  if (v6.status === 'fulfilled') for (const address of v6.value) out.push({ address, family: 6 });
+  return out;
+};
+
+function resolvePublicLookup(opt: LookupAllFn | false | undefined): LookupAllFn | null {
+  if (opt === false) return null;
+  if (opt) return opt;
+  if (process.env.BANDIT_WEB_FETCH_PUBLIC_DNS === '0') return null;
+  return defaultPublicLookup;
+}
+
 export type VetOutcome =
   | { kind: 'ok'; pinned: PinnedAddress }
   | { kind: 'blocked'; detail: string }
@@ -246,7 +299,7 @@ export type VetOutcome =
  */
 export async function vetHost(
   hostname: string,
-  opts: { allowPrivate?: boolean; lookup?: LookupAllFn } = {}
+  opts: { allowPrivate?: boolean; lookup?: LookupAllFn; publicLookup?: LookupAllFn | false } = {}
 ): Promise<VetOutcome> {
   // URL.hostname returns IPv6 literals WITH brackets ("[::1]") — strip
   // them so isIP() classifies the address and DNS never sees brackets.
@@ -291,10 +344,22 @@ export async function vetHost(
     return { kind: 'unresolvable', message: `DNS lookup for ${stripped} returned no addresses` };
   }
   if (!allowPrivate) {
-    for (const rec of list) {
-      if (isPrivateAddress(rec.address)) {
-        return { kind: 'blocked', detail: `resolves to the private/loopback/link-local address ${rec.address}` };
+    const privateRec = list.find((rec) => isPrivateAddress(rec.address));
+    if (privateRec) {
+      const publicLookup = isPublicDnsName(stripped) ? resolvePublicLookup(opts.publicLookup) : null;
+      if (publicLookup) {
+        let publicRecs: Array<{ address: string; family: number }> = [];
+        try {
+          publicRecs = (await publicLookup(stripped)).filter((r) => !!r && typeof r.address === 'string');
+        } catch {
+          publicRecs = []; // public DNS unreachable: keep the original verdict
+        }
+        if (publicRecs.length > 0 && publicRecs.every((rec) => !isPrivateAddress(rec.address))) {
+          const pub = publicRecs.find((rec) => isIP(rec.address) === 4) ?? publicRecs[0];
+          return { kind: 'ok', pinned: { address: pub.address, family: isIP(pub.address) === 6 ? 6 : 4 } };
+        }
       }
+      return { kind: 'blocked', detail: `resolves to the private/loopback/link-local address ${privateRec.address}` };
     }
   }
   const first = list[0];
@@ -457,7 +522,7 @@ export async function guardedGet(
         output: `Blocked: redirect to unsupported protocol ${current.protocol} — only http/https targets are allowed.`
       };
     }
-    const vet = await vetHost(current.hostname, { allowPrivate, lookup: options.lookup });
+    const vet = await vetHost(current.hostname, { allowPrivate, lookup: options.lookup, publicLookup: options.publicLookup });
     if (vet.kind === 'blocked') {
       const subject = redirects === 0 ? `Blocked: ${current.hostname}` : `Blocked: redirect to ${current.hostname}`;
       return { ok: false, output: `${subject} ${vet.detail}. ${ENV_HINT}` };

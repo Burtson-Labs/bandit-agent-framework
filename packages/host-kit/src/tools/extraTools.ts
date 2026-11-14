@@ -243,6 +243,8 @@ export function buildRememberTool(): AgentTool {
 export interface WebFetchToolOptions {
   /** Test seam: override DNS resolution (hostname → all A/AAAA records). */
   lookup?: LookupAllFn;
+  /** Test seam: override the public resolver used for split-horizon DNS (false disables it). */
+  publicLookup?: LookupAllFn | false;
   /** Test seam: override the pinned-connection transport. */
   transport?: PinnedTransport;
 }
@@ -260,6 +262,7 @@ export function buildWebFetchTool(options: WebFetchToolOptions = {}): AgentTool 
       return runGuardedWebFetch(raw, {
         allowPrivate: process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH === '1',
         lookup: options.lookup,
+        publicLookup: options.publicLookup,
         transport: options.transport
       });
     }

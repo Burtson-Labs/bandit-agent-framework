@@ -386,11 +386,19 @@ describe('buildWebFetchTool SSRF guard', () => {
   // Each test sets its own DNS mock; clear the env override between tests
   // so a stray BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 in the runner env doesn't
   // silently disable the guard.
+  // The split-horizon fallback is off by default here so no test reaches
+  // real public DNS; the tests that cover it inject their own resolver.
   const ORIGINAL_OVERRIDE = process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH;
-  beforeEach(() => { delete process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH; });
+  const ORIGINAL_PUBLIC_DNS = process.env.BANDIT_WEB_FETCH_PUBLIC_DNS;
+  beforeEach(() => {
+    delete process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH;
+    process.env.BANDIT_WEB_FETCH_PUBLIC_DNS = '0';
+  });
   afterEach(() => {
     if (ORIGINAL_OVERRIDE === undefined) delete process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH;
     else process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH = ORIGINAL_OVERRIDE;
+    if (ORIGINAL_PUBLIC_DNS === undefined) delete process.env.BANDIT_WEB_FETCH_PUBLIC_DNS;
+    else process.env.BANDIT_WEB_FETCH_PUBLIC_DNS = ORIGINAL_PUBLIC_DNS;
   });
 
   it('blocks hostname literal "localhost" without resolving DNS', async () => {
@@ -455,6 +463,89 @@ describe('buildWebFetchTool SSRF guard', () => {
     const r = await tool.execute({ url: 'https://mixed.example.com/' }, testCtx);
     expect(r.isError).toBe(true);
     expect(calls).toHaveLength(0);
+  });
+
+  describe('split-horizon DNS (local answer private, public answer public)', () => {
+    const lanAnswer = (address = '192.168.1.44') =>
+      vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
+        [{ address, family: 4 }] as unknown as dnsMod.LookupAddress
+      );
+
+    it('fetches a self-hosted public site through its public address', async () => {
+      lanAnswer();
+      const asked: string[] = [];
+      const publicDns = async (host: string) => { asked.push(host); return [{ address: '104.21.4.10', family: 4 }]; };
+      const { transport, calls } = makeTransport([{ status: 200, body: 'Burtson Labs' }]);
+      const tool = buildWebFetchTool({ transport, publicLookup: publicDns });
+      const r = await tool.execute({ url: 'https://burtson.ai/' }, testCtx);
+      expect(r.isError).toBe(false);
+      expect(r.output).toContain('Burtson Labs');
+      expect(asked).toEqual(['burtson.ai']);
+      expect(calls[0].pinned.address).toBe('104.21.4.10');
+    });
+
+    it('stays blocked when the public answer is private too', async () => {
+      lanAnswer('10.0.0.5');
+      const publicDns = async () => [{ address: '10.0.0.5', family: 4 }];
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const r = await buildWebFetchTool({ transport, publicLookup: publicDns }).execute({ url: 'https://internal.example.com/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/private/);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('stays blocked when ANY public record is private', async () => {
+      lanAnswer();
+      const publicDns = async () => [{ address: '104.21.4.10', family: 4 }, { address: '127.0.0.1', family: 4 }];
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const r = await buildWebFetchTool({ transport, publicLookup: publicDns }).execute({ url: 'https://mixed.example.com/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('stays blocked when public DNS has no answer or fails', async () => {
+      lanAnswer();
+      for (const publicDns of [async () => [], async () => { throw new Error('ETIMEOUT'); }]) {
+        const { transport, calls } = makeTransport([{ status: 200 }]);
+        const r = await buildWebFetchTool({ transport, publicLookup: publicDns }).execute({ url: 'https://nas.burtson.ai/' }, testCtx);
+        expect(r.isError).toBe(true);
+        expect(calls).toHaveLength(0);
+      }
+    });
+
+    it('never asks public DNS about internal-only names or literals', async () => {
+      lanAnswer();
+      const asked: string[] = [];
+      const publicDns = async (host: string) => { asked.push(host); return [{ address: '104.21.4.10', family: 4 }]; };
+      for (const url of ['http://nas.local/', 'http://printer.lan/', 'http://router.home.arpa/', 'http://grafana/', 'http://192.168.1.44/']) {
+        const { transport, calls } = makeTransport([{ status: 200 }]);
+        const r = await buildWebFetchTool({ transport, publicLookup: publicDns }).execute({ url }, testCtx);
+        expect(r.isError).toBe(true);
+        expect(calls).toHaveLength(0);
+      }
+      expect(asked).toEqual([]);
+    });
+
+    it('re-applies the fallback on a redirect hop', async () => {
+      lanAnswer();
+      const publicDns = async () => [{ address: '104.21.4.10', family: 4 }];
+      const { transport, calls } = makeTransport([
+        { status: 301, headers: { location: 'https://www.burtson.ai/' } },
+        { status: 200, body: 'home' }
+      ]);
+      const r = await buildWebFetchTool({ transport, publicLookup: publicDns }).execute({ url: 'https://burtson.ai/' }, testCtx);
+      expect(r.isError).toBe(false);
+      expect(calls.map((c) => c.pinned.address)).toEqual(['104.21.4.10', '104.21.4.10']);
+    });
+
+    it('is off with BANDIT_WEB_FETCH_PUBLIC_DNS=0 when no resolver is injected', async () => {
+      lanAnswer();
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const r = await buildWebFetchTool({ transport }).execute({ url: 'https://burtson.ai/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/192\.168\.1\.44/);
+      expect(calls).toHaveLength(0);
+    });
   });
 
   it('allows fetch when hostname resolves to a public IP', async () => {
