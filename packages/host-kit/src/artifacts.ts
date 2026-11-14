@@ -36,6 +36,12 @@ export interface PublishArtifactOptions {
   /** Visibility: 'private' (default, only you list/manage) or 'team' (shared with
    *  your team's artifact space). The shareable link works for anyone either way. */
   scope?: 'private' | 'team';
+  /** Short human title shown in link previews (Slack, Teams, iMessage, …). Sent as the
+   *  `Title` form field only when non-empty after trimming; the server caps it at 90 chars. */
+  title?: string;
+  /** One-sentence summary shown in link previews. Sent as `Description` only when
+   *  non-empty after trimming; the server caps it at 200 chars. */
+  description?: string;
   /** AuthApi base for the `bai_`→JWT exchange; defaults to auth.burtson.ai. */
   authBaseUrl?: string;
   /** Total upload attempts before giving up on a transient 5xx. Default 3. */
@@ -107,6 +113,38 @@ export async function resolveGatewayToken(
   return body.gatewayToken;
 }
 
+/** Server-side caps for the link-preview fields (S3Api truncates to these too). */
+export const ARTIFACT_TITLE_MAX = 90;
+export const ARTIFACT_DESCRIPTION_MAX = 200;
+
+/**
+ * Normalize a link-preview field before it goes on the wire: CR, LF, NUL and the
+ * other C0/C1 control characters become spaces (so a value can never start a new
+ * multipart line, header, or part), whitespace collapses, the result is trimmed
+ * and capped (by code point, so a surrogate pair is never split).
+ */
+export function normalizeArtifactMetaField(value: string, max: number): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = String(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const chars = Array.from(flat);
+  return chars.length > max ? chars.slice(0, max).join('').trimEnd() : flat;
+}
+
+/** Percent-encode the characters that would break a quoted Content-Disposition
+ *  parameter (the WHATWG multipart encoding for field names). */
+function quoteHeaderParam(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\r\n"%\u0000]/g, (ch) => '%' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+}
+
+/** One file part for buildMultipartBody. */
+export interface MultipartFilePart {
+  fieldName: string;
+  filename: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
 /**
  * Build a multipart/form-data body by hand. We deliberately do NOT use
  * FormData + Blob: Bun's fetch encodes those WITHOUT a clean Content-Length
@@ -115,28 +153,65 @@ export async function resolveGatewayToken(
  * Bun-compiled standalone CLI and INVISIBLE on Node (which is why it looked
  * intermittent). A hand-built body over a single Uint8Array is byte-identical
  * on Bun and Node, carries a real Content-Length, and is replayable across
- * retries. Field name must match S3Api's `UploadRequest.File`.
+ * retries. File field name must match S3Api's `UploadRequest.File`.
+ *
+ * `fields` adds plain text parts (e.g. `Title`, `Description`) ahead of the file.
+ * Field names are percent-encoded inside the quoted header; values have CR/LF/NUL
+ * and other control characters replaced with spaces, so no value can open a new
+ * header line or a new part. An empty string is sent as an empty part (that's how
+ * a PUT clears a field).
  */
-function buildMultipartBody(
-  fieldName: string,
-  filename: string,
-  contentType: string,
-  bytes: Uint8Array
+export function buildMultipartBody(
+  file: MultipartFilePart,
+  fields: ReadonlyArray<readonly [name: string, value: string]> = []
 ): { body: Uint8Array; contentType: string } {
   const boundary = '----banditartifact' + Math.random().toString(16).slice(2) + Date.now().toString(16);
   const enc = new TextEncoder();
-  const safeName = filename.replace(/["\\\r\n]/g, '_'); // keep the header well-formed
+  let textParts = '';
+  for (const [name, value] of fields) {
+    // eslint-disable-next-line no-control-regex
+    const safeValue = String(value).replace(/[\r\n\u0000]/g, ' ');
+    textParts +=
+      `--${boundary}\r\n` +
+      // No per-part Content-Type, same as a browser form: ASP.NET reads it as UTF-8.
+      `Content-Disposition: form-data; name="${quoteHeaderParam(name)}"\r\n\r\n` +
+      `${safeValue}\r\n`;
+  }
+  const safeName = file.filename.replace(/["\\\r\n]/g, '_'); // keep the header well-formed
+  const safeType = file.contentType.replace(/[\r\n]/g, '');
   const head = enc.encode(
+    textParts +
     `--${boundary}\r\n` +
-    `Content-Disposition: form-data; name="${fieldName}"; filename="${safeName}"\r\n` +
-    `Content-Type: ${contentType}\r\n\r\n`
+    `Content-Disposition: form-data; name="${quoteHeaderParam(file.fieldName)}"; filename="${safeName}"\r\n` +
+    `Content-Type: ${safeType}\r\n\r\n`
   );
   const tail = enc.encode(`\r\n--${boundary}--\r\n`);
-  const body = new Uint8Array(head.length + bytes.length + tail.length);
+  const body = new Uint8Array(head.length + file.bytes.length + tail.length);
   body.set(head, 0);
-  body.set(bytes, head.length);
-  body.set(tail, head.length + bytes.length);
+  body.set(file.bytes, head.length);
+  body.set(tail, head.length + file.bytes.length);
   return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+/**
+ * The Title/Description text fields for an upload. `clearOnEmpty` (PUT only): a
+ * caller that explicitly passes '' (or whitespace) gets an empty field, which the
+ * server reads as "clear it"; on POST an empty value is just omitted. `undefined`
+ * is always omitted (server keeps the existing value on PUT).
+ */
+function metaFields(
+  meta: { title?: string; description?: string },
+  clearOnEmpty: boolean
+): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  const add = (name: string, raw: string | undefined, max: number) => {
+    if (typeof raw !== 'string') return;
+    const v = normalizeArtifactMetaField(raw, max);
+    if (v || clearOnEmpty) out.push([name, v]);
+  };
+  add('Title', meta.title, ARTIFACT_TITLE_MAX);
+  add('Description', meta.description, ARTIFACT_DESCRIPTION_MAX);
+  return out;
 }
 
 /**
@@ -197,7 +272,10 @@ export async function publishArtifact(opts: PublishArtifactOptions): Promise<Pub
   // Hand-built multipart body (see buildMultipartBody) — runtime-agnostic, so the
   // Bun-compiled CLI uploads identically to Node. Built once; a Uint8Array is
   // replayable across retries.
-  const { body, contentType: multipartContentType } = buildMultipartBody('File', opts.filename, contentType, bytes);
+  const { body, contentType: multipartContentType } = buildMultipartBody(
+    { fieldName: 'File', filename: opts.filename, contentType, bytes },
+    metaFields(opts, false)
+  );
   const scopeQuery = opts.scope === 'team' ? '?scope=team' : ''; // default private
 
   // Retry 5xx + network errors with a short backoff (the S3Api→MinIO leg can
@@ -258,6 +336,10 @@ export interface ArtifactListItem {
   lastModified: string;
   /** 'private' (only you) or 'team' (shared with your team). */
   scope?: string;
+  /** Link-preview title, when one was set (absent on older artifacts). */
+  title?: string;
+  /** Link-preview description, when one was set. */
+  description?: string;
 }
 
 /**
@@ -461,9 +543,19 @@ export async function getArtifact(opts: ArtifactManageOptions & { keyOrUrl: stri
 
 /** Overwrite an existing artifact's content IN PLACE (same key + URL) — the "revise this
  *  artifact" path, so the model iterates without minting a new link. HTML gets the same
- *  mobile-friendly pass as publish. */
+ *  mobile-friendly pass as publish.
+ *
+ *  `title` / `description`: omit (undefined) to keep the stored value, pass a string to
+ *  replace it, or pass '' to clear it (the server then falls back to the content). */
 export async function updateArtifact(
-  opts: ArtifactManageOptions & { keyOrUrl: string; content: string | Uint8Array; filename?: string; contentType?: string }
+  opts: ArtifactManageOptions & {
+    keyOrUrl: string;
+    content: string | Uint8Array;
+    filename?: string;
+    contentType?: string;
+    title?: string;
+    description?: string;
+  }
 ): Promise<PublishedArtifact> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
@@ -476,7 +568,10 @@ export async function updateArtifact(
     : opts.content;
   const bytes = typeof raw === 'string' ? new TextEncoder().encode(raw) : raw;
   const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
-  const { body, contentType: multipartContentType } = buildMultipartBody('File', filename, contentType, bytes);
+  const { body, contentType: multipartContentType } = buildMultipartBody(
+    { fieldName: 'File', filename, contentType, bytes },
+    metaFields(opts, true)
+  );
   const res = await fetchImpl(`${base}/api/artifact/${path}`, {
     method: 'PUT',
     headers: { authorization: `Bearer ${bearer}`, 'content-type': multipartContentType },
@@ -489,6 +584,47 @@ export async function updateArtifact(
   }
   const j = (await res.json()) as Partial<PublishedArtifact>;
   return { url: j.url ?? opts.keyOrUrl, key: j.key ?? key, size: j.size ?? bytes.byteLength };
+}
+
+export interface ArtifactMeta {
+  key: string;
+  title: string | null;
+  description: string | null;
+}
+
+/**
+ * Set or clear an artifact's link-preview title/description without re-uploading it
+ * (POST /api/artifact/meta, owner-only). Same semantics as update: omit a field to
+ * keep it, '' to clear it. At least one of the two must be given.
+ */
+export async function setArtifactMeta(
+  opts: ArtifactManageOptions & { keyOrUrl: string; title?: string; description?: string }
+): Promise<ArtifactMeta> {
+  if (typeof opts.title !== 'string' && typeof opts.description !== 'string') {
+    throw new Error('setArtifactMeta needs a title or a description (use \'\' to clear one)');
+  }
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = opts.s3ApiBaseUrl.replace(/\/$/, '');
+  const key = artifactKeyFromUrl(opts.keyOrUrl);
+  const payload: { key: string; title?: string; description?: string } = { key };
+  if (typeof opts.title === 'string') payload.title = normalizeArtifactMetaField(opts.title, ARTIFACT_TITLE_MAX);
+  if (typeof opts.description === 'string') {
+    payload.description = normalizeArtifactMetaField(opts.description, ARTIFACT_DESCRIPTION_MAX);
+  }
+  const bearer = await resolveGatewayToken(opts.token, { authBaseUrl: opts.authBaseUrl, fetchImpl });
+  const res = await fetchImpl(`${base}/api/artifact/meta`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(`no artifact found for "${opts.keyOrUrl}" (or it isn't yours)`);
+    let detail = '';
+    try { detail = (await res.json() as { message?: string })?.message ?? ''; } catch { /* non-JSON */ }
+    throw new Error(`could not update artifact details: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  const j = (await res.json()) as { key?: string; title?: string | null; description?: string | null };
+  return { key: j.key ?? key, title: j.title ?? null, description: j.description ?? null };
 }
 
 export interface EmailedShareLink extends ArtifactShareLink {

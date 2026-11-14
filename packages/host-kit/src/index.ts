@@ -43,8 +43,13 @@ export {
   archiveArtifact,
   getArtifact,
   updateArtifact,
+  setArtifactMeta,
   artifactKeyFromUrl,
+  normalizeArtifactMetaField,
+  ARTIFACT_TITLE_MAX,
+  ARTIFACT_DESCRIPTION_MAX,
   DEFAULT_AUTH_BASE_URL,
+  type ArtifactMeta,
   type PublishArtifactOptions,
   type PublishedArtifact,
   type ArtifactManageOptions,
@@ -55,6 +60,7 @@ export {
   type FetchedArtifact,
   type ArtifactShareInfo
 } from './artifacts';
+export { derivePreviewMeta, decodeHtmlEntities, type PreviewMeta } from './previewMeta';
 export { buildPublishArtifactTool } from './tools/publishArtifactTool';
 export { buildShareArtifactTool } from './tools/shareArtifactTool';
 export { buildListArtifactsTool } from './tools/listArtifactsTool';

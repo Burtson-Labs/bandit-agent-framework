@@ -8,6 +8,7 @@ import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
 import { updateArtifact, guessContentType } from '../artifacts';
 import { inlineHtmlImages } from '../imageInline';
+import { ARTIFACT_DESCRIPTION_PARAM_DESCRIPTION, ARTIFACT_TITLE_PARAM_DESCRIPTION } from './publishArtifactTool';
 
 export function buildUpdateArtifactTool(opts: {
   token: string;
@@ -22,10 +23,14 @@ export function buildUpdateArtifactTool(opts: {
     description:
       'Publish a REVISION of an artifact you already published, in place — same URL, updated content. ' +
       'Use for "revise/update the artifact": edit the file (e.g. the one get_artifact fetched), then call ' +
-      'this with the artifact URL and the file path. The link does not change. Cloud feature.',
+      'this with the artifact URL and the file path. The link does not change. ' +
+      'Pass a new `title` and `description` when the revision changes what the page is about; ' +
+      'leave them out to keep the current link-preview text. Cloud feature.',
     parameters: [
       { name: 'url', description: 'The existing artifact URL (or key) to overwrite. Must be one you own.', required: true },
-      { name: 'path', description: 'Workspace-relative (or absolute) path to the file with the revised content.', required: true }
+      { name: 'path', description: 'Workspace-relative (or absolute) path to the file with the revised content.', required: true },
+      { name: 'title', description: `${ARTIFACT_TITLE_PARAM_DESCRIPTION} Omit to keep the current title.`, required: false },
+      { name: 'description', description: `${ARTIFACT_DESCRIPTION_PARAM_DESCRIPTION} Omit to keep the current description.`, required: false }
     ],
     async execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult> {
       const url = (params.url ?? '').trim();
@@ -62,6 +67,10 @@ export function buildUpdateArtifactTool(opts: {
           content,
           filename,
           contentType,
+          // Only send what the model gave: an omitted (or empty) field keeps the stored value.
+          // Empty strings are NOT forwarded as "clear" — models pass "" for unused params.
+          title: (params.title ?? '').trim() || undefined,
+          description: (params.description ?? '').trim() || undefined,
           fetchImpl: opts.fetchImpl
         });
         const dashUrl = opts.webBaseUrl
