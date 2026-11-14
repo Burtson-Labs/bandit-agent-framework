@@ -107,6 +107,13 @@ describe('wantsArtifactDeliverable', () => {
     expect(wantsArtifactDeliverable('what does the report say?')).toBe(false); // noun, no produce verb
     expect(wantsArtifactDeliverable('publish the changes to main')).toBe(false); // verb, no deliverable noun
   });
+
+  it('treats "save it to my Stash" (Bandit Stash, formerly Artifacts) as a deliverable destination', () => {
+    expect(wantsArtifactDeliverable('write up a summary of the outage and save it to my stash')).toBe(true);
+    expect(wantsArtifactDeliverable('research the vendors, write a report, put it in my Bandit Stash')).toBe(true);
+    // git stash is not a deliverable destination
+    expect(wantsArtifactDeliverable('stash my changes, then check the report')).toBe(false);
+  });
 });
 
 describe('wantsArtifactDeliverable — edge cases (bench-audit additions)', () => {

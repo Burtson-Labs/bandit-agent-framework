@@ -145,17 +145,21 @@ export function classifyGraphShaped(prompt: string, opts: GraphShapeOptions = {}
 // end product is an artifact.
 const ARTIFACT_DELIVERABLE = /\b(artifact|report|briefing|brief|summary|overview|write[- ]?up|page|dashboard|one[- ]?pager|deck|memo|digest)\b/i;
 const PRODUCE_VERB = /\b(publish|share|create|make|generate|build|produce|draft|assemble|put together|compile)\b/i;
+// "…and save it to my Stash" / "Bandit Stash": the destination alone marks a shareable
+// deliverable (the Stash feature, formerly Artifacts). A bare "stash" is NOT enough —
+// that usually means `git stash`.
+const STASH_DESTINATION = /\b(bandit\s+stash|(to|in|into)\s+(my|the|your)\s+(bandit\s+)?stash)\b/i;
 
 /**
  * True when a task's DELIVERABLE is a shareable artifact (a report/briefing/page),
  * not source code. This is the one "create"-shaped task a graph may route: the
  * research/analysis nodes fan out READ-ONLY, and only the terminal SINK node is
- * granted `publish_artifact` to turn the synthesis into a published artifact.
+ * granted `publish_artifact` to save the synthesis to the user's Bandit Stash.
  *
  * Kept narrow on purpose — "implement/refactor/fix" code work must still take the
  * editing loop (read-only nodes can't edit files).
  */
 export function wantsArtifactDeliverable(prompt: string): boolean {
   const text = prompt.trim();
-  return ARTIFACT_DELIVERABLE.test(text) && PRODUCE_VERB.test(text);
+  return ARTIFACT_DELIVERABLE.test(text) && (PRODUCE_VERB.test(text) || STASH_DESTINATION.test(text));
 }

@@ -23,7 +23,7 @@ export const gitSkill: SkillManifest = {
   id: 'core/git',
   name: 'Git',
   version: '1.1.0',
-  description: 'Check status, view diffs, read commit history, create commits, manage branches and stashes, pull/push to remotes.',
+  description: 'Check status, view diffs, read commit history, create commits, manage branches and git stash entries (uncommitted changes, not the Bandit Stash), pull/push to remotes.',
   activation: 'always',
   tools: [
     gitStatusTool,

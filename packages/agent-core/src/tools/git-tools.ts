@@ -214,7 +214,7 @@ const gitCheckoutTool: AgentTool = {
 
 const gitStashTool: AgentTool = {
   name: 'git_stash',
-  description: 'Save, restore, or list stashed changes. Subcommand chosen by `action`: "push" (default) stashes current changes; "pop" restores the most recent stash (or the named one) and removes it; "list" shows stashed entries.',
+  description: 'Run git stash (save/restore/list uncommitted working-tree changes). Not the Bandit Stash — to save a file to the user\'s Bandit Stash (cloud) use publish_artifact. Subcommand chosen by `action`: "push" (default) stashes current changes; "pop" restores the most recent stash (or the named one) and removes it; "list" shows stashed entries.',
   parameters: [
     { name: 'action', description: 'One of "push" (default), "pop", or "list".' },
     { name: 'message', description: 'Optional message describing the stash. Only used with "push".' },
@@ -229,7 +229,7 @@ const gitStashTool: AgentTool = {
       if (result.exitCode !== 0) {
         return { output: result.stderr || 'git stash list failed.', isError: true };
       }
-      return { output: result.stdout.trim() || '(no stashes)' };
+      return { output: result.stdout.trim() || '(no git stashes)' };
     }
     if (action === 'pop') {
       const ref = params.ref?.trim();
