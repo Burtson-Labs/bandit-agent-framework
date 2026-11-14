@@ -73,6 +73,8 @@ registry.register(buildTaskTool({ /* … */ }));      // task         — spawn 
 
 There's also `todo_write` (a working checklist), and the memory tools `remember` and `read_memory` — see [Memory](./memory.html). Web tools have a built-in SSRF guard that blocks private and loopback addresses.
 
+Hosts signed in to Bandit cloud also register the **Bandit Stash** tools (`publish_artifact`, `share_artifact`, `list_artifacts`, `get_artifact`, `update_artifact`, `delete_artifact`, `restore_artifact`, `email_artifact`). They save a workspace file to the user's Bandit Stash (formerly Artifacts) and return a link. They have nothing to do with `git_stash`, which shelves uncommitted changes in the repository.
+
 ---
 
 ## Gating

@@ -857,6 +857,7 @@ registry.register(buildTestRunTool());              // test_run     — detect t
 registry.register(buildTaskTool({ /* … */ }));      // task         — spawn a focused subagent
 </code></pre>
 <p>There’s also <code>todo_write</code> (a working checklist), and the memory tools <code>remember</code> and <code>read_memory</code> — see <a href="./memory.html">Memory</a>. Web tools have a built-in SSRF guard that blocks private and loopback addresses.</p>
+<p>Hosts signed in to Bandit cloud also register the <strong>Bandit Stash</strong> tools (<code>publish_artifact</code>, <code>share_artifact</code>, <code>list_artifacts</code>, <code>get_artifact</code>, <code>update_artifact</code>, <code>delete_artifact</code>, <code>restore_artifact</code>, <code>email_artifact</code>). They save a workspace file to the user’s Bandit Stash (formerly Artifacts) and return a link. They have nothing to do with <code>git_stash</code>, which shelves uncommitted changes in the repository.</p>
 <hr>
 <h2>Gating</h2>
 <p>Every tool call is checked before it runs: the opt-in <a href="./configuration.html">security guard</a>, then your <code>PreToolUse</code> hooks, then the approval prompt. Any of them can block the call. That gate is the same regardless of who wrote the tool — see <a href="./how-a-turn-works.html">How a turn works</a>.</p>
