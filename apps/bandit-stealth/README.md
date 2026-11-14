@@ -313,8 +313,8 @@ Same format and behavior as the [CLI](../bandit-cli/README.md#settings-file--hoo
 
 ### Network and offline mode
 
-- **Tools that contact another host ask first** in the default `ask` mode: `web_fetch`, `web_search`, `fetch_image`, `git_push`, `git_pull`, the Bandit Cloud artifact tools, and MCP tools from servers not marked `"local": true`. The approval card shows the full URL, the search text, or the git remote's URL. Plan mode refuses them. Allow rules in `.bandit/settings.json` and the `auto`/`dangerous` modes work as before. `fetch_image` refuses private, loopback and link-local addresses, like `web_fetch`.
-- **Artifact and image-generation tools** exist only while the chat provider is Bandit cloud; a saved key alone does not add them.
+- **Tools that contact another host ask first** in the default `ask` mode: `web_fetch`, `web_search`, `fetch_image`, `git_push`, `git_pull`, the Bandit Stash tools (`publish_artifact` and friends; Bandit Stash was called Artifacts, and is not `git stash`), and MCP tools from servers not marked `"local": true`. The approval card shows the full URL, the search text, or the git remote's URL. Plan mode refuses them. Allow rules in `.bandit/settings.json` and the `auto`/`dangerous` modes work as before. `fetch_image` refuses private, loopback and link-local addresses, like `web_fetch`.
+- **Bandit Stash and image-generation tools** exist only while the chat provider is Bandit cloud; a saved key alone does not add them.
 - **Images in chat replies are not loaded automatically.** A remote image shows as its address; click it to load that one image (fetched by the extension through the same address guard as `web_fetch`).
 - **MCP servers** get your Bandit key only if their entry says `"auth": "bandit"` (and Burtson Labs' own server).
 - **models.dev** (a public model catalogue) is fetched only for an OpenAI-compatible server on a public address, never for one on `localhost` or your local network. `BANDIT_NO_MODELS_DEV=1` turns it off.

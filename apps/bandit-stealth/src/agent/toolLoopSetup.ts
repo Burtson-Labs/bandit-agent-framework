@@ -101,7 +101,7 @@ export interface BuildTurnRunContextOptions {
   /** Bandit cloud key (present only when provider = bandit + signed in).
    *  Gates the cloud-only `publish_artifact` tool, matching the CLI. */
   banditApiKey?: string;
-  /** Active chat provider. Artifact and image tools register only for
+  /** Active chat provider. Bandit Stash and image tools register only for
    *  'bandit' (a saved key alone is not enough). */
   providerKind?: string;
   /** Offline mode (helpers/offlineMode). Resolved here when omitted. */
@@ -173,11 +173,11 @@ export async function buildTurnRunContext(
     registry.register(buildWebSearchTool({
       apiKey: await resolveTavilyKey(configuration, ctx.extensionContext?.secrets)
     }));
-    // fetch_image — verify an image URL is usable before embedding it in an artifact
+    // fetch_image — verify an image URL is usable before embedding it in a page
     // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
     registry.register(buildFetchImageTool());
-    // publish_artifact — cloud-only, so "write a README and publish it as an
-    // artifact" works in-editor the same as in the CLI. Registered only when a
+    // publish_artifact — cloud-only, so "write a README and save it to my Bandit
+    // Stash" works in-editor the same as in the CLI. Registered only when a
     // Bandit cloud key is present, so local-only turns stay fully offline.
     // publishArtifact exchanges the bai_ key for a gateway JWT before S3Api.
     // Bandit Cloud only: the chat provider must be Bandit Cloud AND a key
@@ -191,15 +191,15 @@ export async function buildTurnRunContext(
         webBaseUrl: process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com'
       };
       registry.register(buildPublishArtifactTool(artifactToolOpts));
-      // share_artifact — mint an external, revocable link for an already-published
-      // artifact, so "publish this and give me a link to send out" works in-editor.
+      // share_artifact — mint an external, revocable link for an item already in the
+      // user's Stash, so "save this and give me a link to send out" works in-editor.
       registry.register(buildShareArtifactTool(artifactToolOpts));
-      // list_artifacts / delete_artifact — round out the agent's artifact management
-      // (see what's published, clean one up) without leaving the editor.
+      // list_artifacts / delete_artifact — round out the agent's Stash management
+      // (see what's in it, clean one up) without leaving the editor.
       registry.register(buildListArtifactsTool(artifactToolOpts));
       registry.register(buildDeleteArtifactTool(artifactToolOpts));
       registry.register(buildRestoreArtifactTool(artifactToolOpts));
-      // get_artifact / update_artifact — fetch a published artifact back + revise it in place (same URL).
+      // get_artifact / update_artifact — fetch a Stash item back + revise it in place (same URL).
       registry.register(buildGetArtifactTool(artifactToolOpts));
       registry.register(buildUpdateArtifactTool(artifactToolOpts));
       registry.register(buildEmailArtifactTool(artifactToolOpts));

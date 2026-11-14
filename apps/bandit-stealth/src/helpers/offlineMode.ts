@@ -9,7 +9,7 @@
  *     `.bandit/settings.json` / `.bandit/settings.local.json`.
  *
  * When on, the extension contacts only the configured model server: no
- * models.dev, no web/image/artifact tools, no Bandit Cloud features (provider,
+ * models.dev, no web/image/Bandit Stash tools, no Bandit Cloud features (provider,
  * account, usage, intent, feedback, voice, remote control, telemetry), no
  * cloud voice providers, no remote MCP servers, and network tools are refused
  * at the permission gate.

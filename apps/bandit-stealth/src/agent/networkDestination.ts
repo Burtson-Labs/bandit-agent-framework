@@ -5,7 +5,7 @@
  * The card has to show the exact destination, not a tool name: the full URL
  * for web_fetch / fetch_image (anything in the query string leaves the
  * machine), the search text and provider for web_search, the resolved remote
- * URL for git_push / git_pull, and the Bandit Cloud host for artifact tools.
+ * URL for git_push / git_pull, and the Bandit Cloud host for the Bandit Stash tools.
  */
 import { execFile } from 'child_process';
 import { isNetworkTool, mcpServerOf } from '@burtson-labs/host-kit';
@@ -102,12 +102,12 @@ export async function describeNetworkDestination(
     case 'publish_artifact':
     case 'update_artifact':
       return {
-        line: `Uploads ${params.path ?? params.file ?? 'a workspace file'} to Bandit Cloud (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')}) and creates a link others can open`
+        line: `Saves ${params.path ?? params.file ?? 'a workspace file'} to your Bandit Stash (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')}) and creates a link others can open`
       };
     case 'share_artifact':
-      return { line: `Creates a share link${params.url ? ` for ${params.url}` : ''} on Bandit Cloud (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')}) that works for anyone who has it` };
+      return { line: `Creates a share link${params.url ? ` for ${params.url}` : ''} to a Bandit Stash item (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')}) that works for anyone who has it` };
     case 'email_artifact':
-      return { line: `Emails a Bandit Cloud link${params.url ? ` for ${params.url}` : ''}${params.to ? ` to ${params.to}` : ''} (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')})` };
+      return { line: `Emails a link to a Bandit Stash item${params.url ? ` (${params.url})` : ''}${params.to ? ` to ${params.to}` : ''} (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')})` };
     case 'generate_image':
       return { line: `Sends the image prompt to Bandit Cloud (${hostOf(process.env.BANDIT_ANTON_URL, 'https://anton.burtson.ai')})` };
     default: {

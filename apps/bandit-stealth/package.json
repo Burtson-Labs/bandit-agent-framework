@@ -403,7 +403,7 @@
           "banditStealth.offline": {
             "type": "boolean",
             "default": false,
-            "description": "Offline mode: Bandit contacts only the model server you configured. Turns off models.dev, the web, image and artifact tools, Bandit Cloud (provider, account, usage, voice, remote control, telemetry), cloud voice providers and remote MCP servers, and refuses any network tool call with a message. Also turned on by BANDIT_OFFLINE=1, \"offline\": true in ~/.bandit/settings.json or .bandit/settings.json, or network.offline in the machine policy file; this setting cannot turn those off."
+            "description": "Offline mode: Bandit contacts only the model server you configured. Turns off models.dev, the web, image and Bandit Stash tools, Bandit Cloud (provider, account, usage, voice, remote control, telemetry), cloud voice providers and remote MCP servers, and refuses any network tool call with a message. Also turned on by BANDIT_OFFLINE=1, \"offline\": true in ~/.bandit/settings.json or .bandit/settings.json, or network.offline in the machine policy file; this setting cannot turn those off."
           },
           "banditStealth.provider": {
             "type": "string",
