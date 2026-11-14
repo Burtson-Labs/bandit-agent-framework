@@ -30,6 +30,7 @@ import { applyGoalAnchorIfNeeded } from './loop/goalAnchor';
 import { tryAnnounceIntentNudge, tryAskUserNudge } from './loop/finalAnswerNudges';
 import { detectFalseToolAbsence, buildToolAvailabilityNudge } from './toolAvailabilityDetector';
 import { isAuthRecoveryGuidance } from '../mcp/authFailure';
+import { answerAcknowledgesToolError } from './loop/toolErrorAcknowledged';
 import {
   sleep,
   isRetryableLlmError,
@@ -478,6 +479,7 @@ export class ToolUseLoop {
     const attemptedShellCommands = new Set<string>();
     let toolErrorRecoveryFired = 0;
     let lastIterationHadToolError = false;
+    let lastToolErrorOutputs: string[] = [];
     // Set when a tool result carried MCP auth-recovery guidance this turn —
     // exempts the model's "I can't reach X until you re-authorize" answer from
     // the false-tool-absence detector. See the setter below for the trace.
@@ -1338,6 +1340,9 @@ export class ToolUseLoop {
         // twice in the transcript. Same flag that gates the false-tool-absence
         // detector below.
         && !authRecoveryObservedThisTurn
+        // A reply that already explains the failure is the (b) answer the
+        // nudge asks for; nudging again only makes the model restate it.
+        && !answerAcknowledgesToolError(stripReasoningChannels(response), lastToolErrorOutputs)
       ) {
         toolErrorRecoveryFired++;
         emit('tool_loop:tool_error_recovery', {
@@ -2333,6 +2338,7 @@ export class ToolUseLoop {
         }
       }
       lastIterationHadToolError = toolResults.some((r) => r.isError === true);
+      lastToolErrorOutputs = toolResults.filter((r) => r.isError === true).map((r) => String(r.output ?? ''));
 
       // An auth-recovery guidance result means the correct next move is the
       // model REPORTING an unavailability — "the connection expired, run X" —

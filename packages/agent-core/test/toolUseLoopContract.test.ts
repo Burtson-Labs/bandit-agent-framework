@@ -409,6 +409,35 @@ describe('auth-recovery — no doubled final answer', () => {
     // A non-auth error still triggers the "don't abandon" nudge → a 3rd call.
     expect(recorder.callCount).toBe(3);
   });
+
+  it('does not re-prompt when the answer already explains an ordinary tool error', async () => {
+    // Live (CLI 1.7.515, 2026-11-13): web_fetch was blocked by the SSRF
+    // guard, the model explained exactly that, the nudge fired anyway and
+    // the explanation was rendered twice.
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'web_fetch',
+      description: 'fetch',
+      parameters: [],
+      async execute() {
+        return {
+          output: 'Blocked: burtson.ai resolves to the private/loopback/link-local address 192.168.1.44. Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to allow fetches against internal networks.',
+          isError: true,
+        };
+      },
+    });
+    let turn = 0;
+    const { chat, recorder } = buildMockChat(() => {
+      turn += 1;
+      if (turn === 1) return '<tool_call>{"name":"web_fetch","params":{"url":"https://burtson.ai"}}</tool_call>';
+      return "burtson.ai resolves to 192.168.1.44 on this network, so the fetch guard won't open it. Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 if you want me to read it.";
+    });
+    const loop = new ToolUseLoop(registry, testCtx, {});
+
+    const result = await loop.run('read burtson.ai and tell me what it says', chat);
+    expect(recorder.callCount).toBe(2);
+    expect(result.finalResponse).toContain('192.168.1.44');
+  });
 });
 
 
