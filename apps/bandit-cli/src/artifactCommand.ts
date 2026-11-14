@@ -1,13 +1,16 @@
 /**
- * `bandit artifact` — manage shareable Bandit Artifacts. Cloud-only (needs a
+ * `bandit stash` — manage the user's Bandit Stash (formerly Artifacts; `bandit
+ * artifact` stays as a hidden alias). Cloud-only (needs a
  * Bandit `bai_` cloud key, which the host-kit client exchanges for a gateway JWT
  * before calling S3Api); local-only users get a clear message instead of a
  * broken call, keeping the offline path offline.
  *
- *   bandit artifact <path>        publish a file, print the shareable link
- *   bandit artifact ls            list your artifacts
- *   bandit artifact rm <url|key>  delete one
- *   bandit artifact clear [--yes] delete all of yours (prompts unless --yes)
+ *   bandit stash <path>        save a file, print its link
+ *   bandit stash ls            list your Stash
+ *   bandit stash rm <url|key>  delete one item
+ *   bandit stash clear [--yes] delete all of yours (prompts unless --yes)
+ *
+ * Deliberately no git verbs (pop/apply/drop): this is not `git stash`.
  *
  * Thin wrapper over host-kit (publishArtifact / listArtifacts / deleteArtifact /
  * clearArtifacts), which own the S3Api calls + the bai_→JWT exchange.
@@ -30,6 +33,7 @@ import {
   restoreArtifact,
   archiveArtifact,
   artifactKeyFromUrl,
+  stashViewUrl,
   inlineHtmlImages,
   guessContentType
 } from '@burtson-labs/host-kit';
@@ -112,7 +116,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   const resolved = resolveConfig(fileConfig, {});
   if (!resolved.apiKey) {
     process.stdout.write(
-      c.yellow(`  ${glyph.warn} Artifacts are a Bandit cloud feature — no API key found.\n`) +
+      c.yellow(`  ${glyph.warn} Bandit Stash is a cloud feature — no API key found.\n`) +
       c.dim('     Sign in / set your key, then retry. (Local-only stays fully offline.)\n')
     );
     return;
@@ -130,10 +134,10 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     try {
       const items = await listArtifacts(base);
       if (items.length === 0) {
-        process.stdout.write(c.dim('  no artifacts yet — `bandit artifact <file>` publishes one.\n'));
+        process.stdout.write(c.dim('  your Stash is empty — `bandit stash <file>` saves one.\n'));
         return;
       }
-      process.stdout.write(c.bold(`  your artifacts (${items.length}):\n`));
+      process.stdout.write(c.bold(`  your Stash (${items.length} item${items.length === 1 ? '' : 's'}):\n`));
       for (const it of items) {
         const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
         const tag = it.scope === 'team' ? c.cyan('team   ') : c.dim('private');
@@ -152,7 +156,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'rm' || sub === 'delete') {
     const target = positional[1];
     if (!target) {
-      process.stdout.write('usage: bandit artifact rm <url|key>\n');
+      process.stdout.write('usage: bandit stash rm <url|key>\n');
       return;
     }
     try {
@@ -168,7 +172,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'share') {
     const target = positional[1];
     if (!target) {
-      process.stdout.write('usage: bandit artifact share <url|key> [--expires 7d]\n');
+      process.stdout.write('usage: bandit stash share <url|key> [--expires 7d]\n');
       return;
     }
     try {
@@ -177,7 +181,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       process.stdout.write(
         c.green(`  ${glyph.check} external share link${when ? ` (expires ${when} UTC)` : ''} — anyone with it can view:\n`) +
         `  ${c.cyan(link.url)}\n` +
-        c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+        c.dim(`  revoke anytime: bandit stash unshare ${link.token}\n`)
       );
     } catch (err) {
       process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
@@ -190,7 +194,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     const target = positional[1];
     const to = positional[2];
     if (!target || !to) {
-      process.stdout.write('usage: bandit artifact email <url|key> <recipient> [--expires 7d] [--message "note"]\n');
+      process.stdout.write('usage: bandit stash email <url|key> <recipient> [--expires 7d] [--message "note"]\n');
       return;
     }
     const mi = argv.findIndex((a) => a === '--message' || a === '-m');
@@ -202,14 +206,14 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
         process.stdout.write(
           c.green(`  ${glyph.check} emailed ${to} an external link${when ? ` (expires ${when} UTC)` : ''}:\n`) +
           `  ${c.cyan(link.url)}\n` +
-          c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+          c.dim(`  revoke anytime: bandit stash unshare ${link.token}\n`)
         );
       } else {
         // Link is valid; only delivery was best-effort (mail not configured yet).
         process.stdout.write(
           c.yellow(`  ${glyph.warn} link created but the email didn't send (mail not configured). Share it directly:\n`) +
           `  ${c.cyan(link.url)}\n` +
-          c.dim(`  revoke anytime: bandit artifact unshare ${link.token}\n`)
+          c.dim(`  revoke anytime: bandit stash unshare ${link.token}\n`)
         );
       }
     } catch (err) {
@@ -222,7 +226,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'unshare' || sub === 'revoke') {
     const shareToken = positional[1];
     if (!shareToken) {
-      process.stdout.write('usage: bandit artifact unshare <token>\n');
+      process.stdout.write('usage: bandit stash unshare <token>\n');
       return;
     }
     try {
@@ -238,13 +242,13 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'shares') {
     const target = positional[1];
     if (!target) {
-      process.stdout.write('usage: bandit artifact shares <url|key>\n');
+      process.stdout.write('usage: bandit stash shares <url|key>\n');
       return;
     }
     try {
       const links = await listShareLinks({ ...base, keyOrUrl: target });
       if (links.length === 0) {
-        process.stdout.write(c.dim('  no active external share links for that artifact.\n'));
+        process.stdout.write(c.dim('  no active external share links for that item.\n'));
         return;
       }
       process.stdout.write(c.bold(`  active share links (${links.length}):\n`));
@@ -284,7 +288,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     const target = positional[1];
     const next = (positional[2] ?? '').toLowerCase();
     if (!target || (next !== 'private' && next !== 'team')) {
-      process.stdout.write('usage: bandit artifact scope <url|key> <private|team>\n');
+      process.stdout.write('usage: bandit stash scope <url|key> <private|team>\n');
       return;
     }
     try {
@@ -303,7 +307,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'restore' || sub === 'unarchive') {
     const target = positional[1];
     if (!target) {
-      process.stdout.write('usage: bandit artifact restore <url|key>\n');
+      process.stdout.write('usage: bandit stash restore <url|key>\n');
       return;
     }
     process.stdout.write(c.dim(`  ${glyph.spark} restoring from cold storage…\n`));
@@ -320,14 +324,14 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (sub === 'archive') {
     const target = positional[1];
     if (!target) {
-      process.stdout.write('usage: bandit artifact archive <url|key>\n');
+      process.stdout.write('usage: bandit stash archive <url|key>\n');
       return;
     }
     try {
       await archiveArtifact({ ...base, keyOrUrl: target });
       process.stdout.write(
         c.green(`  ${glyph.check} archived to cold storage (freed hot space)\n`) +
-        c.dim(`  restore anytime: bandit artifact restore ${target}\n`)
+        c.dim(`  restore anytime: bandit stash restore ${target}\n`)
       );
     } catch (err) {
       process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
@@ -345,8 +349,8 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
         count = items.filter((a) => (team ? a.scope === 'team' : a.scope !== 'team')).length;
       } catch { /* fall through to prompt */ }
       const what = team
-        ? `ALL ${count} of your TEAM's shared artifacts (this affects your teammates)`
-        : `ALL ${count} of your private artifacts`;
+        ? `ALL ${count} of your TEAM's shared Stash items (this affects your teammates)`
+        : `ALL ${count} of your private Stash items`;
       const ok = await confirm(c.yellow(`  Delete ${what}? This can't be undone. [y/N] `));
       if (!ok) {
         process.stdout.write(c.dim('  cancelled (use --yes to skip this prompt).\n'));
@@ -355,7 +359,7 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     }
     try {
       const deleted = await clearArtifacts({ ...base, scope: team ? 'team' : undefined });
-      process.stdout.write(c.green(`  ${glyph.check} cleared ${deleted} ${team ? 'team ' : ''}artifact${deleted === 1 ? '' : 's'}\n`));
+      process.stdout.write(c.green(`  ${glyph.check} cleared ${deleted} ${team ? 'team ' : ''}item${deleted === 1 ? '' : 's'}\n`));
     } catch (err) {
       process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
     }
@@ -366,21 +370,22 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   const target = positional[0];
   if (!target) {
     process.stdout.write(
+      'Bandit Stash (cloud): save files and get links you can share. Not git stash.\n' +
       'usage:\n' +
-      '  bandit artifact <path> [--team] [--title "…"] [--description "…"]\n' +
-      '                                          publish a file (private by default; --team shares with your team;\n' +
-      '                                          title/description show in link previews, else taken from the file)\n' +
-      '  bandit artifact meta <url> [--title "…"] [--description "…"]  change the link-preview text\n' +
-      '  bandit artifact ls                      list your + your team\'s artifacts\n' +
-      '  bandit artifact rm <url|key>            delete one\n' +
-      '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n' +
-      '  bandit artifact share <url> [--expires 7d]  external link anyone can open (expires; revocable)\n' +
-      '  bandit artifact email <url> <to> [--expires 7d]  email someone an external link\n' +
-      '  bandit artifact shares <url>            list active external links for an artifact\n' +
-      '  bandit artifact unshare <token>         revoke an external link\n' +
-      '  bandit artifact scope <url> <private|team>  move an artifact between private and team\n' +
-      '  bandit artifact archive <url>           move an artifact to cold storage (frees space)\n' +
-      '  bandit artifact restore <url>           bring an archived artifact back to fast storage\n'
+      '  bandit stash <path> [--team] [--title "…"] [--description "…"]\n' +
+      '                                       save a file (private by default; --team shares with your team;\n' +
+      '                                       title/description show in link previews, else taken from the file)\n' +
+      '  bandit stash meta <url> [--title "…"] [--description "…"]  change the link-preview text\n' +
+      '  bandit stash ls                      list your + your team\'s items\n' +
+      '  bandit stash rm <url|key>            delete one item\n' +
+      '  bandit stash clear [--team] [--yes]  delete all your private (or --team) items\n' +
+      '  bandit stash share <url> [--expires 7d]  external link anyone can open (expires; revocable)\n' +
+      '  bandit stash email <url> <to> [--expires 7d]  email someone an external link\n' +
+      '  bandit stash shares <url>            list active external links for an item\n' +
+      '  bandit stash unshare <token>         revoke an external link\n' +
+      '  bandit stash scope <url> <private|team>  move an item between private and team\n' +
+      '  bandit stash archive <url>           move an item to cold storage (frees space)\n' +
+      '  bandit stash restore <url>           bring an archived item back to fast storage\n'
     );
     return;
   }
@@ -395,10 +400,10 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   }
   const filename = path.basename(abs);
 
-  process.stdout.write(c.dim(`  ${glyph.spark} publishing ${filename} (${humanSize(bytes.byteLength)})…\n`));
+  process.stdout.write(c.dim(`  ${glyph.spark} saving ${filename} to your Stash (${humanSize(bytes.byteLength)})…\n`));
   try {
     const contentType = guessContentType(filename);
-    // Inline <img> sources for HTML artifacts so they render standalone.
+    // Inline <img> sources for HTML pages so they render standalone.
     let content = new Uint8Array(bytes);
     if (contentType === 'text/html') {
       const r = await inlineHtmlImages(bytes.toString('utf8'), { baseDir: path.dirname(abs) });
@@ -415,12 +420,12 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       title: flagValue(argv, '--title')?.trim() || derived.title,
       description: flagValue(argv, '--description')?.trim() || derived.description,
     });
-    // Hand back the Stealth dashboard deep-link (signs you in + renders the artifact), NOT the raw
+    // Hand back the Stealth dashboard deep-link (signs you in + renders the item), NOT the raw
     // owner-only S3 URL — that 401s in a browser. Share externally from the dashboard, or via
-    // `bandit artifact share`.
+    // `bandit stash share`.
     const dash = resolveDashboardUrl(fileConfig as { dashboard?: { baseUrl?: string } });
-    const viewUrl = `${dash}/artifacts?a=${encodeURIComponent(artifactKeyFromUrl(artifact.url))}`;
-    const label = team ? 'published to your team — open to view & share' : 'published (private) — open to view & share';
+    const viewUrl = stashViewUrl(dash, artifactKeyFromUrl(artifact.url));
+    const label = team ? 'saved to your Stash, shared with your team — open to view & share' : 'saved to your Stash (private) — open to view & share';
     process.stdout.write('  ' + renderPublishedLink(viewUrl, { label }) + '\n');
   } catch (err) {
     process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));

@@ -94,11 +94,11 @@ export async function buildGraphHostDeps(cwd: string): Promise<{ deps: LoopNodeH
   registry.register(buildWebFetchTool());
   registry.register(buildWebSearchTool({ apiKey: readTavilyKey() ?? resolved.tavilyApiKey }));
 
-  // Cloud SINK capability: when signed into Bandit cloud, register the artifact
-  // publish/share tools so a terminal (sink) node can turn the graph's synthesis
-  // into a published artifact. Only sink nodes get these in their envelope (see
+  // Cloud SINK capability: when signed into Bandit cloud, register the Bandit Stash
+  // save/share tools so a terminal (sink) node can save the graph's synthesis
+  // to the user's Stash. Only sink nodes get these in their envelope (see
   // graphPlan) — the research fan-out stays read-only; only the last node writes.
-  // Mirrors the REPL's cloud-gated artifact tools in cli.ts.
+  // Mirrors the REPL's cloud-gated Stash tools in cli.ts.
   const publishTools: string[] = [];
   if (settings.kind === 'bandit' && settings.apiKey) {
     const s3Base = process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';

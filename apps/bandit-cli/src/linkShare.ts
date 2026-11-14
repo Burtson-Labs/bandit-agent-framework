@@ -1,7 +1,7 @@
 /**
  * Terminal share-link niceties: copy a URL to the clipboard, open it in the
  * browser, and render it as an OSC 8 clickable link. Used when we hand the user
- * a shareable artifact URL so they can click it (open) or grab it (copy)
+ * a Bandit Stash link so they can click it (open) or grab it (copy)
  * without hunting through scrollback.
  *
  * Best-effort + cross-platform, shelling out to the built-in clipboard/opener
@@ -49,7 +49,7 @@ export function renderPublishedLink(
   const copied = copyToClipboard(url);
   if (opts.open) openInBrowser(url);
   const label = opts.label ?? 'shareable link';
-  // ownerOnly: the raw artifact URL is private (sign-in required), so don't
+  // ownerOnly: the raw Stash item URL is private (sign-in required), so don't
   // imply it opens for anyone — point them to the share/manage flow instead.
   const hint = opts.ownerOnly
     ? [copied ? 'copied' : null, 'private — sign-in required'].filter(Boolean).join(' · ')

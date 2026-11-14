@@ -18,6 +18,7 @@ import {
   formatTurnTraceMarkdown,
   PERMISSION_MODES,
   isPermissionMode,
+  STASH_DASHBOARD_PATH,
   type PermissionMode,
   type AutoApprovalLedger
 } from '@burtson-labs/host-kit';
@@ -184,8 +185,8 @@ export interface SlashContext {
   /** Learning memory — `/lessons on|off|view|clear`. Provided by the REPL
    *  (owns the flag + the .bandit/lessons.md store). Returns markdown. */
   lessons?: (arg: string) => Promise<string>;
-  /** `/artifact <path>` — publish a file as a shareable Bandit Artifact (cloud). */
-  artifact?: (arg: string) => Promise<string>;
+  /** `/stash <path>` — save a file to the user's Bandit Stash (cloud; formerly Artifacts). */
+  stash?: (arg: string) => Promise<string>;
   /** Reasoning-display mode ('full' | 'compact' | 'off'). `/reasoning` reads and
    *  sets it; the setter persists to config. Separate from thinkingMode, which
    *  controls whether the model thinks — this controls only how much is shown. */
@@ -283,7 +284,7 @@ export interface SlashContext {
    * ProviderSettings. Returns null on any failure (no provider, network
    * error, parse failure) so callers can fall back to a static path. */
   oneShotChat?: (prompt: string, opts?: { systemPrompt?: string; timeoutMs?: number }) => Promise<string | null>;
-  /** Publish a local file as a shareable Bandit Artifact and return its URL.
+  /** Save a local file to the user's Bandit Stash and return an external share link.
    * Used by `/insights --share`. cli.ts wires this with the resolved cloud
    * token + S3Api/Auth base URLs (publishArtifact handles the bai_→JWT
    * exchange). `scope` defaults to 'private'; 'team' shares with the team.
@@ -304,6 +305,9 @@ export interface SlashContext {
 export interface SlashCommand {
   name: string;
   description: string;
+  /** Hidden alternative names: dispatched by findSlashCommand, never listed in
+   *  /help, the picker or completion (e.g. `/artifact` for `/stash`). */
+  aliases?: string[];
   run(args: string, ctx: SlashContext): Promise<string> | string;
 }
 
@@ -1548,7 +1552,7 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     name: 'insights',
-    description: 'Show how you use Bandit. Default: write an HTML report and open it in your browser. --share publishes it as a shareable Bandit Artifact link (cloud). --text for a quick CLI-only summary, --no-ai to skip the LLM-generated summary section.',
+    description: 'Show how you use Bandit. Default: write an HTML report and open it in your browser. --share saves it to your Bandit Stash and returns a link (cloud). --text for a quick CLI-only summary, --no-ai to skip the LLM-generated summary section.',
     async run(args, ctx) {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
       const noAi = tokens.includes('--no-ai');
@@ -1633,7 +1637,7 @@ export const slashCommands: SlashCommand[] = [
         }
         const written = await writeInsightsReport({ cwd: ctx.cwd, out, ai: aiCallback });
 
-        // --share: publish the report as a Bandit Artifact and hand back a link
+        // --share: save the report to Bandit Stash and hand back a link
         // instead of opening it locally. The whole point is a URL to send, so a
         // browser-open would be noise. Cloud-only — falls back to a clear hint
         // (still leaving the file on disk) when not signed in or on failure.
@@ -1642,16 +1646,16 @@ export const slashCommands: SlashCommand[] = [
             return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
               c.yellow('  --share needs Bandit cloud — sign in with /login <key>, then retry for a shareable link.');
           }
-          process.stdout.write(c.dim('  publishing report as a shareable artifact…\n'));
+          process.stdout.write(c.dim('  saving report to your Bandit Stash…\n'));
           try {
             const url = await ctx.shareArtifact(written, shareTeam ? 'team' : undefined);
             // Clickable + copied to clipboard, and pop the shared report open in
             // the browser (this is the "see it" flow, like plain /insights does).
             const dash = (process.env.BANDIT_WEB_URL ?? 'https://stealth.banditailabs.com').replace(/\/$/, '');
             return renderPublishedLink(url, {
-              label: shareTeam ? 'insights published to your team' : 'insights published',
+              label: shareTeam ? 'insights saved to your Stash, shared with your team' : 'insights saved to your Stash',
               open: true,
-              manageUrl: `${dash}/artifacts`,
+              manageUrl: `${dash}/${STASH_DASHBOARD_PATH}`,
             });
           } catch (err) {
             return c.green('✓ insights written to ') + c.cyan(written) + '\n' +
@@ -2574,11 +2578,13 @@ export const slashCommands: SlashCommand[] = [
     }
   },
   {
-    name: 'artifact',
-    description: 'Publish a file as a shareable link (cloud): /artifact <path>',
+    name: 'stash',
+    // `/artifact` was the name before the Artifacts → Stash rename; kept hidden.
+    aliases: ['artifact'],
+    description: 'Bandit Stash (cloud): save a file to your Stash and get a link: /stash <path>. Not git stash.',
     async run(args, ctx) {
-      if (!ctx.artifact) { return c.dim('(artifacts are only available in the interactive REPL)'); }
-      return ctx.artifact(args.trim());
+      if (!ctx.stash) { return c.dim('(Bandit Stash is only available in the interactive REPL)'); }
+      return ctx.stash(args.trim());
     }
   },
   {
@@ -3373,6 +3379,6 @@ export function findSlashCommand(line: string): { cmd: SlashCommand; args: strin
   const space = line.indexOf(' ');
   const name = (space === -1 ? line.slice(1) : line.slice(1, space)).toLowerCase();
   const args = space === -1 ? '' : line.slice(space + 1);
-  const cmd = slashCommands.find(c => c.name === name);
+  const cmd = slashCommands.find(c => c.name === name) ?? slashCommands.find(c => c.aliases?.includes(name));
   return cmd ? { cmd, args } : null;
 }

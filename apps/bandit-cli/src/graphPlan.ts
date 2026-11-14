@@ -41,15 +41,15 @@ function sinkIdsOf(nodes: ProposalNode[]): Set<string> {
   return new Set(nodes.filter((n) => !dependedUpon.has(n.id)).map((n) => n.id));
 }
 
-/** Appended to a SINK node's prompt when the deliverable is an artifact: turn the
- *  synthesis into a published, shareable artifact. Only sink nodes get this (and
+/** Appended to a SINK node's prompt when the deliverable is a shareable page: turn the
+ *  synthesis into a self-contained HTML page saved to the user's Bandit Stash. Only sink nodes get this (and
  *  the publish_artifact capability) — upstream research stays strictly read-only. */
 const SINK_PUBLISH_INSTRUCTION =
-  '\n\nFinally, turn the finished result into a shareable, self-contained HTML artifact and publish it.\n' +
+  '\n\nFinally, turn the finished result into a self-contained HTML page and save it to the user\'s Bandit Stash.\n' +
   HTML_ARTIFACT_GUIDANCE +
-  '\nWrite the HTML to a file, then call the publish_artifact tool to publish it (with a short `title` and a ' +
+  '\nWrite the HTML to a file, then call the publish_artifact tool to save it to Bandit Stash (with a short `title` and a ' +
   'one-sentence `description` of what the page shows) and end your ' +
-  'answer with the returned artifact URL on its own line. Actually call the tool — do not merely describe publishing.';
+  'answer with the returned link on its own line. Actually call the tool — do not merely describe saving it.';
 
 /**
  * Materialize a validated proposal into a runnable graph. When the task's
@@ -148,7 +148,7 @@ export async function runGraphPlan(argv: string[], cwd: string): Promise<void> {
 
   process.stdout.write('\n' + c.dim(
     artifactIntent
-      ? `  executing ${spec.nodes.length} nodes — research read-only, the sink node publishes the artifact\n\n`
+      ? `  executing ${spec.nodes.length} nodes — research read-only, the sink node saves the result to Bandit Stash\n\n`
       : `  executing ${spec.nodes.length} nodes (read-only) — /graph inspects it afterwards\n\n`
   ));
   const result = await runSpecLive({ cwd, spec, executors, nodePrompts });
@@ -199,7 +199,7 @@ export async function tryAutoGraphTurn(
     const { spec, executors, nodePrompts, artifactIntent } = buildRunnableGraph(proposal, deps, publishTools, task);
     process.stdout.write(c.dim(
       artifactIntent
-        ? `  running ${spec.nodes.length} nodes — research read-only, sink node publishes the artifact
+        ? `  running ${spec.nodes.length} nodes — research read-only, sink node saves the result to Bandit Stash
 
 `
         : `  running ${spec.nodes.length} nodes (read-only)

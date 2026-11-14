@@ -909,7 +909,7 @@ async function runPrompt(opts: RunOptions): Promise<string> {
   registry.register(pdfReadTool);
   registry.register(pdfPreviewTool);
   registry.register(pdfRenderTool);
-  // fetch_image — verify an image URL is usable before embedding it in an artifact
+  // fetch_image — verify an image URL is usable before embedding it in a page saved to Stash
   // (server-side fetch bypasses browser hotlink protection). No cloud auth needed.
   registry.register(buildFetchImageTool());
   // Cloud-only: the agent can publish a workspace file as a shareable link.
@@ -924,8 +924,8 @@ async function runPrompt(opts: RunOptions): Promise<string> {
     registry.register(buildListArtifactsTool(artifactToolOpts));
     registry.register(buildDeleteArtifactTool(artifactToolOpts));
     registry.register(buildRestoreArtifactTool(artifactToolOpts));
-    // get_artifact / update_artifact — fetch a published artifact back + revise it in place
-    // (same URL), so "update that artifact" works without minting a new link.
+    // get_artifact / update_artifact — fetch a Stash item back + revise it in place
+    // (same URL), so "update that page in my Stash" works without minting a new link.
     registry.register(buildGetArtifactTool(artifactToolOpts));
     registry.register(buildUpdateArtifactTool(artifactToolOpts));
     registry.register(buildEmailArtifactTool(artifactToolOpts));
@@ -4269,7 +4269,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     // which is declared later in this scope and only invoked when /remote runs.
     remote: (arg: string) => handleRemoteCommand(arg),
     lessons: (arg: string) => handleLessonsCommand(arg),
-    artifact: (arg: string) => handleArtifactCommand(arg),
+    stash: (arg: string) => handleArtifactCommand(arg),
     model: {
       get current() { return model; },
       set(next: string) {
@@ -4555,8 +4555,8 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         return null;
       }
     },
-    // Publish a local file (e.g. the insights HTML) as a shareable Bandit
-    // Artifact, return its URL. Same path as /artifact: publishArtifact
+    // Save a local file (e.g. the insights HTML) to the user's Bandit Stash
+    // and return an external share link. Same path as /stash: publishArtifact
     // exchanges the bai_ key for a gateway JWT, then posts to S3Api. Present
     // only when signed in to Bandit cloud, so `/insights --share` can fall back
     // to a clear "cloud feature" message when the capability is absent.
@@ -4582,7 +4582,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             title: meta.title,
             description: meta.description
           });
-          // The raw artifact URL is owner-only now, so /insights --share hands back an
+          // The raw Stash item URL is owner-only now, so /insights --share hands back an
           // actual external share link (openable, expiring, revocable) — that's the point of --share.
           const link = await createShareLink({ s3ApiBaseUrl: s3Base, authBaseUrl: authBase, token, keyOrUrl: artifact.url });
           return link.url;
@@ -4742,13 +4742,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     return [header, body, help].join('\n');
   };
 
-  // `/artifact <path>` — publish a file as a shareable Bandit Artifact (cloud).
+  // `/stash <path>` — save a file to the user's Bandit Stash (cloud; formerly Artifacts).
+  // `/artifact` is a hidden alias of the same handler.
   const handleArtifactCommand = async (arg: string): Promise<string> => {
     const tokens = arg.trim().split(/\s+/).filter(Boolean);
     const sub = (tokens[0] ?? '').toLowerCase();
-    if (!tokens.length) return c.dim('usage: /artifact <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | scope <url> <private|team> | archive <url> | restore <url> | rm <url|key> | clear [--team] --yes');
+    if (!tokens.length) return c.dim('Bandit Stash (cloud): usage: /stash <path> [--team] | ls | share <url> | email <url> <to> | shares <url> | unshare <token> | scope <url> <private|team> | archive <url> | restore <url> | rm <url|key> | clear [--team] --yes');
     if (!resolved.apiKey) {
-      return c.yellow('Artifacts are a Bandit cloud feature — no API key found. Sign in / set your key, then retry.');
+      return c.yellow('Bandit Stash is a cloud feature — no API key found. Sign in / set your key, then retry.');
     }
     const hostKit = await import('@burtson-labs/host-kit');
     const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
@@ -4769,38 +4770,38 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     if (sub === 'ls' || sub === 'list') {
       try {
         const items = await hostKit.listArtifacts(base);
-        if (!items.length) return c.dim('no artifacts yet — /artifact <file> publishes one.');
+        if (!items.length) return c.dim('your Stash is empty — /stash <file> saves one.');
         const lines = items.map((it) => {
           const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
           const size = it.size < 1024 ? `${it.size} B` : `${(it.size / 1024).toFixed(1)} KB`;
           const tag = it.scope === 'team' ? c.cyan('team') : c.dim('priv');
           return `  ${tag}  ${c.dim(size.padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}`;
         });
-        return c.bold(`your artifacts (${items.length}):\n`) + lines.join('\n');
+        return c.bold(`your Stash (${items.length} item${items.length === 1 ? '' : 's'}):\n`) + lines.join('\n');
       } catch (err) { return fail(err); }
     }
 
     if (sub === 'rm' || sub === 'delete') {
       const t = tokens.slice(1).find((x) => !x.startsWith('-'));
-      if (!t) return c.dim('usage: /artifact rm <url|key>');
+      if (!t) return c.dim('usage: /stash rm <url|key>');
       try { await hostKit.deleteArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} deleted`); }
       catch (err) { return fail(err); }
     }
 
     if (sub === 'share') {
       const t = posArgs[1];
-      if (!t) return c.dim('usage: /artifact share <url|key> [--expires 7d]');
+      if (!t) return c.dim('usage: /stash share <url|key> [--expires 7d]');
       try {
         const link = await hostKit.createShareLink({ ...base, keyOrUrl: t, expiryMinutes: expiryArg() });
         const when = (link.expiresAt || '').replace('T', ' ').slice(0, 16);
-        return c.green(`${glyph.check} external link${when ? ` (expires ${when} UTC)` : ''}: `) + c.cyan(link.url) + c.dim(`\n  revoke: /artifact unshare ${link.token}`);
+        return c.green(`${glyph.check} external link${when ? ` (expires ${when} UTC)` : ''}: `) + c.cyan(link.url) + c.dim(`\n  revoke: /stash unshare ${link.token}`);
       } catch (err) { return fail(err); }
     }
 
     if (sub === 'email') {
       const t = posArgs[1];
       const to = posArgs[2];
-      if (!t || !to) return c.dim('usage: /artifact email <url|key> <recipient> [--expires 7d]');
+      if (!t || !to) return c.dim('usage: /stash email <url|key> <recipient> [--expires 7d]');
       try {
         const link = await hostKit.emailShareLink({ ...base, keyOrUrl: t, to, expiryMinutes: expiryArg() });
         return link.emailed
@@ -4811,10 +4812,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
 
     if (sub === 'shares') {
       const t = posArgs[1];
-      if (!t) return c.dim('usage: /artifact shares <url|key>');
+      if (!t) return c.dim('usage: /stash shares <url|key>');
       try {
         const links = await hostKit.listShareLinks({ ...base, keyOrUrl: t });
-        if (!links.length) return c.dim('no active external links for that artifact.');
+        if (!links.length) return c.dim('no active external links for that item.');
         return c.bold(`active links (${links.length}):\n`) + links.map((l) =>
           `  ${c.dim(`exp ${(l.expiresAt || '').replace('T', ' ').slice(0, 16)}`)}  ${c.dim(`${l.views}v`)}  ${c.cyan(l.url)}`).join('\n');
       } catch (err) { return fail(err); }
@@ -4822,7 +4823,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
 
     if (sub === 'unshare' || sub === 'revoke') {
       const t = posArgs[1];
-      if (!t) return c.dim('usage: /artifact unshare <token>');
+      if (!t) return c.dim('usage: /stash unshare <token>');
       try { await hostKit.revokeShareLink({ ...base, shareToken: t }); return c.green(`${glyph.check} revoked`); }
       catch (err) { return fail(err); }
     }
@@ -4830,7 +4831,7 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     if (sub === 'scope') {
       const t = posArgs[1];
       const next = (posArgs[2] ?? '').toLowerCase();
-      if (!t || (next !== 'private' && next !== 'team')) return c.dim('usage: /artifact scope <url|key> <private|team>');
+      if (!t || (next !== 'private' && next !== 'team')) return c.dim('usage: /stash scope <url|key> <private|team>');
       try {
         const moved = await hostKit.setArtifactScope({ ...base, keyOrUrl: t, scope: next as 'private' | 'team' });
         return c.green(`${glyph.check} now ${next === 'team' ? 'shared with your team' : 'private'}: `) + c.cyan(moved.url);
@@ -4839,14 +4840,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
 
     if (sub === 'restore' || sub === 'unarchive') {
       const t = posArgs[1];
-      if (!t) return c.dim('usage: /artifact restore <url|key>');
+      if (!t) return c.dim('usage: /stash restore <url|key>');
       try { await hostKit.restoreArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} restored from cold storage`); }
       catch (err) { return fail(err); }
     }
 
     if (sub === 'archive') {
       const t = posArgs[1];
-      if (!t) return c.dim('usage: /artifact archive <url|key>');
+      if (!t) return c.dim('usage: /stash archive <url|key>');
       try { await hostKit.archiveArtifact({ ...base, keyOrUrl: t }); return c.green(`${glyph.check} archived to cold storage`); }
       catch (err) { return fail(err); }
     }
@@ -4858,18 +4859,18 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
           const items = await hostKit.listArtifacts(base);
           count = items.filter((a) => (team ? a.scope === 'team' : a.scope !== 'team')).length;
         } catch { /* show generic warning */ }
-        const what = team ? `ALL ${count} of your TEAM's shared artifacts (affects teammates)` : `ALL ${count} of your private artifacts`;
-        return c.yellow(`This deletes ${what} (can't be undone). Re-run `) + c.cyan(`/artifact clear${team ? ' --team' : ''} --yes`) + c.yellow(' to confirm.');
+        const what = team ? `ALL ${count} of your TEAM's shared Stash items (affects teammates)` : `ALL ${count} of your private Stash items`;
+        return c.yellow(`This deletes ${what} (can't be undone). Re-run `) + c.cyan(`/stash clear${team ? ' --team' : ''} --yes`) + c.yellow(' to confirm.');
       }
       try {
         const n = await hostKit.clearArtifacts({ ...base, scope: team ? 'team' : undefined });
-        return c.green(`${glyph.check} cleared ${n} ${team ? 'team ' : ''}artifact${n === 1 ? '' : 's'}`);
+        return c.green(`${glyph.check} cleared ${n} ${team ? 'team ' : ''}item${n === 1 ? '' : 's'}`);
       } catch (err) { return fail(err); }
     }
 
     // default: publish the first non-flag token
     const target = tokens.find((t) => !t.startsWith('-'));
-    if (!target) return c.dim('usage: /artifact <path> [--team]');
+    if (!target) return c.dim('usage: /stash <path> [--team]');
     const abs = path.isAbsolute(target) ? target : path.join(cwd, target);
     let bytes: Buffer;
     try { bytes = await fs.promises.readFile(abs); } catch { return c.red(`can't read ${target}`); }
@@ -4887,9 +4888,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         title: meta.title, description: meta.description,
       });
       // Dashboard deep-link (signs you in + renders) rather than the raw owner-only S3 URL.
-      const viewUrl = `${remoteWebBase}/artifacts?a=${encodeURIComponent(hostKit.artifactKeyFromUrl(artifact.url))}`;
+      const viewUrl = hostKit.stashViewUrl(remoteWebBase, hostKit.artifactKeyFromUrl(artifact.url));
       return renderPublishedLink(viewUrl, {
-        label: team ? `published ${filename} to your team — open to view & share` : `published ${filename} (private) — open to view & share`,
+        label: team ? `saved ${filename} to your Stash, shared with your team — open to view & share` : `saved ${filename} to your Stash (private) — open to view & share`,
       });
     } catch (err) { return fail(err); }
   };
@@ -6036,8 +6037,9 @@ async function main(): Promise<void> {
     process.exit(await runTrainCommand(rawArgs.slice(1), process.cwd(), version));
   }
 
-  if (rawArgs[0] === 'artifact') {
-    // Publish a local file as a shareable Bandit Artifact (cloud) → prints a URL.
+  if (rawArgs[0] === 'stash' || rawArgs[0] === 'artifact') {
+    // `bandit stash`: Bandit Stash (cloud; formerly Artifacts) — save a file, print its link.
+    // `bandit artifact` stays as a hidden alias for scripts and muscle memory.
     const { runArtifactCommand } = await import('./artifactCommand');
     await runArtifactCommand(rawArgs.slice(1), process.cwd());
     return;

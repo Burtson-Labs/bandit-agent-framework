@@ -1,5 +1,5 @@
 /**
- * `/insights --share` publishes the written report as a Bandit Artifact and
+ * `/insights --share` saves the written report to the user's Bandit Stash and
  * returns the shareable URL (via the host-provided ctx.shareArtifact capability,
  * which does the bai_→JWT exchange + S3Api upload). When the user isn't signed
  * in to Bandit cloud the capability is absent, and the command falls back to a
@@ -44,7 +44,7 @@ describe('/insights --share', () => {
 
     const out = await insights.run('--share --no-ai', ctx);
     expect(out).toContain('https://s3.burtson.ai/api/artifact/team-x/abc.html');
-    expect(out).toMatch(/published/i);
+    expect(out).toMatch(/saved to your Stash/i);
     // shareArtifact received the actual written report path (an .html on disk).
     expect(sharedPath).toBeTruthy();
     expect(sharedPath!.endsWith('.html')).toBe(true);
