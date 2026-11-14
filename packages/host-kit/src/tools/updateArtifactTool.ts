@@ -1,12 +1,12 @@
 /**
- * `update_artifact` — overwrite an artifact you already published IN PLACE (same URL) with
+ * `update_artifact` — overwrite an item in the user's Bandit Stash IN PLACE (same URL) with
  * a revised workspace file. The write side of "make a revision". HTML gets the same image
- * inlining as publish so the revision stays self-contained. Cloud-only.
+ * inlining as publish_artifact so the revision stays self-contained. Cloud-only.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
-import { updateArtifact, guessContentType } from '../artifacts';
+import { updateArtifact, guessContentType, stashViewUrl } from '../artifacts';
 import { inlineHtmlImages } from '../imageInline';
 import { ARTIFACT_DESCRIPTION_PARAM_DESCRIPTION, ARTIFACT_TITLE_PARAM_DESCRIPTION } from './publishArtifactTool';
 
@@ -21,13 +21,13 @@ export function buildUpdateArtifactTool(opts: {
   return {
     name: 'update_artifact',
     description:
-      'Publish a REVISION of an artifact you already published, in place — same URL, updated content. ' +
-      'Use for "revise/update the artifact": edit the file (e.g. the one get_artifact fetched), then call ' +
-      'this with the artifact URL and the file path. The link does not change. ' +
+      'Update an item in the user\'s Bandit Stash (cloud) in place — same URL, updated content. ' +
+      'Use for "revise/update the Stash item" (or "the artifact"): edit the file (e.g. the one get_artifact fetched), then call ' +
+      'this with the Stash item URL and the file path. The link does not change. ' +
       'Pass a new `title` and `description` when the revision changes what the page is about; ' +
       'leave them out to keep the current link-preview text. Cloud feature.',
     parameters: [
-      { name: 'url', description: 'The existing artifact URL (or key) to overwrite. Must be one you own.', required: true },
+      { name: 'url', description: 'The existing Stash item URL (or key) to overwrite. Must be in the user\'s own Stash.', required: true },
       { name: 'path', description: 'Workspace-relative (or absolute) path to the file with the revised content.', required: true },
       { name: 'title', description: `${ARTIFACT_TITLE_PARAM_DESCRIPTION} Omit to keep the current title.`, required: false },
       { name: 'description', description: `${ARTIFACT_DESCRIPTION_PARAM_DESCRIPTION} Omit to keep the current description.`, required: false }
@@ -35,7 +35,7 @@ export function buildUpdateArtifactTool(opts: {
     async execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult> {
       const url = (params.url ?? '').trim();
       const rel = (params.path ?? '').trim();
-      if (!url) return { output: 'Error: the `url` parameter is required (the artifact to update).', isError: true };
+      if (!url) return { output: 'Error: the `url` parameter is required (the Stash item to update).', isError: true };
       if (!rel) return { output: 'Error: the `path` parameter is required (the file with the revised content).', isError: true };
 
       const root = (ctx as ToolExecutionContext & { workspaceRoot?: string }).workspaceRoot ?? process.cwd();
@@ -73,13 +73,11 @@ export function buildUpdateArtifactTool(opts: {
           description: (params.description ?? '').trim() || undefined,
           fetchImpl: opts.fetchImpl
         });
-        const dashUrl = opts.webBaseUrl
-          ? `${opts.webBaseUrl.replace(/\/$/, '')}/artifacts?a=${encodeURIComponent(artifact.key)}`
-          : null;
-        const viewLine = dashUrl ? ` View the updated artifact here: ${dashUrl}` : '';
-        return { output: `Updated the artifact in place — same link, new content.${inlineNote}${viewLine}` };
+        const dashUrl = opts.webBaseUrl ? stashViewUrl(opts.webBaseUrl, artifact.key) : null;
+        const viewLine = dashUrl ? ` View it here: ${dashUrl}` : '';
+        return { output: `Updated the Stash item in place — same link, new content.${inlineNote}${viewLine}` };
       } catch (err) {
-        return { output: `Error updating artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { output: `Error updating the Stash item: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
     }
   };

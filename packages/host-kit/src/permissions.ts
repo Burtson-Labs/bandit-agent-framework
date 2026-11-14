@@ -89,7 +89,7 @@ export const NETWORK_TOOLS: ReadonlySet<string> = new Set([
   'git_pull',
   'git_fetch',
   'git_clone',
-  // Bandit Cloud artifacts and image generation.
+  // Bandit Stash (formerly Artifacts) and image generation.
   'publish_artifact',
   'share_artifact',
   'email_artifact',

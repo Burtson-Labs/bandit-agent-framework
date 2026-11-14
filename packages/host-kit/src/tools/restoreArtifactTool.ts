@@ -1,6 +1,6 @@
 /**
- * `restore_artifact` — bring an archived artifact back from cold storage so it can
- * be viewed/served again. Archived artifacts return a 409 when accessed; the agent
+ * `restore_artifact` — bring an archived Bandit Stash item back from cold storage so
+ * it can be viewed/served again. Archived items return a 409 when accessed; the agent
  * (or a user via this tool) restores on demand. Explicit + one-time, so a slow cold
  * tier is fine. Cloud-only.
  */
@@ -16,15 +16,15 @@ export function buildRestoreArtifactTool(opts: {
   return {
     name: 'restore_artifact',
     description:
-      'Restore an ARCHIVED artifact from cold storage back to fast storage so it can be opened/shared again. ' +
-      'Use when list_artifacts shows an artifact as archived, or opening one fails because it is archived. ' +
-      'Pass the artifact URL (or key). Cloud feature.',
+      'Restore an ARCHIVED item in the user\'s Bandit Stash (cloud) from cold storage back to fast storage so it can be opened/shared again. ' +
+      'Use when list_artifacts shows an item as archived, or opening one fails because it is archived. ' +
+      'Pass the Stash item URL (or key). Cloud feature.',
     parameters: [
-      { name: 'url', description: 'The artifact URL (from list_artifacts) or its key. Must be one you own.', required: true }
+      { name: 'url', description: 'The Stash item URL (from list_artifacts) or its key. Must be in the user\'s own Stash.', required: true }
     ],
     async execute(params: Record<string, string>): Promise<ToolResult> {
       const target = (params.url ?? '').trim();
-      if (!target) return { output: 'Error: the `url` parameter is required (the artifact URL or key to restore).', isError: true };
+      if (!target) return { output: 'Error: the `url` parameter is required (the Stash item URL or key to restore).', isError: true };
       try {
         await restoreArtifact({
           s3ApiBaseUrl: opts.s3ApiBaseUrl,
@@ -33,9 +33,9 @@ export function buildRestoreArtifactTool(opts: {
           keyOrUrl: target,
           fetchImpl: opts.fetchImpl
         });
-        return { output: 'Restored the artifact from cold storage — it is back on fast storage and can be opened/shared again.' };
+        return { output: 'Restored the Stash item from cold storage — it is back on fast storage and can be opened/shared again.' };
       } catch (err) {
-        return { output: `Error restoring artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { output: `Error restoring the Stash item: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
     }
   };

@@ -439,13 +439,13 @@ export function classifyRisk(
     }
 
     if (name === 'publish_artifact' || name === 'share_artifact' || name === 'email_artifact' || name === 'update_artifact') {
-      return { tier: 'elevated', rule: 'cloud-publish', why: 'Uploads to Bandit Cloud or shares a link others can open.' };
+      return { tier: 'elevated', rule: 'cloud-publish', why: 'Saves to your Bandit Stash or shares a link others can open.' };
     }
 
     if (name === 'list_artifacts' || name === 'get_artifact') {
-      // Reads the user's own artifacts from Bandit Cloud. Routine (auto mode
+      // Reads the user's own Bandit Stash. Routine (auto mode
       // runs it) but not read-only: it is a network call, so plan mode blocks it.
-      return { tier: 'routine', rule: 'cloud-read', why: 'Reads your artifacts from Bandit Cloud.' };
+      return { tier: 'routine', rule: 'cloud-read', why: 'Reads your Bandit Stash.' };
     }
 
     if (name === 'generate_image') {

@@ -1,5 +1,5 @@
 /**
- * `get_artifact` — fetch a published artifact you own from the cloud so the agent can
+ * `get_artifact` — fetch an item from the user's Bandit Stash so the agent can
  * REVISE it. Returns the current content INLINE (straight from the API) — deliberately
  * does NOT write it to disk: Bandit's edit tools reject editing a pre-existing unread
  * file, which would force a redundant read_file and make it look like the content came
@@ -35,16 +35,16 @@ export function buildGetArtifactTool(opts: {
   return {
     name: 'get_artifact',
     description:
-      'Fetch a published artifact you own from the cloud so you can REVISE it. Pass its URL (the dashboard ' +
+      'Fetch an item from the user\'s Bandit Stash (cloud) so you can REVISE it. Pass its URL (the Stash ' +
       'link Bandit gave you, or from list_artifacts). Returns the CURRENT content inline, straight from the ' +
       'API — revise it, write the updated version to a NEW file, then call update_artifact with the SAME URL ' +
-      'to publish the revision (the link stays the same). Cloud feature.',
+      'to save the revision (the link stays the same). Cloud feature.',
     parameters: [
-      { name: 'url', description: 'The artifact URL (or key) to fetch. Must be one you own.', required: true }
+      { name: 'url', description: 'The Stash item URL (or key) to fetch. Must be in the user\'s own Stash.', required: true }
     ],
     async execute(params: Record<string, string>, ctx: ToolExecutionContext): Promise<ToolResult> {
       const target = (params.url ?? '').trim();
-      if (!target) {return { output: 'Error: the `url` parameter is required (the artifact URL or key to fetch).', isError: true };}
+      if (!target) {return { output: 'Error: the `url` parameter is required (the Stash item URL or key to fetch).', isError: true };}
       try {
         const fetched = await getArtifact({
           s3ApiBaseUrl: opts.s3ApiBaseUrl,
@@ -67,11 +67,11 @@ export function buildGetArtifactTool(opts: {
           const rel = path.relative(root, outPath);
           return {
             output:
-              `This artifact is BINARY (${fetched.contentType}, ${fetched.content.length} bytes) — saved a copy to "${rel}". ` +
+              `This Stash item is BINARY (${fetched.contentType}, ${fetched.content.length} bytes) — saved a copy to "${rel}". ` +
               `It cannot be edited with apply_edit/replace_range. To revise it, regenerate it from its SOURCE and call update_artifact with url "${target}" and the new file:\n` +
-              `- A PDF: find or rebuild the HTML it was rendered from (look next to it: .html/.md with the same name, a generate_* script, or a previous artifact whose HTML you can fetch with get_artifact), edit THAT, then render_pdf → preview_pdf → update_artifact.\n` +
-              `- To make it look like ANOTHER artifact or document: fetch that reference's HTML with get_artifact (or read its source file) and reuse its <head>, CSS and page structure wholesale, replacing only the content. Do not rebuild from plain text — that discards the design the user is asking for.\n` +
-              `- preview_pdf(path="${rel}") renders page images and reports text/ink per page, so you can compare the current artifact with your rebuild before publishing.`
+              `- A PDF: find or rebuild the HTML it was rendered from (look next to it: .html/.md with the same name, a generate_* script, or a previous Stash item whose HTML you can fetch with get_artifact), edit THAT, then render_pdf → preview_pdf → update_artifact.\n` +
+              `- To make it look like ANOTHER Stash item or document: fetch that reference's HTML with get_artifact (or read its source file) and reuse its <head>, CSS and page structure wholesale, replacing only the content. Do not rebuild from plain text — that discards the design the user is asking for.\n` +
+              `- preview_pdf(path="${rel}") renders page images and reports text/ink per page, so you can compare the current item with your rebuild before saving it.`
           };
         }
         if (fetched.content.length <= MAX_INLINE) {
@@ -79,7 +79,7 @@ export function buildGetArtifactTool(opts: {
           // from this result and write the new version to a fresh file.
           return {
             output:
-              `Here is the CURRENT published content of the artifact (${fetched.contentType}, ${fetched.content.length} chars), ` +
+              `Here is the CURRENT content of the Stash item (${fetched.contentType}, ${fetched.content.length} chars), ` +
               `fetched from the API. To revise it: make your changes to this content, write the updated version to a new ` +
               `file (e.g. "${name}"), then call update_artifact with url "${target}" and that file path — the link stays the same.\n\n` +
               `--- current content ---\n${fetched.content}`
@@ -96,15 +96,15 @@ export function buildGetArtifactTool(opts: {
         const rel = path.relative(root, outPath);
         return {
           output:
-            `This artifact is large (${fetched.contentType}, ${fetched.content.length} chars) — too big to inline. ` +
-            `Saved the CURRENT published content to "${rel}". For CONTENT changes revise it with TARGETED edits: read_file it, apply ` +
+            `This Stash item is large (${fetched.contentType}, ${fetched.content.length} chars) — too big to inline. ` +
+            `Saved its CURRENT content to "${rel}". For CONTENT changes revise it with TARGETED edits: read_file it, apply ` +
             `apply_edit/replace_range changes (do not rewrite the whole file), then call update_artifact with ` +
             `url "${target}" and path "${rel}" — the link stays the same. For a DESIGN change ("make it look like X"): fetch X with get_artifact ` +
-            `(or read its source), keep X's <head>, CSS and structure wholesale, and move this artifact's content into it.\n\n` +
+            `(or read its source), keep X's <head>, CSS and structure wholesale, and move this item's content into it.\n\n` +
             `--- first ${Math.min(2000, fetched.content.length)} chars for orientation ---\n${fetched.content.slice(0, 2000)}`
         };
       } catch (err) {
-        return { output: `Error fetching artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { output: `Error fetching the Stash item: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
     }
   };

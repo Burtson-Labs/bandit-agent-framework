@@ -1,6 +1,6 @@
 /**
- * `share_artifact` — let the AGENT mint an EXTERNAL share link for an artifact
- * it already published (so "publish this report and give me a link I can send a
+ * `share_artifact` — let the AGENT mint an EXTERNAL share link for an item already
+ * in the user's Bandit Stash (so "save this report and give me a link I can send a
  * client" works in one turn). The link is a revocable, auto-expiring URL that
  * anyone can open — no Bandit account needed.
  *
@@ -32,13 +32,13 @@ export function buildShareArtifactTool(opts: {
   return {
     name: 'share_artifact',
     description:
-      'Create an EXTERNAL share link for an artifact you already published — a URL anyone can open without a Bandit account. ' +
+      'Create an EXTERNAL share link for an item already in the user\'s Bandit Stash (cloud) — a URL anyone can open without a Bandit account. ' +
       'Use when the user asks to "share externally", "send this to someone outside", or "make a link for a client". ' +
-      'Pass the artifact URL returned by publish_artifact (or its key). The link auto-expires and can be revoked later. Cloud feature.',
+      'Pass the Stash item URL returned by publish_artifact (or its key). The link auto-expires and can be revoked later. Cloud feature.',
     parameters: [
       {
         name: 'url',
-        description: 'The artifact URL from publish_artifact (or its object key). This must be an artifact you own.',
+        description: 'The Stash item URL from publish_artifact (or its object key). It must be in the user\'s own Stash.',
         required: true
       },
       {
@@ -49,7 +49,7 @@ export function buildShareArtifactTool(opts: {
     ],
     async execute(params: Record<string, string>): Promise<ToolResult> {
       const target = (params.url ?? '').trim();
-      if (!target) return { output: 'Error: the `url` parameter is required (the artifact URL or key).', isError: true };
+      if (!target) return { output: 'Error: the `url` parameter is required (the Stash item URL or key).', isError: true };
 
       try {
         const link = await createShareLink({

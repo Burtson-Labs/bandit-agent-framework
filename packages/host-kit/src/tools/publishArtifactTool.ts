@@ -1,7 +1,8 @@
 /**
- * `publish_artifact` — let the AGENT publish a workspace file as a shareable
- * Bandit Artifact during a turn (so "make a README and publish it" works in one
- * go, instead of the user having to run the /artifact slash command by hand).
+ * `publish_artifact` — let the AGENT save a workspace file to the user's Bandit
+ * Stash (formerly Artifacts) during a turn (so "make a README and save it to my
+ * Stash" works in one go, instead of the user running /stash by hand). The tool
+ * NAME stays `publish_artifact` — it is the wire contract with models and evals.
  *
  * Thin wrapper over publishArtifact (posts straight to S3Api). Cloud-only: the
  * host only registers this tool when a cloud token is present, so local-only
@@ -10,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AgentTool, ToolResult, ToolExecutionContext } from '@burtson-labs/agent-core';
-import { publishArtifact, guessContentType, artifactKeyFromUrl } from '../artifacts';
+import { publishArtifact, guessContentType, artifactKeyFromUrl, stashViewUrl } from '../artifacts';
 import { inlineHtmlImages } from '../imageInline';
 import { derivePreviewMeta } from '../previewMeta';
 
@@ -34,14 +35,15 @@ export function buildPublishArtifactTool(opts: {
   return {
     name: 'publish_artifact',
     description:
-      'Publish a file from the workspace as a shareable Bandit Artifact and return a public URL anyone can open. ' +
-      'Use this when the user asks to "publish", "share", or "make an artifact" of a file — write the file first, then call this with its path. ' +
+      'Save a file from the workspace to the user\'s Bandit Stash (cloud; formerly Bandit Artifacts) and return a link to it. ' +
+      'Use this when the user asks to save, publish or share a file, "save it to my Stash", "stash this report" or "make an artifact" — ' +
+      'write the file first, then call this with its path. "Stash" here means the Bandit Stash, NOT git stash (git_stash only shelves uncommitted code changes). ' +
       'Always pass `title` and `description`: they are what people see when the link is pasted into Slack, Teams, iMessage or email. ' +
       'Describe the content plainly; no marketing language. Cloud feature.',
     parameters: [
       {
         name: 'path',
-        description: 'Workspace-relative (or absolute) path to the file to publish, e.g. "README.md".',
+        description: 'Workspace-relative (or absolute) path to the file to save to Bandit Stash, e.g. "README.md".',
         required: true
       },
       {
@@ -62,14 +64,14 @@ export function buildPublishArtifactTool(opts: {
       try {
         bytes = await fs.promises.readFile(abs);
       } catch {
-        return { output: `Error: can't read "${rel}". Write the file first, then publish it.`, isError: true };
+        return { output: `Error: can't read "${rel}". Write the file first, then save it to Bandit Stash.`, isError: true };
       }
 
       try {
         const scope = (params.scope ?? '').trim().toLowerCase() === 'team' ? 'team' : undefined;
         const contentType = guessContentType(path.basename(abs));
-        // For an HTML artifact, inline every <img> (local paths, the user's pastes, remote URLs) as
-        // data URIs so it renders standalone — the whole point of "put an image in the artifact".
+        // For an HTML page, inline every <img> (local paths, the user's pastes, remote URLs) as
+        // data URIs so it renders standalone — the whole point of "put an image in the page".
         let content = new Uint8Array(bytes);
         let inlineNote = '';
         if (contentType === 'text/html') {
@@ -100,20 +102,18 @@ export function buildPublishArtifactTool(opts: {
         // the model can chain to share_artifact when the user wants an external link.
         const name = path.basename(abs);
         const key = artifactKeyFromUrl(artifact.url);
-        const dashUrl = opts.webBaseUrl
-          ? `${opts.webBaseUrl.replace(/\/$/, '')}/artifacts?a=${encodeURIComponent(key)}`
-          : null;
+        const dashUrl = opts.webBaseUrl ? stashViewUrl(opts.webBaseUrl, key) : null;
         const viewLine = dashUrl
-          ? ` The user can open and manage it here (signs them in if needed): ${dashUrl}`
+          ? ` Open and manage it here (signs the user in if needed): ${dashUrl}`
           : '';
         return {
           output:
-            `Published "${name}"${scope === 'team' ? ' to the team' : ' (private)'}` +
+            `Saved "${name}" to your Bandit Stash${scope === 'team' ? ' (shared with your team)' : ' (private)'}` +
             `${title ? ` with the link-preview title "${title}"` : ''}.` + inlineNote + viewLine +
             ` To create an external link anyone can open without signing in, call share_artifact with url "${artifact.url}".`
         };
       } catch (err) {
-        return { output: `Error publishing artifact: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { output: `Error saving to Bandit Stash: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
     }
   };
