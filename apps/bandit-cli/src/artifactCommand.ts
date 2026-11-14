@@ -25,6 +25,8 @@ import {
   revokeShareLink,
   listShareLinks,
   setArtifactScope,
+  setArtifactMeta,
+  derivePreviewMeta,
   restoreArtifact,
   archiveArtifact,
   artifactKeyFromUrl,
@@ -68,6 +70,32 @@ function parseDurationMinutes(argv: string[]): number | undefined {
   return unit === 'd' ? n * 24 * 60 : unit === 'h' ? n * 60 : n;
 }
 
+/** Flags that take a value; the value is not a positional argument. */
+const VALUE_FLAGS = new Set(['--expires', '--expiry', '--message', '-m', '--title', '--description']);
+
+/** The value after `--name` (or `--name=value`); undefined when the flag is absent. */
+export function flagValue(argv: string[], name: string): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === name) return argv[i + 1] ?? '';
+    if (argv[i].startsWith(name + '=')) return argv[i].slice(name.length + 1);
+  }
+  return undefined;
+}
+
+/** Positional arguments: everything that is not a flag or a value flag's value. */
+export function positionalArgs(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('-')) {
+      if (VALUE_FLAGS.has(a)) i++;
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+
 async function confirm(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return false; // non-interactive: require --yes
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -77,7 +105,7 @@ async function confirm(question: string): Promise<boolean> {
 }
 
 export async function runArtifactCommand(argv: string[], cwd: string): Promise<void> {
-  const positional = argv.filter((a) => !a.startsWith('-'));
+  const positional = positionalArgs(argv);
   const sub = (positional[0] ?? '').toLowerCase();
 
   const fileConfig = await loadConfigFiles(cwd);
@@ -110,7 +138,8 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
         const when = (it.lastModified || '').replace('T', ' ').slice(0, 16);
         const tag = it.scope === 'team' ? c.cyan('team   ') : c.dim('private');
         process.stdout.write(
-          `  ${tag}  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}\n`
+          `  ${tag}  ${c.dim(humanSize(it.size).padStart(8))}  ${c.dim(when)}  ${linkify(it.url)}\n` +
+          (it.title ? `           ${it.title}\n` : '')
         );
       }
     } catch (err) {
@@ -229,6 +258,27 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
     return;
   }
 
+  // ── meta <url|key> [--title "…"] [--description "…"] ─────────────────────
+  if (sub === 'meta') {
+    const target = positional[1];
+    const title = flagValue(argv, '--title');
+    const description = flagValue(argv, '--description');
+    if (!target || (title === undefined && description === undefined)) {
+      process.stdout.write('usage: bandit artifact meta <url|key> [--title "…"] [--description "…"]  (pass "" to clear)\n');
+      return;
+    }
+    try {
+      const meta = await setArtifactMeta({ ...base, keyOrUrl: target, title, description });
+      process.stdout.write(
+        c.green(`  ${glyph.check} link preview updated\n`) +
+        c.dim(`  title: ${meta.title ?? '(from content)'}\n  description: ${meta.description ?? '(from content)'}\n`)
+      );
+    } catch (err) {
+      process.stdout.write(c.red(`  ${glyph.cross} ${err instanceof Error ? err.message : String(err)}\n`));
+    }
+    return;
+  }
+
   // ── scope <url|key> <private|team> ────────────────────────────────────────
   if (sub === 'scope') {
     const target = positional[1];
@@ -317,7 +367,10 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
   if (!target) {
     process.stdout.write(
       'usage:\n' +
-      '  bandit artifact <path> [--team]         publish a file (private by default; --team shares with your team)\n' +
+      '  bandit artifact <path> [--team] [--title "…"] [--description "…"]\n' +
+      '                                          publish a file (private by default; --team shares with your team;\n' +
+      '                                          title/description show in link previews, else taken from the file)\n' +
+      '  bandit artifact meta <url> [--title "…"] [--description "…"]  change the link-preview text\n' +
       '  bandit artifact ls                      list your + your team\'s artifacts\n' +
       '  bandit artifact rm <url|key>            delete one\n' +
       '  bandit artifact clear [--team] [--yes]  delete all your private (or --team) artifacts\n' +
@@ -352,12 +405,15 @@ export async function runArtifactCommand(argv: string[], cwd: string): Promise<v
       content = new Uint8Array(Buffer.from(r.html, 'utf8'));
       if (r.inlined) process.stdout.write(c.dim(`  ${glyph.spark} inlined ${r.inlined} image(s)\n`));
     }
+    const derived = derivePreviewMeta(content, contentType, filename);
     const artifact = await publishArtifact({
       ...base,
       scope: team ? 'team' : undefined,
       content,
       filename,
       contentType,
+      title: flagValue(argv, '--title')?.trim() || derived.title,
+      description: flagValue(argv, '--description')?.trim() || derived.description,
     });
     // Hand back the Stealth dashboard deep-link (signs you in + renders the artifact), NOT the raw
     // owner-only S3 URL — that 401s in a browser. Share externally from the dashboard, or via
