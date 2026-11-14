@@ -33,6 +33,8 @@ import { fixture as jsonSettingChange } from './json-setting-change';
 import { fixture as changelogAppend } from './changelog-append';
 // Self-improve loop seed (regression-derived, see ops/self-improve/README.md):
 import { fixture as artifactRevisionNoReread } from './artifact-revision-no-reread';
+// Bandit Stash rename (2026-11): "stash" must not route to git_stash.
+import { fixture as stashSaveNotGitStash } from './stash-save-not-git-stash';
 import type { Fixture } from '../types';
 
 export const allFixtures: Fixture[] = [
@@ -61,5 +63,6 @@ export const allFixtures: Fixture[] = [
   multiReadSynthesis,
   jsonSettingChange,
   changelogAppend,
-  artifactRevisionNoReread
+  artifactRevisionNoReread,
+  stashSaveNotGitStash
 ];

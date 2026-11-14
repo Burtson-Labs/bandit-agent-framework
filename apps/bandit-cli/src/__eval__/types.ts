@@ -118,6 +118,10 @@ export interface Fixture {
   /** Tools removed from the registry for this fixture (e.g. ['apply_patch'] when
    *  generating teacher data that must use apply_edit/replace_range). */
   excludeTools?: string[];
+  /** Register the Bandit Stash tools (publish_artifact, list_artifacts) with their real
+   *  host-kit descriptions and an offline execute — for fixtures about routing "save it
+   *  to my Stash" to the cloud Stash rather than to git_stash. */
+  stashTools?: boolean;
   /** Replay a task against a real repository: the sandbox starts as a local clone of this
    *  directory's git repo at HEAD, with every remote removed. */
   sourceDir?: string;

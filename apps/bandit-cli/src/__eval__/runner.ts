@@ -46,6 +46,8 @@ import {
   type ProviderSettings,
   buildExtensionSystemPrompt
 } from '@burtson-labs/stealth-core-runtime';
+import { buildPublishArtifactTool, buildListArtifactsTool } from '@burtson-labs/host-kit';
+import type { AgentTool } from '@burtson-labs/agent-core';
 import { EvalSandboxContext, createSandboxLayout, describeDenial, isSandboxViolation, sandboxEnv, type EvalSandboxLayout, type SandboxDenial } from './sandboxContext';
 import { buildSystemPrompt } from '../systemPrompt';
 import { evaluateRun } from './assertions';
@@ -164,6 +166,31 @@ const MALFORMED_RESULT = /\bparameter is required\b|\bis not registered\b|\bunkn
 const MALFORMED_EVENTS = new Set(['tool_loop:parse_retry', 'tool_loop:tool_not_found']);
 
 const COMMAND_TOOLS = new Set(['run_command', 'watch_command']);
+
+/**
+ * The Bandit Stash tools as the model sees them in a signed-in host — the real
+ * host-kit names, descriptions and parameters — with an offline execute, so a
+ * fixture can grade "save it to my Stash" routing without touching the cloud.
+ */
+function offlineStashTools(): AgentTool[] {
+  const opts = { token: 'eval-offline', s3ApiBaseUrl: 'https://stash.invalid' };
+  const publish = buildPublishArtifactTool(opts);
+  const list = buildListArtifactsTool(opts);
+  return [
+    {
+      ...publish,
+      async execute(params, ctx) {
+        const rel = (params.path ?? '').trim();
+        const root = (ctx as { workspaceRoot?: string }).workspaceRoot ?? process.cwd();
+        if (!rel || !fs.existsSync(path.isAbsolute(rel) ? rel : path.join(root, rel))) {
+          return { output: `Error: can't read "${rel}". Write the file first, then save it to Bandit Stash.`, isError: true };
+        }
+        return { output: `Saved "${path.basename(rel)}" to your Bandit Stash (private). Open and manage it here: https://stash.invalid/stash?a=eval%2F${encodeURIComponent(path.basename(rel))}` };
+      }
+    },
+    { ...list, async execute() { return { output: 'The Bandit Stash is empty. Save a file to it with publish_artifact.' }; } }
+  ];
+}
 
 /** Wrap command tools so denied command lines return an error instead of running. */
 export function withCommandDeny(registry: ToolRegistry, deny: RegExp): ToolRegistry {
@@ -308,6 +335,7 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
       const kept = registry.getAll().filter(tool => !excluded.has(tool.name));
       registry = new ToolRegistry().registerAll(kept);
     }
+    if (fixture.stashTools) registry = new ToolRegistry().registerAll([...registry.getAll(), ...offlineStashTools()]);
     if (provider.commandDeny) registry = withCommandDeny(registry, provider.commandDeny);
 
     const settle = (call: ToolCallTrace | undefined, isError: boolean, output?: string): void => {

@@ -30,9 +30,9 @@ async function play(id: string, turns: string[]) {
 }
 
 describe('built-in fixtures: shape', () => {
-  it('there are 26, with unique ids', () => {
-    expect(allFixtures).toHaveLength(26);
-    expect(new Set(allFixtures.map(f => f.id)).size).toBe(26);
+  it('there are 27, with unique ids', () => {
+    expect(allFixtures).toHaveLength(27);
+    expect(new Set(allFixtures.map(f => f.id)).size).toBe(27);
   });
 
   it('no prompt points outside the sandbox', () => {
@@ -238,6 +238,30 @@ describe('context_reuse.artifact_revision', () => {
 
   it('fails a model that searches for the text it was just shown', async () => {
     const run = await play('context_reuse.artifact_revision', [call('search_code', { pattern: 'Fleet Status' }), 'Found it.']);
+    expect(run.passed).toBe(false);
+  });
+});
+
+describe('stash.save_not_git_stash', () => {
+  it('passes a model that saves the file to the Bandit Stash', async () => {
+    const run = await play('stash.save_not_git_stash', [call('publish_artifact', { path: 'report.html' }), 'Saved report.html to your Bandit Stash.']);
+    expect(run.toolCalls.map(c => [c.name, c.isError])).toEqual([['publish_artifact', false]]);
+    expect(run.failureReasons).toEqual([]);
+    expect(run.passed).toBe(true);
+  });
+
+  it('fails a model that reaches for git_stash', async () => {
+    const run = await play('stash.save_not_git_stash', [call('git_stash', { action: 'push', message: 'report' }), 'Stashed.']);
+    expect(run.passed).toBe(false);
+    expect(run.failureReasons.join('\n')).toMatch(/git_stash/);
+  });
+
+  it('fails a model that runs git stash through the shell, even if it also saves', async () => {
+    const run = await play('stash.save_not_git_stash', [
+      call('run_command', { cmd: 'git', args: 'stash push -m report' }),
+      call('publish_artifact', { path: 'report.html' }),
+      'Done.'
+    ]);
     expect(run.passed).toBe(false);
   });
 });
