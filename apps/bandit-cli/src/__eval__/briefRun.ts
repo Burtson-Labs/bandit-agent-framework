@@ -67,6 +67,8 @@ export interface BriefDeps {
     content: string;
     filename: string;
     contentType: string;
+    title?: string;
+    description?: string;
   }) => Promise<{ url: string }>;
   email: (opts: {
     s3ApiBaseUrl: string;
@@ -207,7 +209,9 @@ export async function runBrief(args: BriefArgs, deps: BriefDeps, env: {
       token: env.token,
       content: html,
       filename,
-      contentType: 'text/html'
+      contentType: 'text/html',
+      title: summary.subject,
+      description: 'Nightly BanditBench run: verdict, pass rate, failed fixtures and regressions against the previous run.'
     });
     url = artifact.url;
     // Retention: prune the briefs older than the window, best effort.

@@ -21,7 +21,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { publishArtifact, emailShareLink } from '@burtson-labs/host-kit';
+import { publishArtifact, emailShareLink, derivePreviewMeta } from '@burtson-labs/host-kit';
 import { loadConfigFiles, resolveConfig } from '../config';
 
 export interface PublishEmailArgs {
@@ -134,7 +134,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     token,
     content,
     filename: path.basename(args.file),
-    contentType: 'text/html; charset=utf-8'
+    contentType: 'text/html; charset=utf-8',
+    // Link-preview text from the page's own <title> / description / first paragraph.
+    ...derivePreviewMeta(content, 'text/html', path.basename(args.file))
   });
 
   if (!published?.url) {

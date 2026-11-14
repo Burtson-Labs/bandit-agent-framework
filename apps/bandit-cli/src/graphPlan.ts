@@ -47,7 +47,8 @@ function sinkIdsOf(nodes: ProposalNode[]): Set<string> {
 const SINK_PUBLISH_INSTRUCTION =
   '\n\nFinally, turn the finished result into a shareable, self-contained HTML artifact and publish it.\n' +
   HTML_ARTIFACT_GUIDANCE +
-  '\nWrite the HTML to a file, then call the publish_artifact tool to publish it and end your ' +
+  '\nWrite the HTML to a file, then call the publish_artifact tool to publish it (with a short `title` and a ' +
+  'one-sentence `description` of what the page shows) and end your ' +
   'answer with the returned artifact URL on its own line. Actually call the tool — do not merely describe publishing.';
 
 /**

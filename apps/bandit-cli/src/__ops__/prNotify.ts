@@ -141,7 +141,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     token,
     content: html,
     filename: 'self-improve-pr.html',
-    contentType: 'text/html; charset=utf-8'
+    contentType: 'text/html; charset=utf-8',
+    title: 'Bandit self-improve proposals to review',
+    description: proposals.length > 0
+      ? `${proposals.length} machine-generated proposal(s) from the eval run, opened as a pull request for review.`
+      : 'A pull request from the eval run is ready for review.'
   });
 
   if (!published?.url) {

@@ -88,11 +88,11 @@ function tmpdir(): string {
 }
 
 function stubDeps(overrides: Partial<BriefDeps> = {}) {
-  const published: Array<{ filename: string; content: string; contentType: string }> = [];
+  const published: Array<{ filename: string; content: string; contentType: string; title?: string; description?: string }> = [];
   const emails: Array<{ to: string; keyOrUrl: string; message: string }> = [];
   const deps: BriefDeps = {
     publish: async (opts) => {
-      published.push({ filename: opts.filename, content: opts.content, contentType: opts.contentType });
+      published.push({ filename: opts.filename, content: opts.content, contentType: opts.contentType, title: opts.title, description: opts.description });
       return { url: 'https://s3.burtson.ai/api/artifact/owner-1/brief.html' };
     },
     email: async (opts) => {
@@ -348,6 +348,9 @@ describe('runBrief', () => {
     expect(published[0].contentType).toBe('text/html');
     expect(published[0].filename).toMatch(/\.html$/);
     expect(published[0].content).toContain('<!doctype html>');
+    // Link preview: the subject line is the title, plus a fixed one-sentence description.
+    expect(published[0].title).toMatch(/^BanditBench nightly/);
+    expect(published[0].description).toMatch(/^Nightly BanditBench run/);
 
     expect(emails.map((e) => e.to)).toEqual(['mark@burtson.ai', 'brett@burtson.com']);
     // Both emails point at the SAME published artifact.

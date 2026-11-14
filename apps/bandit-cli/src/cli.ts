@@ -4563,11 +4563,14 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
     shareArtifact: resolved.apiKey
       ? async (absPath: string, scope?: 'private' | 'team'): Promise<string> => {
           const token = resolved.apiKey as string;
-          const { publishArtifact, createShareLink, guessContentType } = await import('@burtson-labs/host-kit');
+          const { publishArtifact, createShareLink, guessContentType, derivePreviewMeta } = await import('@burtson-labs/host-kit');
           const bytes = await fs.promises.readFile(absPath);
           const s3Base = (fileConfig as { s3?: { baseUrl?: string } }).s3?.baseUrl ?? process.env.BANDIT_S3_URL ?? 'https://s3.burtson.ai';
           const authBase = (fileConfig as { auth?: { baseUrl?: string } }).auth?.baseUrl ?? process.env.BANDIT_AUTH_URL ?? 'https://auth.burtson.ai';
           const filename = path.basename(absPath);
+          const contentType = guessContentType(filename);
+          // The insights page carries its own <title>; use it for the link preview.
+          const meta = derivePreviewMeta(bytes, contentType, filename);
           const artifact = await publishArtifact({
             s3ApiBaseUrl: s3Base,
             authBaseUrl: authBase,
@@ -4575,7 +4578,9 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
             scope,
             content: new Uint8Array(bytes),
             filename,
-            contentType: guessContentType(filename)
+            contentType,
+            title: meta.title,
+            description: meta.description
           });
           // The raw artifact URL is owner-only now, so /insights --share hands back an
           // actual external share link (openable, expiring, revocable) — that's the point of --share.
@@ -4876,8 +4881,10 @@ async function repl(cwd: string, session: SessionStore, overrides: ConfigOverrid
         const r = await hostKit.inlineHtmlImages(bytes.toString('utf8'), { baseDir: path.dirname(abs) });
         content = new Uint8Array(Buffer.from(r.html, 'utf8'));
       }
+      const meta = hostKit.derivePreviewMeta(content, contentType, filename);
       const artifact = await hostKit.publishArtifact({
         ...base, scope: team ? 'team' : undefined, content, filename, contentType,
+        title: meta.title, description: meta.description,
       });
       // Dashboard deep-link (signs you in + renders) rather than the raw owner-only S3 URL.
       const viewUrl = `${remoteWebBase}/artifacts?a=${encodeURIComponent(hostKit.artifactKeyFromUrl(artifact.url))}`;
