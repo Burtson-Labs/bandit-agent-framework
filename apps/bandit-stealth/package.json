@@ -392,7 +392,7 @@
               "deny"
             ],
             "default": "auto",
-            "description": "Whether the /insights command may ask the cloud LLM to summarize your aggregate session data. 'auto' = prompt once on first use and remember the answer. 'allow' = always include the AI summary. 'deny' = never include it. Local Ollama users skip the prompt entirely (data never leaves the machine)."
+            "description": "Whether the /insights command may ask the cloud LLM to summarize your aggregate session data. 'auto' = prompt once on first use and remember the answer. 'allow' = always include the AI summary. 'deny' = never include it. Ollama users skip the prompt: the summary request goes only to your Ollama server."
           },
           "banditStealth.feedbackUrl": {
             "scope": "machine",
@@ -413,7 +413,7 @@
               "openai-compatible"
             ],
             "default": "ollama",
-            "description": "LLM provider. ollama (default): local, private, free. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint \u2014 LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
+            "description": "LLM provider. ollama (default): the Ollama server you set (localhost by default); free, no account. bandit: hosted cloud inference. openai-compatible: any OpenAI-compatible endpoint \u2014 LM Studio, llama.cpp, vLLM, OpenRouter, Together, Groq, DeepSeek, OpenAI proper. When openai-compatible is selected, also set banditStealth.openaiBaseUrl and banditStealth.openaiModel."
           },
           "banditStealth.openaiBaseUrl": {
             "scope": "machine",

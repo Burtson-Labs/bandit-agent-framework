@@ -320,6 +320,8 @@ Same format and behavior as the [CLI](../bandit-cli/README.md#settings-file--hoo
 - **models.dev** (a public model catalogue) is fetched only for an OpenAI-compatible server on a public address, never for one on `localhost` or your local network. `BANDIT_NO_MODELS_DEV=1` turns it off.
 - **Offline mode** — `banditStealth.offline`, `BANDIT_OFFLINE=1`, `"offline": true` in `~/.bandit/settings.json` or `.bandit/settings.json`, or `"network": { "offline": true }` in the machine policy file (`/etc/bandit/policy.json`, `/Library/Application Support/Bandit/policy.json`, `C:\ProgramData\Bandit\policy.json`). Any one turns it on. Bandit then contacts only the model server you configured: no models.dev, no web/image/artifact tools, no Bandit Cloud provider, account, usage, voice, remote control or telemetry, no cloud voice providers, no remote MCP servers, and any network tool call is refused with a message. Commands you approve through `run_command` still run in your shell with its network access.
 
+Every connection the extension, the CLI and the Stealth IDE make, what each carries and how to turn it off, is listed at [burtson.ai/bandit/what-bandit-sends](https://burtson.ai/bandit/what-bandit-sends). Security controls are described at [burtsonlabs.com/security](https://burtsonlabs.com/security).
+
 ### Telemetry (opt-in, off by default)
 
 Bandit is **telemetry-capable but ships with it off**. Nothing is sent unless you turn it on. When you do, it emits OpenTelemetry — a trace per turn plus usage metrics (tokens, time-to-first-token, turn duration) — over standard OTLP/HTTP. Each trace carries the model name, the first 160 characters of your prompt, each tool's name and the first 120 characters of its main argument (a file path, command, URL or search text), all run through secret redaction. Response text is never sent. `"mode": "metrics-only"` sends metrics without traces. Offline mode turns telemetry off.
@@ -343,7 +345,7 @@ See the [CLI telemetry docs](../bandit-cli/README.md#telemetry-opt-in) for the f
 
 ### Remote GPU
 
-Running a bigger model on a remote Ollama instance? Set `banditStealth.ollamaNodeUrl` to the remote endpoint and `banditStealth.ollamaModel` to your larger model. Requests route to the remote node; everything else stays local.
+Running a bigger model on a remote Ollama instance? Set `banditStealth.ollamaNodeUrl` to the remote endpoint and `banditStealth.ollamaModel` to your larger model. Prompts and the context the agent includes go to that node; the agent's tools still run on your machine.
 
 #### Rented GPU (RunPod / Vast.ai / Lambda)
 
