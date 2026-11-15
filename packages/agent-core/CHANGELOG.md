@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.97
+
+- The tool-error recovery nudge no longer fires when the model's reply already explains the failure (it repeats a distinctive token from the error output, or plainly says the step failed). Before, a blocked `web_fetch` the model had already explained got nudged, the model restated the same answer, and the terminal showed it twice. Short replies that drop the task are still nudged.
+- `search_code` with no matches names concrete next queries (lowercase, one word or an alternation, drop the glob, `list_files`) instead of a bare "No matches", which models read as "it isn't there".
+- `git_stash` is described as git's working-tree stash and says it is not the Bandit Stash; the always-on git skill says "git stash entries". The web/artifact skill is named "Web Page", talks about pages and the Bandit Stash, and triggers on "Bandit Stash" and "save … to my stash" (not a bare "stash"); `wantsArtifactDeliverable` treats "save it to my Stash" as a deliverable. Skill id, exports and tool names are unchanged.
+- The Web Page skill asks for a page title and a one-sentence description, which become the link preview when a published page is pasted into Slack, Teams or iMessage.
+
 ## 1.6.96
 
 - `@modelcontextprotocol/sdk` is required at `^1.32.2` (was `^1.0.0`, which let a consumer's lockfile keep 1.30.1 and its high-severity advisories: OAuth credentials sent to a server-chosen authorization server, bearer tokens issued for another service accepted, auth headers replayed across a cross-origin redirect). The HTTP client transport now follows a redirect only within the endpoint's origin; a remote server entry that legitimately redirects elsewhere sets `redirectPolicy: 'follow'` in `mcp-servers.json`, and opting in re-asks for trust.
