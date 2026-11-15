@@ -1,5 +1,6 @@
 export * from "./AgentConsole.js";
 export * from "./AgentSummaryCard.js";
+export * from "./BanditThinkingMark.js";
 export * from "./ChatComposer.js";
 export * from "./ChatConversation.js";
 export * from "./MarkdownMessage.js";

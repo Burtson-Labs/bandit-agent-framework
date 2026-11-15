@@ -1079,6 +1079,98 @@
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.6px), #000 calc(100% - 1.6px));
   animation: bandit-status-spin 3.4s linear infinite;
 }
+/* The Bandit mark (BanditThinkingMark / banditStatusLineHtml) is what the
+   status line leads with now; the orb above stays for older consumers. The
+   ninja's eyes glance about while the model thinks, a band of light sweeps
+   its visor while a tool runs, and it blinks now and then while text streams.
+   Transform/opacity only. It and the dots that end the phrase take the theme's
+   muted text colour: never the accent, never white. */
+.markdown-message .bandit-status-line .bandit-thinking-mark,
+.markdown-message .bandit-status-line .bandit-thinking-dots {
+  color: var(--agent-ui-text-muted, #6b7280);
+}
+.markdown-message .bandit-status-line .bandit-thinking-mark {
+  width: 1.2em;
+  height: 1.2em;
+}
+.bandit-thinking-mark {
+  display: inline-block;
+  flex: 0 0 auto;
+  overflow: visible;
+  fill: currentColor;
+  vertical-align: middle;
+}
+.bandit-thinking-mark .bm-band,
+.bandit-thinking-mark .bm-lid,
+.bandit-thinking-mark .bm-eyes {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+.bandit-thinking-mark .bm-band { opacity: 0; }
+.bandit-thinking-mark .bm-eyes {
+  animation: bandit-mark-glance 3.6s cubic-bezier(0.4, 0, 0.15, 1) infinite;
+}
+.bandit-thinking-mark .bm-lid {
+  animation: bandit-mark-blink 3.6s ease-in-out infinite;
+}
+.bandit-thinking-mark[data-state="tool"] .bm-eyes { animation: none; }
+.bandit-thinking-mark[data-state="tool"] .bm-lid { animation-duration: 4.8s; }
+.bandit-thinking-mark[data-state="tool"] .bm-band {
+  animation: bandit-mark-sweep 1.6s cubic-bezier(0.5, 0, 0.25, 1) infinite;
+}
+.bandit-thinking-mark[data-state="streaming"] .bm-eyes { animation: none; }
+.bandit-thinking-mark[data-state="streaming"] .bm-lid { animation-duration: 2.6s; }
+@keyframes bandit-mark-glance {
+  0%, 8% { transform: translateX(0); }
+  15%, 40% { transform: translateX(-40px); }
+  48%, 76% { transform: translateX(40px); }
+  84%, 100% { transform: translateX(0); }
+}
+@keyframes bandit-mark-blink {
+  0%, 86% { transform: scaleY(1); }
+  90% { transform: scaleY(0.1); }
+  94%, 100% { transform: scaleY(1); }
+}
+@keyframes bandit-mark-sweep {
+  0% { transform: translateX(-140px); opacity: 0.26; }
+  70%, 100% { transform: translateX(540px); opacity: 0.26; }
+}
+/* The phrase's ellipsis: three dots on the text baseline, sized by the font,
+   bouncing in turn. Reduced motion shows a plain "…" instead. */
+.bandit-thinking-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.16em;
+  height: 0.5em;
+  margin-left: 0.14em;
+  vertical-align: baseline;
+}
+.bandit-thinking-dots i {
+  display: block;
+  width: 0.22em;
+  height: 0.22em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  animation: bandit-dots-bounce 1.3s infinite ease-in-out;
+}
+.bandit-thinking-dots i:nth-child(2) { animation-delay: 0.2s; }
+.bandit-thinking-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bandit-dots-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+  40% { transform: translateY(-0.32em); opacity: 1; }
+}
+.bandit-thinking-ellipsis { display: none; }
+/* Reduced motion detected in script (data-motion); the media query below
+   covers the OS setting on its own. */
+.bandit-thinking[data-motion="static"] .bandit-thinking-mark .bm-band,
+.bandit-thinking[data-motion="static"] .bandit-thinking-mark .bm-lid,
+.bandit-thinking[data-motion="static"] .bandit-thinking-mark .bm-eyes,
+.bandit-thinking[data-motion="static"] .bandit-thinking-dots i {
+  animation: none;
+}
+.bandit-thinking[data-motion="static"] .bandit-thinking-dots { display: none; }
+.bandit-thinking[data-motion="static"] .bandit-thinking-ellipsis { display: inline; }
 /* The phrase text gets a slow accent sheen sweeping across it — the
    classic "thinking" shimmer. Falls back to a flat accent tint under
    reduced-motion (below). */
@@ -1173,9 +1265,15 @@
   .markdown-message .bandit-status-line,
   .markdown-message .bandit-status-line .bandit-status-spark,
   .markdown-message .bandit-status-line .bandit-status-spark::before,
-  .markdown-message .bandit-status-line .bandit-status-char {
+  .markdown-message .bandit-status-line .bandit-status-char,
+  .bandit-thinking-mark .bm-band,
+  .bandit-thinking-mark .bm-lid,
+  .bandit-thinking-mark .bm-eyes,
+  .bandit-thinking-dots i {
     animation: none;
   }
+  .bandit-thinking-dots { display: none; }
+  .bandit-thinking-ellipsis { display: inline; }
 }
 .markdown-message .bandit-tl-row .bandit-tl-tag + .bandit-tl-dur {
   margin-left: 0.5rem;

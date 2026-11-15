@@ -102,6 +102,7 @@ import {
   REMOTE_CONTENT_TAGS,
   disableRemoteImages,
   draftWithQueued,
+  banditStatusLineHtml,
   type ThemePreference
 } from "@burtson-labs/agent-ui";
 import clsx from "clsx";
@@ -972,30 +973,18 @@ export function App(): JSX.Element {
       // refused to italicize `*⟳ ... 23s*` ( );
       // backticks have no flanking rules and always render as <code>.
       // CLI renders this as plain inline code, which is fine.
-      // Spark is empty — the `.bandit-status-spark` class draws a CSS ring
-      // spinner. We tried rotating the `⟳` glyph itself, but U+27F3 is not
-      // radially symmetric (the arrowhead and gap shift the visual center
-      // off the bounding-box center) and different fonts render the glyph
-      // differently — the rotation looked wobbly. A CSS ring is drawn
-      // programmatically and is perfectly symmetric on every machine.
+      // The pill leads with the Bandit mark (the ninja: eyes glancing while
+      // the model thinks, visor sweeping while a tool runs, blinking while
+      // text streams) and ends the phrase with bouncing dots. We tried
+      // rotating the `⟳` glyph itself, but U+27F3 is not radially symmetric
+      // and fonts differ — it wobbled. agent-ui builds the markup: each
+      // character in its own span so the accent "wave" travels across the
+      // phrase (the stagger is `:nth-child` CSS — DOMPurify strips inline
+      // `style`, so no inline delays), the whole line one aria-labelled
+      // status region with the phrase aria-hidden.
       const withSpinner = html.replace(
         /<code>⟳\s*([^<]+)<\/code>/g,
-        (_m: string, phrase: string) => {
-          // Wrap each character in a span so the accent "wave" (color warm +
-          // slight grow + glow) travels across the phrase left-to-right. The
-          // per-character stagger lives in CSS via `:nth-child` rules — we do
-          // NOT set an inline `animation-delay` here because DOMPurify (below)
-          // strips inline `style`, which would collapse every letter onto the
-          // same delay and make the whole phrase pulse at once. Skip the
-          // per-char split if the phrase carries an HTML entity (`&amp;` etc.)
-          // so we never shatter it mid-entity — that phrase renders flat.
-          const inner = /[&<>]/.test(phrase)
-            ? phrase
-            : Array.from(phrase, (ch) =>
-                ch === ' ' ? ' ' : `<span class="bandit-status-char">${ch}</span>`
-              ).join('');
-          return `<span class="bandit-status-line"><span class="bandit-status-spark" aria-hidden="true"></span><span class="bandit-status-text">${inner}</span></span>`;
-        }
+        (_m: string, phrase: string) => banditStatusLineHtml(phrase)
       );
       // Clean up orphan markdown fence markers inside table cells. Models
       // (notably gpt-oss:120b 2026-04-26) sometimes try to embed code in a
