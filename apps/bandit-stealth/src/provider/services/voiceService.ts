@@ -50,10 +50,29 @@ import {
 } from '../../voiceProviders';
 import { extensionOfflineMode, offlineRefusal } from '../../helpers/offlineMode';
 import { DEFAULT_BANDIT_VOICE, migrateBanditVoiceId } from '../../helpers/banditVoices';
+import { ChunkedTtsSession, chunkTextForTts } from '../../helpers/ttsChunks';
 import type { ProviderContext } from '../context';
 
 export class VoiceService {
   constructor(private readonly ctx: ProviderContext) {}
+
+  /** The Bandit Cloud read-aloud in progress, if any (one at a time). */
+  private ttsSession: { entryId: string; session: ChunkedTtsSession } | null = null;
+
+  /** Webview: chunk `index` of `entryId`'s read-aloud started playing. */
+  handleAudioChunkPlaying(entryId: string, index: number): void {
+    if (this.ttsSession?.entryId === entryId) {
+      this.ttsSession.session.notifyPlaying(index);
+    }
+  }
+
+  /** Webview: the user pressed Stop (or playback was torn down). Cancels pending requests. */
+  handleStopSpeaking(entryId?: string): void {
+    if (this.ttsSession && (!entryId || this.ttsSession.entryId === entryId)) {
+      this.ttsSession.session.cancel();
+      this.ttsSession = null;
+    }
+  }
 
   /** Voice follows the chat provider and offline mode (voiceProviders.routeVoice). */
   private routeTts(configuration: vscode.WorkspaceConfiguration, chatProvider: ProviderKind): VoiceRoute<TtsProvider> {
@@ -142,10 +161,49 @@ export class VoiceService {
     // onto Heart/Michael/Emma/George). Other providers get the value as typed.
     const voiceId = provider === 'bandit' ? migrateBanditVoiceId(stored) : stored;
     const banditUrl = resolveTtsUrl(configuration);
+    // A new read-aloud (manual or auto-speak) replaces any one in progress.
+    this.handleStopSpeaking();
+
+    if (provider === 'bandit') {
+      // Bandit Cloud caps a request at 4,000 characters: split long replies at
+      // paragraph/sentence boundaries and play the chunks back to back, one
+      // fetched ahead of what is audible. Each chunk is a normal request.
+      const chunks = chunkTextForTts(text);
+      if (chunks.length === 0) {return;}
+      const voiceConfig = withRoutedProvider(await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets), 'tts', provider);
+      const session = new ChunkedTtsSession(chunks, {
+        synthesize: (chunk, signal) =>
+          synthesizeSpeech(voiceConfig, { text: chunk, voice: voiceId, banditApiKey: apiKey, banditUrl, signal }),
+        deliver: (index, count, result) => {
+          this.ctx.postMessage({
+            type: 'playAudio',
+            entryId,
+            mimeType: result.mimeType,
+            audioBase64: Buffer.from(result.audio).toString('base64'),
+            chunkIndex: index,
+            chunkCount: count
+          });
+        },
+        fail: (message) => {
+          this.ctx.postMessage({ type: 'audioError', entryId, message });
+        }
+      });
+      const handle = { entryId, session };
+      this.ttsSession = handle;
+      const { first, completion } = session.start();
+      void completion.finally(() => {
+        if (this.ttsSession === handle) {this.ttsSession = null;}
+      });
+      // Resolve once the first chunk is out; the rest continue in the
+      // background so the message loop stays free for chunk/stop signals.
+      await first;
+      return;
+    }
+
     try {
       const result = await synthesizeSpeech(
         withRoutedProvider(await buildVoiceConfig(configuration, this.ctx.extensionContext.secrets), 'tts', provider),
-        { text, voice: voiceId, banditApiKey: provider === 'bandit' ? apiKey : undefined, banditUrl }
+        { text, voice: voiceId, banditUrl }
       );
       this.ctx.postMessage({
         type: 'playAudio',

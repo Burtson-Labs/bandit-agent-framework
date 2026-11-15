@@ -868,6 +868,8 @@ export class BanditStealthViewProvider implements vscode.WebviewViewProvider, vs
 
     // Voice/mic — every one-line delegate to the VoiceService.
     if (message.type === 'speakMessage') { await this.voice.handleSpeak(message.entryId, message.text); return; }
+    if (message.type === 'audioChunkPlaying') { this.voice.handleAudioChunkPlaying(message.entryId, message.index); return; }
+    if (message.type === 'stopSpeaking') { this.voice.handleStopSpeaking(message.entryId); return; }
     if (message.type === 'transcribeAudio') { await this.voice.handleTranscribe(message.audioBase64, message.mimeType); return; }
     if (message.type === 'extensionMicProbe') { this.voice.handleMicProbe(); return; }
     if (message.type === 'extensionMicInstallOffer') { this.voice.handleMicInstallOffer(); return; }

@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AudioChunkQueue } from "../util/audioChunkQueue";
 
 export interface PlayAudioPayload {
   entryId: string;
   mimeType: string;
   audioBase64: string;
+  /** Chunked Bandit Cloud read-aloud: this chunk's position (0-based) … */
+  chunkIndex?: number;
+  /** … out of this many. Absent for single-shot providers. */
+  chunkCount?: number;
 }
 
 export interface AudioErrorPayload {
@@ -80,13 +85,29 @@ export function useAudioPlayback(opts: UseAudioPlaybackOpts): AudioPlaybackHook 
     []
   );
 
-  const handlePlayAudio = useCallback((payload: PlayAudioPayload) => {
+  // Chunked read-aloud: the queue for the message being read, if any.
+  const chunkQueueRef = useRef<AudioChunkQueue<PlayAudioPayload> | null>(null);
+
+  const silenceCurrent = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
+    }
+  };
+
+  /** Ends a chunked read: drops its queue and tells the host to stop fetching. */
+  const abandonChunks = (notifyHost: boolean) => {
+    const queue = chunkQueueRef.current;
+    chunkQueueRef.current = null;
+    if (queue && notifyHost) {
+      vscode.postMessage({ type: "stopSpeaking", entryId: queue.entryId });
+    }
+  };
+
+  const playPayload = (payload: PlayAudioPayload, chunkIndex?: number) => {
     try {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current.src = "";
-        currentAudioRef.current = null;
-      }
+      silenceCurrent();
       const binary = atob(payload.audioBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {bytes[i] = binary.charCodeAt(i);}
@@ -96,26 +117,52 @@ export function useAudioPlayback(opts: UseAudioPlaybackOpts): AudioPlaybackHook 
       currentAudioRef.current = audio;
       setSpeakingEntryId(payload.entryId);
       setAudioPaused(false);
-      audio.addEventListener("ended", () => {
-        URL.revokeObjectURL(objectUrl);
+      const finish = () => {
         if (currentAudioRef.current === audio) {
           currentAudioRef.current = null;
           setSpeakingEntryId((id) => (id === payload.entryId ? null : id));
           setAudioPaused(false);
+        }
+      };
+      audio.addEventListener("ended", () => {
+        URL.revokeObjectURL(objectUrl);
+        if (currentAudioRef.current !== audio) {return;}
+        const queue = chunkQueueRef.current;
+        if (chunkIndex === undefined || !queue || queue.entryId !== payload.entryId) {
+          finish();
+          return;
+        }
+        const next = queue.ended();
+        if (next === "done") {
+          chunkQueueRef.current = null;
+          finish();
+        } else if (next === "wait") {
+          // The next chunk is still being synthesised: stay "speaking" and
+          // play it the moment it arrives.
+          currentAudioRef.current = null;
+        } else {
+          playPayload(next.payload, next.index);
         }
       });
       audio.addEventListener("error", () => {
         URL.revokeObjectURL(objectUrl);
         if (currentAudioRef.current === audio) {
           currentAudioRef.current = null;
+          if (chunkIndex !== undefined) {abandonChunks(true);}
           setSpeakingEntryId(null);
           setAudioPaused(false);
         }
       });
-      void audio.play().catch((err) => {
+      void audio.play().then(() => {
+        // Lets the host fetch the chunk after this one (one ahead).
+        if (chunkIndex !== undefined && currentAudioRef.current === audio) {
+          vscode.postMessage({ type: "audioChunkPlaying", entryId: payload.entryId, index: chunkIndex });
+        }
+      }).catch((err) => {
         URL.revokeObjectURL(objectUrl);
         if (currentAudioRef.current === audio) {
           currentAudioRef.current = null;
+          if (chunkIndex !== undefined) {abandonChunks(true);}
           setSpeakingEntryId(null);
           setAudioPaused(false);
         }
@@ -141,12 +188,37 @@ export function useAudioPlayback(opts: UseAudioPlaybackOpts): AudioPlaybackHook 
       });
     } catch (err) {
       console.warn("playAudio decode failed", err);
+      if (chunkIndex !== undefined) {abandonChunks(true);}
       setSpeakingEntryId(null);
       setAudioPaused(false);
     }
+  };
+
+  const handlePlayAudio = useCallback((payload: PlayAudioPayload) => {
+    const { chunkIndex, chunkCount } = payload;
+    if (chunkIndex === undefined || chunkCount === undefined) {
+      // Single-shot providers (OpenAI, ElevenLabs, Piper, custom): unchanged.
+      abandonChunks(false);
+      playPayload(payload);
+      return;
+    }
+    let queue = chunkQueueRef.current;
+    if (!queue || queue.entryId !== payload.entryId || chunkIndex === 0) {
+      // A new read replaces whatever was playing.
+      queue = new AudioChunkQueue<PlayAudioPayload>(payload.entryId, chunkCount);
+      chunkQueueRef.current = queue;
+      silenceCurrent();
+    }
+    const next = queue.accept(chunkIndex, payload);
+    if (next) {playPayload(next.payload, next.index);}
   }, []);
 
   const handleAudioError = useCallback((payload: AudioErrorPayload) => {
+    // A failed chunk (429, 413, network) ends a chunked read of that message.
+    if (chunkQueueRef.current?.entryId === payload.entryId) {
+      chunkQueueRef.current = null;
+      silenceCurrent();
+    }
     setSpeakingEntryId((id) => (id === payload.entryId ? null : id));
     setAudioPaused(false);
     onToastRef.current(payload.message);
@@ -172,6 +244,8 @@ export function useAudioPlayback(opts: UseAudioPlaybackOpts): AudioPlaybackHook 
   }, [speakingEntryId]);
 
   const stopSpeak = useCallback(() => {
+    // Cancels pending chunk requests in the extension host.
+    abandonChunks(true);
     const audio = currentAudioRef.current;
     if (audio) {
       audio.pause();
@@ -185,7 +259,8 @@ export function useAudioPlayback(opts: UseAudioPlaybackOpts): AudioPlaybackHook 
   const startSpeak = useCallback((id: string, text: string) => {
     // Fresh synthesis. If a DIFFERENT message is playing, stop it
     // first — otherwise two voices fight for the output device once
-    // the new audio arrives.
+    // the new audio arrives. (The host cancels any chunked read itself.)
+    chunkQueueRef.current = null;
     const audio = currentAudioRef.current;
     if (audio) {
       audio.pause();

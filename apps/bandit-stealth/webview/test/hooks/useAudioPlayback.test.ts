@@ -132,4 +132,45 @@ describe('useAudioPlayback', () => {
     });
     expect(result.current.audioPaused).toBe(false);
   });
+
+  describe('chunked Bandit Cloud read-aloud', () => {
+    const chunk = (entryId: string, chunkIndex: number, chunkCount: number) => ({
+      entryId, mimeType: 'audio/mpeg', audioBase64: btoa(`chunk ${chunkIndex}`), chunkIndex, chunkCount
+    });
+
+    it('a prefetched chunk does not interrupt the one playing', () => {
+      const { result } = renderHook(() => useAudioPlayback(opts()));
+      act(() => { result.current.handlePlayAudio(chunk('msg-1', 0, 3)); });
+      expect(result.current.speakingEntryId).toBe('msg-1');
+      act(() => { result.current.handlePlayAudio(chunk('msg-1', 1, 3)); });
+      expect(result.current.speakingEntryId).toBe('msg-1');
+    });
+
+    it('stop tells the host to cancel pending chunks for that message', () => {
+      const { result } = renderHook(() => useAudioPlayback(opts()));
+      act(() => { result.current.handlePlayAudio(chunk('msg-1', 0, 3)); });
+      recorder.reset();
+      act(() => { result.current.stopSpeak(); });
+      expect(recorder.calls).toEqual([{ type: 'stopSpeaking', entryId: 'msg-1' }]);
+      expect(result.current.speakingEntryId).toBeNull();
+    });
+
+    it('stop after a single-shot (non-chunked) play sends nothing to the host', () => {
+      const { result } = renderHook(() => useAudioPlayback(opts()));
+      act(() => {
+        result.current.handlePlayAudio({ entryId: 'msg-2', mimeType: 'audio/mpeg', audioBase64: btoa('x') });
+      });
+      recorder.reset();
+      act(() => { result.current.stopSpeak(); });
+      expect(recorder.calls).toEqual([]);
+    });
+
+    it('a failed chunk ends the read and toasts the error', () => {
+      const { result } = renderHook(() => useAudioPlayback(opts()));
+      act(() => { result.current.handlePlayAudio(chunk('msg-1', 0, 3)); });
+      act(() => { result.current.handleAudioError({ entryId: 'msg-1', message: 'Bandit TTS failed: 429' }); });
+      expect(result.current.speakingEntryId).toBeNull();
+      expect(toasts).toEqual(['Bandit TTS failed: 429']);
+    });
+  });
 });

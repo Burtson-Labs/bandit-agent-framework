@@ -95,6 +95,10 @@ export type IncomingMessage =
   // Voice: user clicked the speaker icon on an assistant entry to play
   // its response aloud, OR submitted a mic recording for transcription.
   | { type: 'speakMessage'; entryId: string; text: string }
+  // Chunked Bandit Cloud read-aloud: the webview reports each chunk as it
+  // starts (so the host fetches one ahead) and Stop cancels pending requests.
+  | { type: 'audioChunkPlaying'; entryId: string; index: number }
+  | { type: 'stopSpeaking'; entryId?: string }
   | { type: 'transcribeAudio'; audioBase64: string; mimeType: string }
   // Extension-side mic capture. Bypasses the webview's getUserMedia
   // entirely so we don't fight Chromium's per-origin permission cache.
@@ -182,7 +186,7 @@ export type OutgoingMessage =
   // /api/stealth/tts endpoint and pushes it to the webview as a base64
   // mp3 along with the entry id it belongs to so the UI can highlight
   // the speaker button for that message.
-  | { type: 'playAudio'; entryId: string; mimeType: string; audioBase64: string }
+  | { type: 'playAudio'; entryId: string; mimeType: string; audioBase64: string; chunkIndex?: number; chunkCount?: number }
   | { type: 'audioError'; entryId: string; message: string }
   // Push transcription from the STT endpoint into the composer when
   // the user records a voice prompt.

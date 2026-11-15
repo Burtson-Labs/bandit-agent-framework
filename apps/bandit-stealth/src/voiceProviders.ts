@@ -114,6 +114,8 @@ export interface TtsRequest {
   voice: string;
   banditApiKey?: string;
   banditUrl?: string;
+  /** Aborts the request (Bandit Cloud read-aloud Stop). */
+  signal?: AbortSignal;
 }
 
 export interface SttResult {
@@ -232,7 +234,7 @@ export async function synthesizeSpeech(config: VoiceConfig, req: TtsRequest): Pr
     if (!req.banditApiKey || !req.banditUrl) {
       throw new Error('Bandit TTS needs a Bandit API key — set one in Account, or switch the TTS provider in Voice settings.');
     }
-    return ttsBandit(req.banditUrl, req.banditApiKey, req.text, req.voice);
+    return ttsBandit(req.banditUrl, req.banditApiKey, req.text, req.voice, req.signal);
   }
   const url = config.get<string>('voice.tts.url', '').trim();
   const apiKey = config.get<string>('voice.tts.apiKey', '').trim();
@@ -256,9 +258,10 @@ export async function synthesizeSpeech(config: VoiceConfig, req: TtsRequest): Pr
   throw new Error(`Unknown TTS provider: ${provider}`);
 }
 
-async function ttsBandit(url: string, apiKey: string, text: string, voice: string): Promise<TtsResult> {
+async function ttsBandit(url: string, apiKey: string, text: string, voice: string, signal?: AbortSignal): Promise<TtsResult> {
   const response = await fetch(url, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ Text: text, ModelName: voice })
   });

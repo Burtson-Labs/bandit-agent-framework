@@ -260,5 +260,70 @@ describe('VoiceService', () => {
       await new VoiceService(ctx).handleSpeak('m', 'hello');
       expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0][1].voice).toBe('21m00Tcm4TlvDq8ikWAM');
     });
+
+    it('reads a long reply as chunks of at most 3,500 characters, one fetched ahead of playback', async () => {
+      vi.mocked(voiceProviders.synthesizeSpeech).mockImplementation(async () => ({ audio: new Uint8Array([1]), mimeType: 'audio/mpeg' }));
+      const paragraph = (n: number) => Array.from({ length: 30 }, (_, i) => `Paragraph ${n} sentence ${i} explains one more step of the deploy.`).join(' ');
+      const text = [1, 2, 3, 4].map(paragraph).join('\n\n');
+      const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      const service = new VoiceService(ctx);
+
+      await service.handleSpeak('m', text);
+      const calls = () => vi.mocked(voiceProviders.synthesizeSpeech).mock.calls;
+      expect(calls()).toHaveLength(1);
+      expect(posted[0]).toMatchObject({ type: 'playAudio', entryId: 'm', chunkIndex: 0 });
+      const count = (posted[0] as { chunkCount: number }).chunkCount;
+      expect(count).toBeGreaterThan(1);
+
+      service.handleAudioChunkPlaying('m', 0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(calls()).toHaveLength(2);
+      expect(posted[1]).toMatchObject({ type: 'playAudio', chunkIndex: 1, chunkCount: count });
+      for (const [, req] of calls()) {
+        expect(req.text.length).toBeLessThanOrEqual(3500);
+        expect(req.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it('stopSpeaking aborts the pending chunk and nothing more is requested', async () => {
+      let pendingSignal: AbortSignal | undefined;
+      vi.mocked(voiceProviders.synthesizeSpeech)
+        .mockResolvedValueOnce({ audio: new Uint8Array([1]), mimeType: 'audio/mpeg' })
+        .mockImplementation((_config, req) => new Promise((_resolve, reject) => {
+          pendingSignal = req.signal;
+          req.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }));
+      const text = Array.from({ length: 200 }, (_, i) => `Sentence ${i} is part of a long answer.`).join(' ');
+      const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      const service = new VoiceService(ctx);
+
+      await service.handleSpeak('m', text);
+      service.handleAudioChunkPlaying('m', 0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls).toHaveLength(2);
+
+      service.handleStopSpeaking('m');
+      await new Promise((r) => setTimeout(r, 0));
+      expect(pendingSignal?.aborted).toBe(true);
+      service.handleAudioChunkPlaying('m', 1);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls).toHaveLength(2);
+      expect(posted.filter((m) => m.type === 'audioError')).toEqual([]);
+    });
+
+    it('a short reply is one chunk; bring-your-own providers are not chunked', async () => {
+      synthOk();
+      const { ctx, posted } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(posted[0]).toMatchObject({ type: 'playAudio', chunkIndex: 0, chunkCount: 1 });
+
+      synthOk();
+      configMap.set('voice.tts.provider', 'piper');
+      configMap.set('voice.tts.url', 'http://127.0.0.1:5000');
+      const byo = makeCtx({ chatProvider: 'ollama' });
+      await new VoiceService(byo.ctx).handleSpeak('m', 'x '.repeat(3000));
+      expect(byo.posted[0]).toMatchObject({ type: 'playAudio' });
+      expect(byo.posted[0]).not.toHaveProperty('chunkIndex');
+    });
   });
 });
