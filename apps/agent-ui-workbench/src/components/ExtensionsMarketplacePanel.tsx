@@ -5,7 +5,7 @@ import {
   StarIcon as StarOutlineIcon
 } from "@heroicons/react/24/outline";
 import { StarIcon as StarSolidIcon } from "@heroicons/react/24/solid";
-import banditLogoUrl from "../../../bandit-stealth/media/bandit-stealth.png";
+import banditLogoUrl from "../../../bandit-stealth/media/icon.png";
 import {
   banditExtensionMeta,
   formatBytes,

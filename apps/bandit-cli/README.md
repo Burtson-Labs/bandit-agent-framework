@@ -6,7 +6,7 @@
 
 <a href="https://burtson.ai">
   <picture>
-    <img src="https://cdn.burtson.ai/logos/bandit-stealth.png" alt="Bandit Stealth" width="140" style="width: 140px !important; max-width: 140px !important; height: auto; display: inline-block;" />
+    <img src="https://raw.githubusercontent.com/Burtson-Labs/bandit-agent-framework/main/apps/bandit-stealth/media/icon.png" alt="Bandit Stealth" width="96" style="width: 96px !important; max-width: 96px !important; height: auto; display: inline-block;" />
   </picture>
 </a>
 

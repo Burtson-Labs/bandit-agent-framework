@@ -489,7 +489,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
   text-align: center;
 }
 .sidebar-brand img {
-  width: 120px;
+  width: 80px;
   height: auto;
 }
 .sidebar-brand:hover { text-decoration: none; }
@@ -969,7 +969,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
   }
   .sidebar-top { justify-content: space-between; margin-bottom: 12px; }
   .sidebar-brand { margin-bottom: 0; text-align: left; }
-  .sidebar-brand img { width: 60px; }
+  .sidebar-brand img { width: 40px; }
   .nav-toggle { display: flex; }
   .search { margin: 0; }
   /* Full nav hidden until the hamburger opens it. On mobile the whole dropdown
@@ -1012,7 +1012,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 /* ── Phone ───────────────────────────────────────────────────────── */
 @media (max-width: 480px) {
   .sidebar { padding: 10px 14px 0; }
-  .sidebar-brand img { width: 56px; }
+  .sidebar-brand img { width: 36px; }
   .content { padding: 24px 16px 32px; }
   .content h1 { font-size: 22px; }
   .content div[align="center"] h1 { font-size: 20px; }
@@ -1147,7 +1147,8 @@ function renderShell({ title, description, activeSlug, body }) {
   <meta name="twitter:image:alt" content="Bandit Agent Framework">
   <meta name="twitter:site" content="@BurtsonLabs">
   <meta name="twitter:creator" content="@BurtsonLabs">
-  <link rel="icon" href="https://cdn.burtson.ai/logos/bandit-stealth.png">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="./assets/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1161,7 +1162,7 @@ function renderShell({ title, description, activeSlug, body }) {
     <aside class="sidebar">
       <div class="sidebar-top">
         <a href="./index.html" class="sidebar-brand">
-          <img src="https://cdn.burtson.ai/logos/bandit-stealth.png" alt="Bandit Stealth">
+          <img src="./assets/stealth-tile-256.png" alt="Bandit Stealth">
         </a>
         <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar-nav">
           <span></span><span></span><span></span>

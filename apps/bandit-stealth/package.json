@@ -335,7 +335,7 @@
         {
           "id": "banditStealth",
           "title": "Bandit Stealth",
-          "icon": "./media/bandit-stealth.png"
+          "icon": "./media/bandit-stealth-activity.svg"
         }
       ]
     },
@@ -345,7 +345,7 @@
           "id": "banditStealth.chat",
           "name": "Bandit Stealth",
           "type": "webview",
-          "icon": "./media/bandit-stealth.png"
+          "icon": "./media/bandit-stealth-activity.svg"
         }
       ]
     },
@@ -840,5 +840,5 @@
       "url": "https://burtson.ai"
     }
   ],
-  "icon": "./media/bandit-stealth.png"
+  "icon": "./media/icon.png"
 }

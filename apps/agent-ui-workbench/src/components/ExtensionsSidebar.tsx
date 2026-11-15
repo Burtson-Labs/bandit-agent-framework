@@ -1,5 +1,5 @@
 import { MagnifyingGlassIcon, CheckBadgeIcon } from "@heroicons/react/24/outline";
-import banditLogoUrl from "../../../bandit-stealth/media/bandit-stealth.png";
+import banditLogoUrl from "../../../bandit-stealth/media/icon.png";
 import { banditExtensionMeta } from "../marketplace/banditMeta";
 
 /**

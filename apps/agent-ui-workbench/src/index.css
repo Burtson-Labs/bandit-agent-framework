@@ -276,8 +276,8 @@ body {
 }
 
 .ide__activity-icon--logo {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   object-fit: contain;
 }
@@ -1372,8 +1372,8 @@ body {
 }
 
 .ide__welcome-logo {
-  width: 120px;
-  height: 120px;
+  width: 80px;
+  height: 80px;
   object-fit: contain;
   opacity: 0.55;
   border-radius: 18px;

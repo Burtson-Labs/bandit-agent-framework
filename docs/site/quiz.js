@@ -164,7 +164,7 @@
     root.innerHTML =
       '<div class="quiz-result">' +
         '<div class="certificate' + (expert ? " expert" : "") + '"><div class="cert-inner">' +
-          '<img class="cert-logo" src="' + (window.QUIZ_LOGO || "https://cdn.burtson.ai/logos/bandit-stealth.png") + '" alt="">' +
+          '<img class="cert-logo" src="' + (window.QUIZ_LOGO || "./assets/stealth-tile-256.png") + '" alt="">' +
           '<p class="cert-kicker">Bandit Agent Framework' + (expert ? " &middot; Expert" : "") + '</p>' +
           '<p class="cert-title">' + esc(cfg.title) + '</p>' +
           '<p class="cert-awarded">awarded to</p>' +

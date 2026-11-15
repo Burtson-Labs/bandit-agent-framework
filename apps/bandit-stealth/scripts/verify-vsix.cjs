@@ -67,6 +67,8 @@ for (const asset of [
   'extension/media/webview/webview.js',
   'extension/media/webview/webview.css',
   'extension/media/logo.png',
+  'extension/media/icon.png',
+  'extension/media/bandit-stealth-activity.svg',
   'extension/src/python/bandit_agent.py',
   'extension/media/recorders/bandit-mic-darwin',
 ]) {
