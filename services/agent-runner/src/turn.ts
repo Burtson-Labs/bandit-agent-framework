@@ -40,6 +40,7 @@ import type { EgressAllowance } from './egress.js';
 import { providerFetchFor } from './providers.js';
 import { parseNativeToolsMode, resolveToolChannel, type NativeToolsMode } from './toolChannel.js';
 import { buildToolGate, parsePermissionMode, type PermissionMode } from './toolGate.js';
+import { buildNudgePrompt, decideNudge, maxNudgesFromEnv, type Finding } from './giveUp.js';
 import type { RunnerEvent, TurnRequest } from './contract.js';
 
 const RUNNER_VERSION = '1.0.0';
@@ -63,6 +64,8 @@ Be decisive:
 - A change request is complete only after at least one edit succeeds and you run the most relevant available verification. Never replace the requested work with a report titled "What I didn't get to."
 - If the same operation fails twice for the same reason, stop retrying it, choose another route, and continue the goal.
 - If something genuinely blocks you (missing file, contradictory instructions), finish everything you can, then say exactly what was blocked and why.
+- You do not commit, push or open pull requests: when your turn ends, Bandit captures your edits from the working tree and the user opens the pull request from them. A request to "make a pull request" is satisfied by making the change — never a reason to stop.
+- A vague location ("the file where the OAuth logic is") is yours to resolve: search_code (lowercase patterns match any case; alternation like "apple|google" works), read the best match, edit it.
 
 Ground every statement in files you actually read with your tools. Keep edits minimal, correct, and consistent with the surrounding code.`;
 
@@ -86,8 +89,12 @@ function emitTerminal(
   assistantText: string,
   hitLimit: boolean,
   emit: (e: RunnerEvent) => void,
-  stats: { iterations: number; toolCalls: number; toolChannel?: 'native' | 'text' } = { iterations: 0, toolCalls: 0 },
+  stats: { iterations: number; toolCalls: number; toolChannel?: 'native' | 'text'; nudges?: number } = {
+    iterations: 0,
+    toolCalls: 0,
+  },
 ): void {
+  const nudges = stats.nudges ?? 0;
   if (artifacts === 0 && requiresWorkspaceMutation(req.prompt)) {
     emit({
       type: 'turn.error',
@@ -95,8 +102,9 @@ function emitTerminal(
       code: 'NO_CHANGES_FOR_MUTATION',
       message: hitLimit
         ? 'The iteration/tool budget was exhausted before any requested file change landed.'
-        : 'The model ended an implementation request without changing any files.',
+        : noChangeMessage(assistantText, nudges, stats.toolCalls),
       hitLimit,
+      ...(nudges ? { nudges } : {}),
     });
     return;
   }
@@ -115,7 +123,24 @@ function emitTerminal(
     iterations: stats.iterations,
     toolCalls: stats.toolCalls,
     ...(stats.toolChannel ? { toolChannel: stats.toolChannel } : {}),
+    ...(nudges ? { nudges } : {}),
   });
+}
+
+/**
+ * The failure a person reads when a change request ends without an edit.
+ * It carries the model's own last reply: the gateway publishes no assistant
+ * message for a failed run, so this is the only place a stated blocker (or
+ * a question it should not have asked) reaches the transcript.
+ */
+export function noChangeMessage(assistantText: string, nudges: number, toolCalls: number): string {
+  const base = 'The model ended an implementation request without changing any files';
+  const after = nudges > 0
+    ? ` after ${toolCalls} tool call(s) and ${nudges} reminder(s) to make the change`
+    : ` after ${toolCalls} tool call(s)`;
+  const reply = (assistantText ?? '').replace(/\s+/g, ' ').trim();
+  const clipped = reply.length > 300 ? `${reply.slice(0, 300)}…` : reply;
+  return `${base}${after}.${clipped ? ` Its last reply: "${clipped}"` : ''}`;
 }
 
 /**
@@ -148,6 +173,7 @@ function resolveInWorkspace(root: string, p: string): string {
 function makeContext(
   workspaceRoot: string,
   onArtifact: (p: string, kind: 'created' | 'modified' | 'deleted') => void,
+  onSearch?: (pattern: string, output: string) => void,
 ): ToolExecutionContext {
   return {
     workspaceRoot,
@@ -194,9 +220,19 @@ function makeContext(
       );
     },
     searchCode: async (pattern, cwd, fileGlob) => {
-      const args = ['-rn', '--include', fileGlob ?? '*', pattern, cwd ?? '.'];
-      const res = await run('grep', args, workspaceRoot);
-      return res.stdout.slice(0, 20_000);
+      // Jailed like every other file tool, and searched by RELATIVE path so
+      // results read `AuthApi/Services/OAuthService.cs:12:` rather than the
+      // runner's absolute mount path (the core tool passes the absolute
+      // workspace root as the default cwd).
+      const abs = resolveInWorkspace(workspaceRoot, cwd ?? '.');
+      const rel = path.relative(workspaceRoot, abs);
+      // A realpath spelling of the root (macOS /private/var) relativises to
+      // "../.."; search by the absolute path then rather than mis-rooting.
+      const target = rel.startsWith('..') ? abs : rel || '.';
+      const res = await run('grep', grepArgs(pattern, target, fileGlob), workspaceRoot);
+      const out = res.stdout.slice(0, 20_000);
+      onSearch?.(pattern, out);
+      return out;
     },
     runCommand: async (cmd, args, cwd) => {
       // v1 allowlist: the gateway has no per-turn permission UI a human is
@@ -209,6 +245,34 @@ function makeContext(
       return run(cmd, args, cwd ? resolveInWorkspace(workspaceRoot, cwd) : workspaceRoot);
     },
   };
+}
+
+/** Tools that change a file when they succeed. */
+const EDIT_TOOLS = new Set(['write_file', 'apply_edit', 'replace_range', 'apply_patch', 'delete_file']);
+
+/** Directories a code search never wants: VCS internals, dependencies, and
+ *  build output (a .NET clone's bin/obj, a JS clone's dist). */
+const SEARCH_EXCLUDED_DIRS = ['.git', 'node_modules', 'bin', 'obj', 'dist', 'build', '.next', 'coverage'];
+
+/**
+ * grep arguments for search_code.
+ *
+ *  - Smart case: a pattern with no capitals matches any case, the way
+ *    ripgrep's --smart-case and the CLI behave. Models search for "apple"
+ *    when the code says AppleAuth / SignInWithApple; a capital in the
+ *    pattern is a deliberate choice and stays exact.
+ *  - Extended regex (-E): models write `apple|google` and `foo(bar)?`,
+ *    which basic grep reads as literals and silently matches nothing.
+ *  - Binary files and build/dependency directories are skipped (-I and
+ *    --exclude-dir) so the 20k-character cap is spent on source.
+ *  - `-e` keeps a pattern that starts with "-" from being read as a flag.
+ */
+export function grepArgs(pattern: string, cwd: string, fileGlob?: string): string[] {
+  const args = ['-rnIE'];
+  if (!/[A-Z]/.test(pattern.replace(/\\[A-Za-z]/g, ''))) args.push('-i');
+  for (const dir of SEARCH_EXCLUDED_DIRS) args.push(`--exclude-dir=${dir}`);
+  args.push('--include', fileGlob ?? '*', '-e', pattern, cwd);
+  return args;
 }
 
 function run(
@@ -254,6 +318,9 @@ export async function runTurn(
     nativeToolsMode?: NativeToolsMode;
     /** Test seam: force the channel instead of resolving it. */
     nativeTools?: boolean;
+    /** Give-up nudges for a change request (giveUp.ts). Defaults to
+     *  AGENT_RUNNER_MAX_NUDGES, then 2. */
+    maxNudges?: number;
   },
 ): Promise<void> {
   const { taskId } = req;
@@ -273,10 +340,21 @@ export async function runTurn(
 
   let artifacts = 0;
   let toolCalls = 0;
-  const ctx = makeContext(req.workspacePath, (p, kind) => {
-    artifacts += 1;
-    emit({ type: 'artifact.changed', taskId, path: p, kind });
-  });
+  // What the turn has done, for the give-up nudge (giveUp.ts): executed
+  // calls in order, and each search's FULL output — the event snippet is
+  // 280 characters, which names two or three files out of twenty.
+  const findings: Finding[] = [];
+  const searchOutputs = new Map<string, string>();
+  const pendingParams = new Map<string, Record<string, string>>();
+  let editBlocked = false;
+  const ctx = makeContext(
+    req.workspacePath,
+    (p, kind) => {
+      artifacts += 1;
+      emit({ type: 'artifact.changed', taskId, path: p, kind });
+    },
+    (pattern, output) => searchOutputs.set(pattern, output),
+  );
 
   // SEC-005: every tool call — plain loop and graph nodes alike — passes the
   // host-kit-backed gate before it executes. Denials surface to the model as
@@ -331,21 +409,38 @@ export async function runTurn(
       // secret-redacted by the loop).
       if (type === 'tool_loop:tool_execute') {
         toolCalls += 1;
+        const params = (p.params as Record<string, string>) ?? {};
+        pendingParams.set(String(p.name ?? 'unknown'), params);
         emit({
           type: 'tool.call',
           taskId,
           tool: String(p.name ?? 'unknown'),
-          params: (p.params as Record<string, string>) ?? {},
+          params,
         });
       } else if (type === 'tool_loop:tool_result') {
+        const tool = String(p.name ?? 'unknown');
+        const params = pendingParams.get(tool) ?? {};
+        const snippet = String(p.outputSnippet ?? '');
+        findings.push({
+          tool,
+          params,
+          ok: !p.isError,
+          summary: tool === 'search_code' ? (searchOutputs.get(params.pattern ?? '') ?? snippet) || snippet : snippet,
+        });
         emit({
           type: 'tool.result',
           taskId,
-          tool: String(p.name ?? 'unknown'),
+          tool,
           ok: !p.isError,
-          summary: String(p.outputSnippet ?? '').slice(0, 400),
+          summary: snippet.slice(0, 400),
         });
       } else if (type === 'tool_loop:tool_error') {
+        findings.push({
+          tool: String(p.name ?? 'unknown'),
+          params: pendingParams.get(String(p.name ?? 'unknown')) ?? {},
+          ok: false,
+          summary: String(p.error ?? p.message ?? 'tool error'),
+        });
         emit({
           type: 'tool.result',
           taskId,
@@ -354,6 +449,7 @@ export async function runTurn(
           summary: String(p.error ?? p.message ?? 'tool error').slice(0, 400),
         });
       } else if (type === 'tool_loop:tool_blocked') {
+        if (EDIT_TOOLS.has(String(p.name ?? ''))) editBlocked = true;
         // Gate denial (SEC-005): the loop emits tool_blocked instead of
         // tool_result, so map it here or denials are invisible upstream.
         emit({
@@ -476,7 +572,45 @@ ${(body ?? '').toString().slice(0, 2000)}`);
     }
   }
 
-  const result = await loop.run(req.prompt, chat, RUNNER_SYSTEM_PROMPT);
+  let result = await loop.run(req.prompt, chat, RUNNER_SYSTEM_PROMPT);
+  let iterations = result.iterations;
+  // Give-up recovery (giveUp.ts): a change request that ends with no edit,
+  // no stated blocker and budget left gets a specific reminder on the same
+  // conversation, at most maxNudges times; then the honesty rule below
+  // fails it exactly as before.
+  const mutation = requiresWorkspaceMutation(req.prompt);
+  const maxNudges = deps?.maxNudges ?? maxNudgesFromEnv();
+  let nudges = 0;
+  for (;;) {
+    const verdict = decideNudge({
+      mutation,
+      artifacts,
+      editBlocked,
+      hitLimit: result.hitLimit,
+      cancelled: Boolean(result.cancelled) || Boolean(signal?.aborted),
+      finalResponse: result.finalResponse,
+      nudgesUsed: nudges,
+      maxNudges,
+    });
+    if (!verdict.nudge) break;
+    nudges += 1;
+    emit({ type: 'turn.nudged', taskId, nudge: nudges, of: maxNudges, reason: 'no-change' });
+    const prompt = buildNudgePrompt({
+      goal: req.prompt,
+      findings,
+      finalResponse: result.finalResponse,
+      nudge: nudges,
+      maxNudges,
+    });
+    // The loop drops any system entry from the seed and prepends its own,
+    // so re-seeding with the full conversation is safe.
+    result = await loop.runWithMessages(
+      [...result.messages, { role: 'user', content: prompt }],
+      chat,
+      RUNNER_SYSTEM_PROMPT,
+    );
+    iterations += result.iterations;
+  }
   if (result.cancelled || signal?.aborted) {
     // Terminal line even though nobody may be listening: the stream
     // contract says the last line is always completed or error, and a
@@ -486,8 +620,9 @@ ${(body ?? '').toString().slice(0, 2000)}`);
   }
   emit({ type: 'assistant.delta', taskId, text: result.finalResponse });
   emitTerminal(req, artifacts, result.finalResponse, result.hitLimit, emit, {
-    iterations: result.iterations,
+    iterations,
     toolCalls,
     toolChannel,
+    nudges,
   });
 }

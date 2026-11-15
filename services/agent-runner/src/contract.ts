@@ -115,6 +115,19 @@ export type RunnerEvent =
       /** Which tool channel the turn used — `native` (the model's own tool
        *  calling) or `text` (Bandit's tool block). See toolChannel.ts. */
       toolChannel?: 'native' | 'text';
+      /** Give-up reminders the turn needed before it finished (giveUp.ts).
+       *  Absent when none were sent. */
+      nudges?: number;
+    }
+  | {
+      /** A change request ended without an edit or a stated blocker, and
+       *  the runner sent the model a reminder to make the change. Bounded
+       *  by AGENT_RUNNER_MAX_NUDGES; informational for the gateway. */
+      type: 'turn.nudged';
+      taskId: string;
+      nudge: number;
+      of: number;
+      reason: 'no-change';
     }
   | {
       /** Graph execution: the accepted plan, one event, nodes in spec order. */
@@ -138,6 +151,8 @@ export type RunnerEvent =
       /** Set on NO_CHANGES_FOR_MUTATION when the budget ran out before any
        *  edit landed — a reason to continue, not to fail. */
       hitLimit?: boolean;
+      /** Give-up reminders sent before the turn failed (giveUp.ts). */
+      nudges?: number;
     };
 
 export function parseTurnRequest(body: unknown): TurnRequest {

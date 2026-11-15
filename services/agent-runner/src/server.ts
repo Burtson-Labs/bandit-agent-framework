@@ -216,7 +216,14 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
           return;
         }
 
-        log.info('turn.accepted', { taskId: turn.taskId, provider: turn.provider.kind });
+        log.info('turn.accepted', {
+          taskId: turn.taskId,
+          provider: turn.provider.kind,
+          // The model is what a "why did this turn give up" diagnosis needs
+          // first; never the key or the endpoint credentials.
+          model: 'model' in turn.provider ? turn.provider.model : undefined,
+          maxIterations: turn.maxIterations,
+        });
         // A turn can sit silent for minutes (model cold-load, a long tool
         // call); the keepalive stream writes whitespace between lines while
         // it is idle so no proxy on the path cuts it (Cloudflare: 100 s).
@@ -226,7 +233,25 @@ export function createRunnerServer(config: RunnerConfig, deps: RunnerServerDeps 
         });
         // Writes after the caller hung up are dropped rather than thrown:
         // the turn is already unwinding and the stream has no reader left.
-        const emit = (e: unknown) => stream.write(JSON.stringify(e) + '\n');
+        const emit = (e: unknown) => {
+          const evt = e as { type?: string; code?: string; artifacts?: number; toolCalls?: number; iterations?: number; nudges?: number; hitLimit?: boolean };
+          if (evt?.type === 'turn.completed' || evt?.type === 'turn.error') {
+            // One line per finished turn: before this the runner logged
+            // only turn.accepted, so a turn that gave up after two tool
+            // calls left no trace in the pod log.
+            log.info('turn.finished', {
+              taskId: turn.taskId,
+              outcome: evt.type,
+              code: evt.code,
+              artifacts: evt.artifacts,
+              toolCalls: evt.toolCalls,
+              iterations: evt.iterations,
+              nudges: evt.nudges,
+              hitLimit: evt.hitLimit,
+            });
+          }
+          stream.write(JSON.stringify(e) + '\n');
+        };
         try {
           await executeTurn(turn, emit, {
             permissionMode: config.permissionMode,

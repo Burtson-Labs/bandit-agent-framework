@@ -40,6 +40,18 @@ against the same workspace. The tool budget scales with `maxIterations`
 (`max(120, maxIterations × 8)`), and batches that write are serialised so
 two edits to one file in one batch cannot race.
 
+A change request that ends with no edit, no stated blocker and budget left
+is not accepted at once: the runner sends the model a reminder on the same
+conversation that restates the request, lists what its tools found (search
+hits name the likely files) and requires the change or a reply starting
+`BLOCKED:`. At most `AGENT_RUNNER_MAX_NUDGES` reminders (default 2); each one
+emits `turn.nudged`, and the terminal event carries `nudges`. When they are
+spent, `NO_CHANGES_FOR_MUTATION` fails the turn as before, and its message
+now quotes the model's last reply. A refused edit (permission gate) counts as
+the blocker and is not nudged. `search_code` is smart-case (a lowercase
+pattern matches any case), reads extended regex, skips binaries and
+build/dependency directories, and returns workspace-relative paths.
+
 `pnpm test` runs the service's suite: auth, the workspace jail (`..`,
 absolute and symlink escapes), the request body cap, correlation ids,
 cancellation, the permission gate, and the stream-termination rule.
@@ -99,6 +111,7 @@ What the runner enforces on its own, regardless of what is in front:
 | `AGENT_RUNNER_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` \| `silent`. |
 | `AGENT_RUNNER_MAX_BODY_BYTES` | `1000000` | Largest request body buffered before a `413`. |
 | `AGENT_RUNNER_EGRESS_ALLOW_PRIVATE` | unset (none) | Comma-separated CIDRs and hostnames a `public-only` (user-supplied) provider endpoint may reach even though they are not public. A hostname entry trusts whatever it resolves to. A malformed CIDR refuses startup. |
+| `AGENT_RUNNER_MAX_NUDGES` | `2` | Reminders a change request gets after ending with no edit and no stated blocker (see above). `0` restores the immediate `NO_CHANGES_FOR_MUTATION`; capped at 5. |
 | `AGENT_RUNNER_NATIVE_TOOLS` | `off` | `off`: every turn uses the text tool channel (Bandit's tool block). `auto`: per model — native tool calling when the model takes tools (Ollama `/api/show` capabilities first, the runtime's capability table when Ollama cannot be asked) and its behavior profile prefers the native envelope; openai-compatible servers go native. The same rule as the desktop IDE and the CLI. `turn.completed.toolChannel` reports which channel ran. A typo refuses startup. |
 | `RUNNER_GRAPH` | enabled | Set `0` to disable graph decomposition and run every turn as a plain loop. |
 

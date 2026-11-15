@@ -2028,6 +2028,28 @@ const findDirectoryTool: AgentTool = {
 
 // ── search_code ────────────────────────────────────────────────────────────────
 
+/**
+ * What to try after a search that matched nothing. A bare "No matches"
+ * reads to a model as "it isn't there", and a cloud turn gave up on a
+ * change request after one search and an `ls`. Each hint names a concrete
+ * next query rather than a generic "try again". Exported for tests.
+ */
+export function noMatchHint(pattern: string, fileGlob?: string, cwd?: string): string {
+  const tips: string[] = [];
+  if (/[A-Z]/.test(pattern.replace(/\\[A-Za-z]/g, ''))) {
+    tips.push(`the pattern has capitals, so it may be matched case-sensitively — try "${pattern.toLowerCase()}"`);
+  }
+  const words = pattern.split(/\s+/).filter(Boolean);
+  if (words.length > 1 && !pattern.includes('|')) {
+    tips.push(`try one distinctive word, or alternation such as "${words.slice(0, 3).join('|')}"`);
+  }
+  if (fileGlob) tips.push(`drop file_glob "${fileGlob}" — the code may live in another file type`);
+  if (cwd) tips.push(`search from the workspace root instead of "${cwd}"`);
+  tips.push('try a related name (the class, type, method or config key, e.g. "AppleAuth" for "apple sign-in")');
+  tips.push('list_files or find_directory find files by name');
+  return ` Try: ${tips.join('; ')}.`;
+}
+
 const searchCodeTool: AgentTool = {
   name: 'search_code',
   description: 'Search for a pattern in file contents using regex. Returns matching lines with file paths and line numbers.',
@@ -2046,7 +2068,7 @@ const searchCodeTool: AgentTool = {
 
     try {
       const results = await ctx.searchCode(pattern, cwd, params.file_glob);
-      if (!results.trim()) {return { output: `No matches found for "${pattern}"` };}
+      if (!results.trim()) {return { output: `No matches found for "${pattern}".${noMatchHint(pattern, params.file_glob, params.cwd)}` };}
       return { output: truncate(results, MAX_SEARCH_CHARS, 'search_code') };
     } catch (err) {
       return { output: `Error searching code: ${err instanceof Error ? err.message : String(err)}`, isError: true };
