@@ -216,7 +216,7 @@ Open **Settings → Voice** to configure:
 | `banditStealth.voice.stt.url` / `tts.url` | — | Endpoint URL when the provider isn't `bandit`. |
 | `banditStealth.voice.stt.apiKey` / `tts.apiKey` | — | Bearer / API key for the chosen provider. |
 | `banditStealth.voice.stt.model` / `tts.model` | `whisper-1` / `tts-1` | Model name for OpenAI-compatible providers. |
-| `banditStealth.voice.voiceId` | `en_US-brian-premium` | Voice identifier (Bandit voice id, OpenAI voice name, ElevenLabs voice id). |
+| `banditStealth.voice.voiceId` | `kokoro-af_heart` | Voice identifier. With Bandit Cloud: `kokoro-af_heart` (Heart), `kokoro-am_michael` (Michael), `kokoro-bf_emma` (Emma) or `kokoro-bm_george` (George). Otherwise an OpenAI voice name or ElevenLabs voice id. |
 
 Code blocks, tool calls, and diff cards are automatically stripped from spoken text — Bandit reads the model's prose, never the code. A speaker icon on every assistant message plays on demand regardless of the auto-speak setting.
 

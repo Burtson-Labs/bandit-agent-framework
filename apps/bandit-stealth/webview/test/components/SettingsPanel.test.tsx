@@ -185,3 +185,44 @@ describe('settings section switcher', () => {
     expect(screen.getByText('Bandit Stealth 1.7.452 · Burtson Labs')).toBeTruthy();
   });
 });
+
+describe('voice picker', () => {
+  function renderVoice(ttsProvider: string, ttsVoiceId: string, onUpdate = vi.fn()) {
+    const props = baseProps({ providerKind: 'bandit', onUpdateVoiceProviderSetting: onUpdate });
+    render(
+      <SettingsPanel
+        {...props}
+        voiceProviderSettings={{ ...props.voiceProviderSettings, ttsProvider: ttsProvider as never, ttsVoiceId }}
+        activeTab="voice"
+        onSelectTab={noop}
+      />
+    );
+    return onUpdate;
+  }
+
+  it('offers the four Bandit voices, with an old saved id shown as its mapped voice', () => {
+    const onUpdate = renderVoice('bandit', 'en_US-brian-premium');
+    const select = document.getElementById('voice-tts-voice') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      'Heart · American · woman',
+      'Michael · American · man',
+      'Emma · British · woman',
+      'George · British · man'
+    ]);
+    expect(select.value).toBe('kokoro-am_michael');
+    fireEvent.change(select, { target: { value: 'kokoro-bf_emma' } });
+    expect(onUpdate).toHaveBeenCalledWith('ttsVoiceId', 'kokoro-bf_emma');
+  });
+
+  it('shows Heart when nothing is saved', () => {
+    renderVoice('auto', '');
+    expect((document.getElementById('voice-tts-voice') as HTMLSelectElement).value).toBe('kokoro-af_heart');
+  });
+
+  it('keeps a free-text voice box for bring-your-own providers', () => {
+    renderVoice('elevenlabs', '21m00Tcm4TlvDq8ikWAM');
+    const input = document.getElementById('voice-tts-voice') as HTMLInputElement;
+    expect(input.tagName).toBe('INPUT');
+    expect(input.value).toBe('21m00Tcm4TlvDq8ikWAM');
+  });
+});

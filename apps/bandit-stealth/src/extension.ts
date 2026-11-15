@@ -38,6 +38,7 @@ import {
 } from './agent/modelBehaviorProfiles';
 import { registerCommands } from './commands/registerCommands';
 import { migrateSettingSecrets } from './helpers/secretMigration';
+import { migrateBanditVoiceSetting } from './helpers/banditVoices';
 import { BanditStealthViewProvider } from './provider/BanditStealthViewProvider';
 import { isExtensionOffline } from './helpers/offlineMode';
 
@@ -110,6 +111,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // setting until this lands, so there is no window where a key stops
   // working. See helpers/secretMigration.ts.
   void migrateSettingSecrets(context);
+
+  // Move a saved Bandit Cloud voice (the old en_US-brian-premium default and
+  // friends) onto Heart/Michael/Emma/George, at the scope it was saved in.
+  // BYO provider voice ids (OpenAI, ElevenLabs) are left alone.
+  void migrateBanditVoiceSetting(vscode.workspace.getConfiguration('banditStealth'), {
+    global: vscode.ConfigurationTarget.Global,
+    workspace: vscode.ConfigurationTarget.Workspace,
+    folder: vscode.ConfigurationTarget.WorkspaceFolder
+  }).catch(() => undefined);
 
   const runtimeController = new StealthAgentRuntime(context);
   const frameworkRuntime: FrameworkAgentRuntime = runtimeController.getFrameworkRuntime();

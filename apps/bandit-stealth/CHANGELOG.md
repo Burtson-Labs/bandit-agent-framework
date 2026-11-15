@@ -4,6 +4,7 @@ All notable changes to **Bandit Stealth** are listed here. Versions follow the e
 
 ## Unreleased
 
+- **Read-aloud uses Heart by default, and Bandit Cloud has four voices.** With Bandit Cloud TTS, Settings → Voice now offers Heart (American woman, the default), Michael (American man), Emma (British woman) and George (British man) instead of a free-text box; the old default was the ElevenLabs voice Brian. A saved older Bandit voice is moved to the nearest of the four the next time the extension starts (Brian, Liam, Ryan and other premium voices become Michael; Jessica and Matilda become Heart), at the scope it was saved in. With OpenAI, ElevenLabs (your own key), Piper or a custom server, `banditStealth.voice.voiceId` is still that provider's voice and is not changed.
 - **Artifacts are now Bandit Stash.** The cloud tools that save a workspace file and return a link describe it as your Bandit Stash, and report in Stash words (`Saved "report.html" to your Bandit Stash (private)`, `3 item(s) in Bandit Stash`). The approval card reads "Saves report.html to your Bandit Stash". Tool names are unchanged (`publish_artifact`, `share_artifact`, `list_artifacts` …), so allow rules and managed-policy deny lists keep working, and old `/artifacts?a=` links still open. The agent's `git_stash` tool now says it is git only, so "save this to my stash" goes to the Bandit Stash, not `git stash`. The plan and report files under `.bandit/plans/` ("Plan artifacts") are a different thing and keep their name.
 
 ## 1.7.456 (2026-10-31)

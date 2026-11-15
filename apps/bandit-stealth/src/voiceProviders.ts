@@ -109,7 +109,7 @@ export interface SttRequest {
 
 export interface TtsRequest {
   text: string;
-  /** Bandit voice id ("en_US-brian-premium") or the OpenAI/ElevenLabs
+  /** Bandit voice id ("kokoro-af_heart") or the OpenAI/ElevenLabs
    *  voice name. Adapters that don't take a voice (Piper) ignore it. */
   voice: string;
   banditApiKey?: string;

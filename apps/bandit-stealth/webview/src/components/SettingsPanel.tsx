@@ -16,6 +16,7 @@ import { type ThemePreference } from "@burtson-labs/agent-ui";
 import { AccountProfileCard } from "./AccountProfileCard";
 import { McpProviderIcon } from "./McpProviderIcon";
 import type { AccountProfile, AccountProfileStatus } from "../types/webview";
+import { BANDIT_VOICE_OPTIONS, selectedBanditVoice } from "../util/banditVoices";
 
 export type SettingsTab = "account" | "providers" | "connections" | "voice" | "preferences" | "appearance";
 
@@ -269,6 +270,9 @@ export function SettingsPanel({
     const sttUsesUrl = v.sttProvider === "openai-whisper" || v.sttProvider === "custom";
     const ttsUsesUrl = v.ttsProvider !== "bandit";
     const ttsUsesModel = v.ttsProvider === "openai" || v.ttsProvider === "elevenlabs";
+    // Bandit Cloud (and "follow chat provider", which only ever speaks through
+    // Bandit Cloud) offers four voices; bring-your-own providers keep a text box.
+    const ttsUsesBanditVoice = v.ttsProvider === "bandit" || (v.ttsProvider as string) === "auto";
     return (
       <>
       <div className="settings-card">
@@ -447,22 +451,39 @@ export function SettingsPanel({
             />
           </div>
         )}
-        <div className="settings-field">
-          <label htmlFor="voice-tts-voice">Voice</label>
-          <input
-            id="voice-tts-voice"
-            type="text"
-            value={v.ttsVoiceId}
-            placeholder={
-              v.ttsProvider === "openai"
-                ? "alloy / echo / fable / onyx / nova / shimmer"
-                : v.ttsProvider === "elevenlabs"
-                  ? "ElevenLabs voice id (e.g. 21m00Tcm4TlvDq8ikWAM)"
-                  : "en_US-brian-premium"
-            }
-            onChange={(e) => onUpdateVoiceProviderSetting("ttsVoiceId", e.target.value)}
-          />
-        </div>
+        {ttsUsesBanditVoice ? (
+          <div className="settings-field">
+            <label htmlFor="voice-tts-voice">Voice</label>
+            <select
+              id="voice-tts-voice"
+              value={selectedBanditVoice(v.ttsVoiceId)}
+              onChange={(e) => onUpdateVoiceProviderSetting("ttsVoiceId", e.target.value)}
+            >
+              {BANDIT_VOICE_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name} · {option.detail}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="settings-field">
+            <label htmlFor="voice-tts-voice">Voice</label>
+            <input
+              id="voice-tts-voice"
+              type="text"
+              value={v.ttsVoiceId}
+              placeholder={
+                v.ttsProvider === "openai"
+                  ? "alloy / echo / fable / onyx / nova / shimmer"
+                  : v.ttsProvider === "elevenlabs"
+                    ? "ElevenLabs voice id (e.g. 21m00Tcm4TlvDq8ikWAM)"
+                    : "Voice name your server expects"
+              }
+              onChange={(e) => onUpdateVoiceProviderSetting("ttsVoiceId", e.target.value)}
+            />
+          </div>
+        )}
       </div>
       </>
     );

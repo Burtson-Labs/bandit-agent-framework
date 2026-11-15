@@ -382,7 +382,7 @@ export function App(): JSX.Element {
     ttsUrl: "",
     ttsApiKey: "",
     ttsModel: "tts-1",
-    ttsVoiceId: "en_US-brian-premium"
+    ttsVoiceId: "kokoro-af_heart"
   });
   // Snapshot of every configured MCP server pushed by the extension
   // on each syncState. Drives the Settings → Connections panel; empty

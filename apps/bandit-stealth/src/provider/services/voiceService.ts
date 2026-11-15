@@ -49,6 +49,7 @@ import {
   type VoiceRoute
 } from '../../voiceProviders';
 import { extensionOfflineMode, offlineRefusal } from '../../helpers/offlineMode';
+import { DEFAULT_BANDIT_VOICE, migrateBanditVoiceId } from '../../helpers/banditVoices';
 import type { ProviderContext } from '../context';
 
 export class VoiceService {
@@ -135,7 +136,11 @@ export class VoiceService {
     apiKey: string | undefined,
     provider: TtsProvider
   ): Promise<void> {
-    const voiceId = configuration.get<string>('voice.voiceId', 'en_US-brian-premium');
+    const stored = configuration.get<string>('voice.voiceId', DEFAULT_BANDIT_VOICE);
+    // Bandit Cloud gets one of its four voices (an old saved id such as
+    // en_US-brian-premium, or an ElevenLabs id left from a BYO provider, maps
+    // onto Heart/Michael/Emma/George). Other providers get the value as typed.
+    const voiceId = provider === 'bandit' ? migrateBanditVoiceId(stored) : stored;
     const banditUrl = resolveTtsUrl(configuration);
     try {
       const result = await synthesizeSpeech(

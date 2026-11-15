@@ -12,6 +12,7 @@
 import type * as vscode from 'vscode';
 import type { WebviewState } from '../agentTypes';
 import { readMigratedSecret } from './secretMigration';
+import { DEFAULT_BANDIT_VOICE } from './banditVoices';
 import { VOICE_STT_API_KEY_SECRET_KEY, VOICE_TTS_API_KEY_SECRET_KEY } from '../storageKeys';
 
 type VoiceProviderSettings = NonNullable<WebviewState['voiceProviderSettings']>;
@@ -41,7 +42,7 @@ export async function readVoiceProviderSettings(
     ttsUrl: configuration.get<string>('voice.tts.url', '') ?? '',
     ttsApiKey: await readMigratedSecret(secrets, VOICE_TTS_API_KEY_SECRET_KEY, configuration, 'voice.tts.apiKey'),
     ttsModel: configuration.get<string>('voice.tts.model', 'tts-1') ?? 'tts-1',
-    ttsVoiceId: configuration.get<string>('voice.voiceId', 'en_US-brian-premium') ?? 'en_US-brian-premium'
+    ttsVoiceId: configuration.get<string>('voice.voiceId', DEFAULT_BANDIT_VOICE) ?? DEFAULT_BANDIT_VOICE
   };
 }
 

@@ -497,8 +497,8 @@
           },
           "banditStealth.voice.voiceId": {
             "type": "string",
-            "default": "en_US-brian-premium",
-            "description": "ElevenLabs voice model used for TTS. Defaults to Brian. Hidden for now; will surface as a picker in a future settings pass."
+            "default": "kokoro-af_heart",
+            "markdownDescription": "Voice for read-aloud. With Bandit Cloud TTS, pick one of the four Bandit voices in the Bandit panel (Settings → Voice): `kokoro-af_heart` (Heart, American woman, default), `kokoro-am_michael` (Michael, American man), `kokoro-bf_emma` (Emma, British woman) or `kokoro-bm_george` (George, British man); any other value is sent to Bandit Cloud as Heart. With a bring-your-own provider this is that provider's voice: an OpenAI voice name (`alloy`) or an ElevenLabs voice id."
           },
           "banditStealth.voice.micEnabled": {
             "type": "boolean",

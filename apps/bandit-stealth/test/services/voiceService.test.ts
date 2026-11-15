@@ -233,4 +233,32 @@ describe('VoiceService', () => {
       expect(vi.mocked(voiceProviders.synthesizeSpeech)).toHaveBeenCalledOnce();
     });
   });
+  describe('Bandit Cloud voice', () => {
+    const synthOk = () =>
+      vi.mocked(voiceProviders.synthesizeSpeech).mockResolvedValueOnce({ audio: new Uint8Array([1]), mimeType: 'audio/mpeg' });
+
+    it('defaults to Heart when no voice is saved', async () => {
+      synthOk();
+      const { ctx } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0][1].voice).toBe('kokoro-af_heart');
+    });
+
+    it('sends an old saved id as the matching kept voice, never the ElevenLabs name', async () => {
+      synthOk();
+      configMap.set('voice.voiceId', 'en_US-brian-premium');
+      const { ctx } = makeCtx({ storedApiKey: 'sk_saved', chatProvider: 'bandit' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0][1].voice).toBe('kokoro-am_michael');
+    });
+
+    it('passes a bring-your-own provider voice through untouched', async () => {
+      synthOk();
+      configMap.set('voice.tts.provider', 'elevenlabs');
+      configMap.set('voice.voiceId', '21m00Tcm4TlvDq8ikWAM');
+      const { ctx } = makeCtx({ chatProvider: 'ollama' });
+      await new VoiceService(ctx).handleSpeak('m', 'hello');
+      expect(vi.mocked(voiceProviders.synthesizeSpeech).mock.calls[0][1].voice).toBe('21m00Tcm4TlvDq8ikWAM');
+    });
+  });
 });
