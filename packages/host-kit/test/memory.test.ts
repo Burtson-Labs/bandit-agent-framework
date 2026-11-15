@@ -21,13 +21,26 @@ import * as os from 'node:os';
 import { loadMemory, loadCombinedMemory, appendMemory, consolidateMemory } from '../src/memory';
 
 let tmpRoot: string;
+let tmpHome: string;
+const realHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 
 beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'host-kit-memory-test-'));
+  // loadMemory also reads the global ~/.bandit/lessons.md. Point the home
+  // directory at an empty temp dir so a developer's real lessons file does
+  // not leak into these assertions (os.homedir() honours HOME / USERPROFILE).
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'host-kit-memory-home-'));
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 });
 
 afterEach(() => {
+  for (const [key, value] of Object.entries(realHome)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+  fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
 describe('loadMemory', () => {
