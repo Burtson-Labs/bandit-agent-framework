@@ -208,6 +208,9 @@ export {
 export {
   isPrivateHost,
   vetHost,
+  parseHostAllowlist,
+  hostMatchesAllowlist,
+  isNeverAllowedAddress,
   runGuardedWebFetch,
   guardedGet,
   type GuardedGetResult,

@@ -548,6 +548,95 @@ describe('buildWebFetchTool SSRF guard', () => {
     });
   });
 
+  describe('private hosts the user allowed (BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS)', () => {
+    const ORIGINAL_ALLOW = process.env.BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS;
+    beforeEach(() => { delete process.env.BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS; });
+    afterEach(() => {
+      if (ORIGINAL_ALLOW === undefined) delete process.env.BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS;
+      else process.env.BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS = ORIGINAL_ALLOW;
+    });
+    const resolvesTo = (...addresses: string[]) =>
+      vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
+        addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })) as unknown as dnsMod.LookupAddress
+      );
+
+    it('the block message names the host and how to allow it', async () => {
+      resolvesTo('192.168.1.44');
+      const { transport } = makeTransport([{ status: 200 }]);
+      const r = await buildWebFetchTool({ transport }).execute({ url: 'https://wiki.burtson.ai/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toContain('BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS');
+      expect(r.output).toContain('"allowPrivateHosts": ["wiki.burtson.ai"]');
+    });
+
+    it('fetches an allowed name over its private (LAN) address, env var read per call', async () => {
+      resolvesTo('192.168.1.44');
+      process.env.BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS = 'other.example.com, wiki.burtson.ai';
+      const { transport, calls } = makeTransport([{ status: 200, body: 'wiki' }]);
+      const r = await buildWebFetchTool({ transport }).execute({ url: 'https://WIKI.burtson.ai./page' }, testCtx);
+      expect(r.isError).toBe(false);
+      expect(r.output).toContain('wiki');
+      expect(calls[0].pinned.address).toBe('192.168.1.44');
+    });
+
+    it('a *.suffix entry covers subdomains but not the apex or look-alikes', async () => {
+      resolvesTo('10.1.2.3');
+      const opts = { allowPrivateHosts: ['*.corp.example.com'] };
+      for (const [url, ok] of [
+        ['https://git.corp.example.com/', true],
+        ['https://a.b.corp.example.com/', true],
+        ['https://corp.example.com/', false],
+        ['https://evilcorp.example.com/', false]
+      ] as const) {
+        const { transport } = makeTransport([{ status: 200 }]);
+        const r = await buildWebFetchTool({ transport, ...opts }).execute({ url }, testCtx);
+        expect(r.isError, url).toBe(!ok);
+      }
+    });
+
+    it('literal IPs stay blocked even when listed', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const tool = buildWebFetchTool({ transport, allowPrivateHosts: ['192.168.1.44', '169.254.169.254'] });
+      for (const url of ['http://192.168.1.44/', 'http://169.254.169.254/latest/meta-data/']) {
+        const r = await tool.execute({ url }, testCtx);
+        expect(r.isError).toBe(true);
+        expect(r.output).not.toContain('allowPrivateHosts');
+      }
+      expect(calls).toHaveLength(0);
+    });
+
+    it('an allowed name that resolves to metadata, link-local or loopback stays blocked', async () => {
+      for (const addr of ['169.254.169.254', '127.0.0.1', 'fe80::1', '::ffff:169.254.169.254', '0.0.0.0']) {
+        vi.restoreAllMocks();
+        resolvesTo('192.168.1.44', addr);
+        const { transport, calls } = makeTransport([{ status: 200 }]);
+        const r = await buildWebFetchTool({ transport, allowPrivateHosts: ['wiki.burtson.ai'] }).execute({ url: 'https://wiki.burtson.ai/' }, testCtx);
+        expect(r.isError, addr).toBe(true);
+        expect(r.output).toContain('cannot allow');
+        expect(calls).toHaveLength(0);
+      }
+    });
+
+    it('an allowed host cannot redirect to a host that is not allowed', async () => {
+      resolvesTo('192.168.1.44');
+      const { transport, calls } = makeTransport([
+        { status: 302, headers: { location: 'https://admin.internal.example.com/' } },
+        { status: 200 }
+      ]);
+      const r = await buildWebFetchTool({ transport, allowPrivateHosts: ['wiki.burtson.ai'] }).execute({ url: 'https://wiki.burtson.ai/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/Blocked: redirect to admin\.internal\.example\.com/);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('localhost names stay blocked even when listed', async () => {
+      const { transport, calls } = makeTransport([{ status: 200 }]);
+      const r = await buildWebFetchTool({ transport, allowPrivateHosts: ['localhost', 'app.localhost'] }).execute({ url: 'http://app.localhost/' }, testCtx);
+      expect(r.isError).toBe(true);
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   it('allows fetch when hostname resolves to a public IP', async () => {
     vi.spyOn(dnsMod.promises, 'lookup').mockResolvedValue(
       [{ address: '93.184.215.14', family: 4 }] as unknown as dnsMod.LookupAddress

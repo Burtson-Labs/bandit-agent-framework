@@ -236,9 +236,11 @@ export function buildRememberTool(): AgentTool {
  * for the full threat model: DNS-rebinding pinning, per-hop redirect
  * re-validation, numeric/IPv6-mapped encoding normalization).
  *
- * Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out of the private-range
- * blocking — appropriate when the user is intentionally pointing the
- * agent at internal docs.
+ * BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS=wiki.example.com,*.corp.example
+ * lets those names resolve to a private address; literal IPs and
+ * loopback/link-local/metadata addresses stay blocked. Set
+ * BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out of the private-range
+ * blocking entirely.
  */
 export interface WebFetchToolOptions {
   /** Test seam: override DNS resolution (hostname → all A/AAAA records). */
@@ -247,6 +249,8 @@ export interface WebFetchToolOptions {
   publicLookup?: LookupAllFn | false;
   /** Test seam: override the pinned-connection transport. */
   transport?: PinnedTransport;
+  /** Host names allowed to resolve privately. Default: BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS, read per call. */
+  allowPrivateHosts?: readonly string[];
 }
 
 export function buildWebFetchTool(options: WebFetchToolOptions = {}): AgentTool {
@@ -262,6 +266,7 @@ export function buildWebFetchTool(options: WebFetchToolOptions = {}): AgentTool 
       return runGuardedWebFetch(raw, {
         allowPrivate: process.env.BANDIT_ALLOW_PRIVATE_WEB_FETCH === '1',
         lookup: options.lookup,
+        allowPrivateHosts: options.allowPrivateHosts,
         publicLookup: options.publicLookup,
         transport: options.transport
       });

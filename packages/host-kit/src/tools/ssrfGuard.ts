@@ -47,6 +47,17 @@
  *    .internal, .lan, .home.arpa, ...) never take this path. Set
  *    BANDIT_WEB_FETCH_PUBLIC_DNS=0 to turn the fallback off.
  *
+ * 6. Private hosts the user allowed: some names have no public record at
+ *    all (an internal wiki, a NAS) or the user wants the LAN path. Set
+ *    BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS to a comma-separated list of
+ *    DNS names (`wiki.example.com`, or `*.example.com` for subdomains)
+ *    and those names may resolve to a private address (RFC 1918, CGNAT,
+ *    unique-local IPv6). Only names: an IP literal in the URL stays
+ *    blocked, and an allowed name that resolves to loopback, link-local
+ *    (169.254.169.254, the cloud metadata service) or an unspecified or
+ *    multicast address stays blocked too. Redirects re-check every hop,
+ *    so an allowed host cannot bounce the fetch to one that is not.
+ *
  * Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to opt out of the private-range
  * blocking — appropriate when the user intentionally points the agent
  * at internal docs. Resolution + pinning still happen; only the
@@ -91,6 +102,12 @@ export type PinnedTransport = (
 export interface GuardedFetchOptions {
   /** Skip the private-range rejection (BANDIT_ALLOW_PRIVATE_WEB_FETCH=1). */
   allowPrivate?: boolean;
+  /**
+   * DNS names allowed to resolve to a private address (exact names, or
+   * `*.example.com` for subdomains). Defaults to
+   * BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS. See note 6 above.
+   */
+  allowPrivateHosts?: readonly string[];
   lookup?: LookupAllFn;
   /**
    * Resolver consulted when the local answer is private (split-horizon
@@ -107,7 +124,46 @@ const FETCH_TIMEOUT_MS = 15_000;
 /** Stop buffering a response beyond this — output is trimmed to 16 KB anyway. */
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const ALLOW_HOSTS_ENV = 'BANDIT_WEB_FETCH_ALLOW_PRIVATE_HOSTS';
+/** For a literal address: only the blanket switch can lift it. */
 const ENV_HINT = 'Set BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 to allow fetches against internal networks.';
+
+/** For a DNS name that resolved privately: name the precise way to allow it. */
+function allowHostHint(hostname: string): string {
+  return (
+    `If you trust ${hostname}, allow it by adding it to ${ALLOW_HOSTS_ENV} (comma-separated host names; ` +
+    `in the Bandit CLI, "web": { "allowPrivateHosts": ["${hostname}"] } in ~/.bandit/config.json). ` +
+    'BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 lifts the check for every host.'
+  );
+}
+
+/** Parse a comma/whitespace-separated host allowlist (lower-cased, no trailing dot). */
+export function parseHostAllowlist(raw: string | undefined | null): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,]+/)
+    .map((h) => h.trim().toLowerCase().replace(/\.$/, ''))
+    .filter((h) => h.length > 0);
+}
+
+/**
+ * Does `hostname` match an allowlist entry? `name` matches exactly;
+ * `*.name` (or `.name`) matches subdomains of name, not name itself.
+ * IP literals never match: the allowlist is for names only.
+ */
+export function hostMatchesAllowlist(hostname: string, allowlist: readonly string[]): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (!host || isIP(host) !== 0 || normalizeIPv4Numeric(host)) return false;
+  return allowlist.some((raw) => {
+    const entry = raw.trim().toLowerCase().replace(/\.$/, '');
+    if (!entry || isIP(entry) !== 0 || normalizeIPv4Numeric(entry)) return false;
+    if (entry.startsWith('*.') || entry.startsWith('.')) {
+      const suffix = entry.slice(entry.indexOf('.'));
+      return suffix.length > 1 && host.endsWith(suffix) && host.length > suffix.length;
+    }
+    return host === entry;
+  });
+}
 
 const PRIVATE_HOSTNAMES = new Set(['localhost', 'ip6-localhost', 'ip6-loopback']);
 
@@ -244,6 +300,34 @@ export function isPrivateAddress(address: string): boolean {
   return false;
 }
 
+/**
+ * Addresses no allowlist can open: loopback, link-local (which holds the
+ * cloud metadata service), unspecified, multicast and reserved. Only the
+ * blanket BANDIT_ALLOW_PRIVATE_WEB_FETCH=1 reaches these.
+ */
+export function isNeverAllowedAddress(address: string): boolean {
+  const zoneIdx = address.indexOf('%');
+  const bare = zoneIdx === -1 ? address : address.slice(0, zoneIdx);
+  const v4Never = (quad: string): boolean => {
+    const [a, b] = quad.split('.').map(Number);
+    return a === 0 || a === 127 || (a === 169 && b === 254) || a >= 224;
+  };
+  if (isIP(bare) === 6) {
+    const bytes = ipv6ToBytes(bare);
+    if (!bytes) return true;
+    const zero = (from: number, to: number): boolean => bytes.slice(from, to).every((x) => x === 0);
+    const v4 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+    if (zero(0, 10) && bytes[10] === 0xff && bytes[11] === 0xff) return v4Never(v4); // mapped
+    if (zero(0, 12)) return true; // ::, ::1 and the deprecated IPv4-compatible block
+    if (bytes[0] === 0x00 && bytes[1] === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b && zero(4, 12)) return v4Never(v4);
+    if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true; // fe80::/10 link-local
+    if (bytes[0] === 0xff) return true; // multicast
+    return false;
+  }
+  const quad = normalizeIPv4Numeric(bare);
+  return quad ? v4Never(quad) : true;
+}
+
 const defaultLookupAll: LookupAllFn = async (hostname) => {
   // dns.promises.lookup is what fetch/net would consult (honors /etc/hosts,
   // unlike dns.resolve) — vetting anything else would vet the wrong answer.
@@ -288,7 +372,7 @@ function resolvePublicLookup(opt: LookupAllFn | false | undefined): LookupAllFn 
 
 export type VetOutcome =
   | { kind: 'ok'; pinned: PinnedAddress }
-  | { kind: 'blocked'; detail: string }
+  | { kind: 'blocked'; detail: string; hint?: string }
   | { kind: 'unresolvable'; message: string };
 
 /**
@@ -299,7 +383,12 @@ export type VetOutcome =
  */
 export async function vetHost(
   hostname: string,
-  opts: { allowPrivate?: boolean; lookup?: LookupAllFn; publicLookup?: LookupAllFn | false } = {}
+  opts: {
+    allowPrivate?: boolean;
+    allowPrivateHosts?: readonly string[];
+    lookup?: LookupAllFn;
+    publicLookup?: LookupAllFn | false;
+  } = {}
 ): Promise<VetOutcome> {
   // URL.hostname returns IPv6 literals WITH brackets ("[::1]") — strip
   // them so isIP() classifies the address and DNS never sees brackets.
@@ -346,6 +435,21 @@ export async function vetHost(
   if (!allowPrivate) {
     const privateRec = list.find((rec) => isPrivateAddress(rec.address));
     if (privateRec) {
+      // A name the user allowed may use its private (LAN) answer, unless
+      // any record is loopback/link-local/metadata — no allowlist opens those.
+      const allowHosts = opts.allowPrivateHosts ?? parseHostAllowlist(process.env[ALLOW_HOSTS_ENV]);
+      if (hostMatchesAllowlist(stripped, allowHosts)) {
+        const never = list.find((rec) => isNeverAllowedAddress(rec.address));
+        if (never) {
+          return {
+            kind: 'blocked',
+            detail: `resolves to ${never.address}, a loopback/link-local/metadata address that ${ALLOW_HOSTS_ENV} cannot allow`,
+            hint: ENV_HINT
+          };
+        }
+        const lan = list.find((rec) => isIP(rec.address) === 4) ?? list[0];
+        return { kind: 'ok', pinned: { address: lan.address, family: isIP(lan.address) === 6 ? 6 : 4 } };
+      }
       const publicLookup = isPublicDnsName(stripped) ? resolvePublicLookup(opts.publicLookup) : null;
       if (publicLookup) {
         let publicRecs: Array<{ address: string; family: number }> = [];
@@ -359,7 +463,11 @@ export async function vetHost(
           return { kind: 'ok', pinned: { address: pub.address, family: isIP(pub.address) === 6 ? 6 : 4 } };
         }
       }
-      return { kind: 'blocked', detail: `resolves to the private/loopback/link-local address ${privateRec.address}` };
+      return {
+        kind: 'blocked',
+        detail: `resolves to the private/loopback/link-local address ${privateRec.address}`,
+        hint: isNeverAllowedAddress(privateRec.address) ? ENV_HINT : allowHostHint(stripped)
+      };
     }
   }
   const first = list[0];
@@ -522,10 +630,15 @@ export async function guardedGet(
         output: `Blocked: redirect to unsupported protocol ${current.protocol} — only http/https targets are allowed.`
       };
     }
-    const vet = await vetHost(current.hostname, { allowPrivate, lookup: options.lookup, publicLookup: options.publicLookup });
+    const vet = await vetHost(current.hostname, {
+      allowPrivate,
+      allowPrivateHosts: options.allowPrivateHosts,
+      lookup: options.lookup,
+      publicLookup: options.publicLookup
+    });
     if (vet.kind === 'blocked') {
       const subject = redirects === 0 ? `Blocked: ${current.hostname}` : `Blocked: redirect to ${current.hostname}`;
-      return { ok: false, output: `${subject} ${vet.detail}. ${ENV_HINT}` };
+      return { ok: false, output: `${subject} ${vet.detail}. ${vet.hint ?? ENV_HINT}` };
     }
     if (vet.kind === 'unresolvable') {
       return { ok: false, output: `Fetch failed: ${vet.message}` };
