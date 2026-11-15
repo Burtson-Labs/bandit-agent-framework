@@ -2,8 +2,9 @@
 /**
  * Generate truecolor Unicode block-art logo for the CLI.
  *
- * Reads apps/bandit-stealth/media/bandit-stealth.png, downsamples to a
- * fixed grid, and emits a JSON file containing the pre-rendered block
+ * Reads apps/bandit-stealth/media/bandit-stealth.png (the Stealth small mark,
+ * cropped to the artwork; byte-identical to bandit-stealth's
+ * branding/export/stealth-mark-512.png), downsamples to a fixed grid, and emits a JSON file containing the pre-rendered block
  * characters with embedded 24-bit ANSI color codes. The CLI then imports
  * that JSON at build time — zero runtime dep on pngjs.
  *
@@ -37,16 +38,40 @@ const TARGET = resolve(__dirname, '..', 'src', 'logo.json');
 // spot: big enough to preserve the two eye slits, the round head, and
 // the hood-tail on the left without any one feature becoming marginal;
 // small enough that the banner takes ~20 lines of terminal instead of
-// ~30. Below 36×18 the eye slits start merging into a single dark band
-// and the logo loses its signature feature. Ratio N = 2M keeps the
-// display roughly square given typical terminal char aspect of ~2:1.
+// ~30. Ratio N = 2M keeps the display roughly square given typical
+// terminal char aspect of ~2:1.
 const OUT_COLS = 40;
 const OUT_LINES = 20;
 
-// Foreground color for the silhouette. Chosen to match the CLI's accent
-// cyan so the banner echoes Burtson Labs branding rather than reading
-// as a grey blob. Format: [R, G, B] 8-bit.
-const FG_COLOR = [88, 208, 240];
+// The source PNG is cropped to the artwork. The grid above was tuned on the
+// older padded logo, so the art is sampled as if it sat in that 1024 px
+// frame at (160, 150)–(815, 829): the banner keeps the same size and the
+// same cell alignment it always had.
+const FRAME = 1024;
+const ART = { x: 160, y: 150, w: 655, h: 679 };
+
+// Silhouette colour: the Stealth steel, lit from the lower left like the app
+// tile (#a1adbd → #798696 → #6b7280). Always silver — the ninja is never
+// recoloured cyan, white or to the theme accent. [R, G, B] 8-bit stops.
+// Kept in step with bandit-stealth's apps/bandit-cli/scripts/gen-logo.mjs
+// (CLI 1.7.524) so the framework CLI and Stealth CLI banners are identical.
+const STEEL = [
+  [0, [161, 173, 189]],
+  [0.35, [121, 134, 150]],
+  [1, [107, 114, 128]],
+];
+function steelAt(t) {
+  const x = Math.min(1, Math.max(0, t));
+  for (let i = 1; i < STEEL.length; i++) {
+    const [p1, c1] = STEEL[i];
+    const [p0, c0] = STEEL[i - 1];
+    if (x <= p1) {
+      const k = (x - p0) / (p1 - p0);
+      return c0.map((v, j) => Math.round(v + (c1[j] - v) * k));
+    }
+  }
+  return STEEL[STEEL.length - 1][1];
+}
 
 // Threshold below which the source pixel's luminance marks it as part
 // of the silhouette. The source PNG is a dark-grey-on-white logo, so a
@@ -69,15 +94,27 @@ const png = PNG.sync.read(readFileSync(SOURCE));
  * pixel noise at this aggressive a downscale. For each target pixel we
  * average the 3×3 source pixels around the sample center.
  */
-function sampleAt(srcX, srcY) {
-  const W = png.width, H = png.height;
-  let r = 0, g = 0, b = 0, a = 0, n = 0;
-  const halfBoxX = Math.max(1, Math.floor(W / SAMPLE_W / 2));
-  const halfBoxY = Math.max(1, Math.floor(H / SAMPLE_H / 2));
+function sampleAt(frameX, frameY) {
+  const W = png.width,
+    H = png.height;
+  const srcX = Math.round(((frameX - ART.x) / ART.w) * W);
+  const srcY = Math.round(((frameY - ART.y) / ART.h) * H);
+  let r = 0,
+    g = 0,
+    b = 0,
+    a = 0,
+    n = 0;
+  const halfBoxX = Math.max(1, Math.floor(((FRAME / SAMPLE_W) * (W / ART.w)) / 2));
+  const halfBoxY = Math.max(1, Math.floor(((FRAME / SAMPLE_H) * (H / ART.h)) / 2));
   for (let dy = -halfBoxY; dy <= halfBoxY; dy++) {
     for (let dx = -halfBoxX; dx <= halfBoxX; dx++) {
-      const x = Math.min(W - 1, Math.max(0, srcX + dx));
-      const y = Math.min(H - 1, Math.max(0, srcY + dy));
+      const x = srcX + dx;
+      const y = srcY + dy;
+      // Outside the artwork is the transparent frame.
+      if (x < 0 || y < 0 || x >= W || y >= H) {
+        n++;
+        continue;
+      }
       const i = (y * W + x) * 4;
       r += png.data[i];
       g += png.data[i + 1];
@@ -101,7 +138,7 @@ function isInSilhouette(pixel) {
   return luma < LUMA_THRESHOLD;
 }
 
-function buildCell(upper, lower) {
+function buildCell(upper, lower, t) {
   // Each half of the cell is either "on" (brand color) or "off"
   // (transparent, reveals terminal background). Rather than mixing
   // foreground-glyph rendering for the half-block cases with
@@ -113,7 +150,8 @@ function buildCell(upper, lower) {
   // Every modern monospace font renders █ at full cell size, so
   // using it for filled cells is bulletproof across terminals.
   const RESET = '\x1b[0m';
-  const fgCode = `\x1b[38;2;${FG_COLOR[0]};${FG_COLOR[1]};${FG_COLOR[2]}m`;
+  const [r, g, b] = steelAt(t);
+  const fgCode = `\x1b[38;2;${r};${g};${b}m`;
   const up = isInSilhouette(upper);
   const lo = isInSilhouette(lower);
   if (!up && !lo) return ' ';
@@ -126,10 +164,12 @@ const lines = [];
 for (let row = 0; row < OUT_LINES; row++) {
   let line = '';
   for (let col = 0; col < OUT_COLS; col++) {
-    const srcX = Math.floor(((col + 0.5) / SAMPLE_W) * png.width);
-    const srcYU = Math.floor(((row * 2 + 0.5) / SAMPLE_H) * png.height);
-    const srcYL = Math.floor(((row * 2 + 1.5) / SAMPLE_H) * png.height);
-    line += buildCell(sampleAt(srcX, srcYU), sampleAt(srcX, srcYL));
+    const srcX = Math.floor(((col + 0.5) / SAMPLE_W) * FRAME);
+    const srcYU = Math.floor(((row * 2 + 0.5) / SAMPLE_H) * FRAME);
+    const srcYL = Math.floor(((row * 2 + 1.5) / SAMPLE_H) * FRAME);
+    // Gradient axis runs from the lower left (light) to the upper right.
+    const t = (col / (OUT_COLS - 1) + (1 - row / (OUT_LINES - 1))) / 2;
+    line += buildCell(sampleAt(srcX, srcYU), sampleAt(srcX, srcYL), t);
   }
   lines.push(line);
 }
@@ -141,11 +181,11 @@ writeFileSync(
       generatedFrom: 'apps/bandit-stealth/media/bandit-stealth.png',
       cols: OUT_COLS,
       lines: OUT_LINES,
-      blockArt: lines.join('\n')
+      blockArt: lines.join('\n'),
     },
     null,
-    2
-  ) + '\n'
+    2,
+  ) + '\n',
 );
 
 process.stdout.write(`wrote ${TARGET} (${OUT_COLS}×${OUT_LINES} cells)\n`);

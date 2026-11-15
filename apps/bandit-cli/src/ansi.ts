@@ -168,10 +168,11 @@ export function banner(title: string, subtitle?: string): string {
  * start. Degrades to an ASCII variant when NO_COLOR is set or the
  * terminal doesn't advertise truecolor.
  *
- * The block-art is pre-rendered at build time from apps/bandit-stealth/
- * media/bandit-stealth.png by scripts/gen-logo.mjs — imported as a JSON
- * string constant so the CLI ships with zero image-rendering dep.
- * Regenerate via `node scripts/gen-logo.mjs` after editing the PNG.
+ * The block-art is pre-rendered at build time from the Stealth small mark
+ * (apps/bandit-stealth/media/bandit-stealth.png) by scripts/gen-logo.mjs,
+ * in the Stealth steel greys — imported as a JSON string constant so the
+ * CLI ships with zero image-rendering dep. Regenerate via
+ * `node scripts/gen-logo.mjs` after replacing the mark.
  */
 import logoData from './logo.json';
 
@@ -235,8 +236,8 @@ function rgbTo256(r: number, g: number, b: number): number {
 /** Rewrite truecolor SGR escapes (`38;2;r;g;b` / `48;2;…`) to their
  *  nearest 256-color equivalent (`38;5;n` / `48;5;n`). Used for the launch
  *  banner on terminals that render block art + 256 colors but NOT 24-bit
- *  (macOS Terminal.app) — so the ninja keeps its blue gradient instead of
- *  degrading to gray. */
+ *  (macOS Terminal.app) — so the ninja keeps its steel shading instead of
+ *  flattening to one grey. */
 export function downsampleTruecolorTo256(s: string): string {
   return s
     .replace(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g, (_m, r, g, b) => `\x1b[38;5;${rgbTo256(+r, +g, +b)}m`)
@@ -245,7 +246,7 @@ export function downsampleTruecolorTo256(s: string): string {
 
 function launchBannerBlockArt(version: string): string {
   // Truecolor terminals get the logo as-is; 256-color-only terminals
-  // (Apple Terminal) get a downsampled-but-still-blue gradient.
+  // (Apple Terminal) get the same steel shading, downsampled.
   const logoArt = supportsTrueColor() ? logoData.blockArt : downsampleTruecolorTo256(logoData.blockArt);
   const logo = logoArt.split('\n');
   const textLines = buildTextBlock(version);
