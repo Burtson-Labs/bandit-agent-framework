@@ -52,7 +52,7 @@ describe('plan mode — reads and read-only shell are allowed', () => {
 
 describe('plan mode — tools that contact another host are DENIED', () => {
   it('denies web, image, git remote and artifact tools', () => {
-    for (const name of ['web_fetch', 'web_search', 'fetch_image', 'git_push', 'git_pull', 'publish_artifact', 'share_artifact', 'email_artifact', 'list_artifacts', 'get_artifact']) {
+    for (const name of ['web_fetch', 'web_search', 'fetch_image', 'git_push', 'git_pull', 'publish_artifact', 'share_artifact', 'email_artifact', 'list_artifacts', 'get_artifact', 'search_conversations', 'read_conversation']) {
       expect(plan(name, { url: 'https://example.com/?leak=x' }).action, name).toBe('deny');
       // Even with an allow rule: plan mode is the read-only ceiling.
       expect(plan(name, { url: 'https://example.com/' }, 'allow').action, name).toBe('deny');

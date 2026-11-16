@@ -142,7 +142,8 @@ describe('evaluatePermission — network tools ask by default', () => {
     'git_push', 'git_pull',
     'publish_artifact', 'share_artifact', 'email_artifact',
     'update_artifact', 'delete_artifact', 'restore_artifact', 'list_artifacts', 'get_artifact',
-    'generate_image'
+    'generate_image',
+    'search_conversations', 'read_conversation'
   ];
 
   it('asks for every built-in tool that contacts another host', () => {

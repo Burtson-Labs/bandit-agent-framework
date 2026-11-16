@@ -98,7 +98,10 @@ export const NETWORK_TOOLS: ReadonlySet<string> = new Set([
   'restore_artifact',
   'list_artifacts',
   'get_artifact',
-  'generate_image'
+  'generate_image',
+  // Conversation recall: the user's own synced Bandit chats, from Bandit Cloud.
+  'search_conversations',
+  'read_conversation'
 ]);
 
 /**

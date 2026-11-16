@@ -189,7 +189,7 @@ describe('tools that contact another host are never read-only', () => {
   });
 
   it('cloud artifact reads stay routine for auto mode but are not read-only', () => {
-    for (const name of ['list_artifacts', 'get_artifact']) {
+    for (const name of ['list_artifacts', 'get_artifact', 'search_conversations', 'read_conversation']) {
       const r = assess(name);
       expect(r.tier, name).toBe('routine');
       expect(r.readOnly, name).toBeFalsy();

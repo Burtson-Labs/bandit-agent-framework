@@ -71,6 +71,20 @@ export { buildRestoreArtifactTool } from './tools/restoreArtifactTool';
 export { buildGetArtifactTool } from './tools/getArtifactTool';
 export { buildUpdateArtifactTool } from './tools/updateArtifactTool';
 export { buildEmailArtifactTool } from './tools/emailArtifactTool';
+export {
+  buildSearchConversationsTool,
+  buildReadConversationTool,
+  formatSearchResults,
+  formatConversation,
+  describeRecallFailure,
+  SEARCH_CONVERSATIONS_TOOL_NAME,
+  READ_CONVERSATION_TOOL_NAME,
+  CONVERSATION_RECALL_TOOL_NAMES,
+  RECALL_SCOPE_LINE,
+  type ConversationRecallToolOptions,
+  type ConversationSearchResponse,
+  type ConversationRecallResponse
+} from './tools/conversationRecallTools';
 export { buildFetchImageTool, type FetchImageToolOptions } from './tools/fetchImageTool';
 export { buildGenerateImageTool, type GenerateImageToolOptions } from './tools/generateImageTool';
 export { inlineHtmlImages, type InlineImagesOptions, type InlineImagesResult } from './imageInline';

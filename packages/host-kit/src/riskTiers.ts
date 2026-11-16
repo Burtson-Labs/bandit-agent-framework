@@ -448,6 +448,13 @@ export function classifyRisk(
       return { tier: 'routine', rule: 'cloud-read', why: 'Reads your Bandit Stash.' };
     }
 
+    if (name === 'search_conversations' || name === 'read_conversation') {
+      // The user's own synced Bandit chats, read from Bandit Cloud. Routine like
+      // the Stash reads, and like them not read-only: the search words go to
+      // the gateway, so plan mode blocks it.
+      return { tier: 'routine', rule: 'cloud-read', why: 'Reads your own synced Bandit conversations from Bandit Cloud.' };
+    }
+
     if (name === 'generate_image') {
       return { tier: 'elevated', rule: 'cloud-generate', why: 'Sends the image prompt to Bandit Cloud.' };
     }
