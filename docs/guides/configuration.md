@@ -42,7 +42,7 @@ Bandit reads three files, all optional, all JSON. Nothing is required for a firs
 - **`model`** — defaults per provider (`gemma4:e4b` for Ollama, `bandit-logic` for cloud); for OpenAI-compatible you must set it.
 - **`ollama` / `bandit` / `openai`** — the connection details for whichever provider you use; each also takes `headers` for auth proxies.
 - **`repos.roots`** — extra folders the `find_directory` tool can discover.
-- **`telemetry`** — opt-in OpenTelemetry. `mode: "metrics-only"` drops traces; prompts/responses are never sent. See [How a turn works](./how-a-turn-works.html).
+- **`telemetry`** — opt-in OpenTelemetry, sent to the endpoint you configure. Full prompt and completion text is not attached. With traces on, each turn records up to 160 characters of its goal and each tool span up to 120 characters of the tool's main argument, both passed through secret redaction; `mode: "metrics-only"` drops traces entirely. See [How a turn works](./how-a-turn-works.html).
 
 ---
 

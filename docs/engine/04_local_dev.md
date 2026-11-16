@@ -40,7 +40,7 @@ if (!isVectorEnabled) {
 ## Integration Notes
 - Configure environment variables such as `VITE_GATEWAY_API_URL`, `VITE_FILE_STORAGE_API_URL`, and `VITE_DEFAULT_MODEL` in `.env.local`.
 - Feature flags can be toggled per tier to expose advanced services only to entitled users.
-- Vector migrations fall back to IndexedDB when the gateway is unavailable, ensuring your teams never lose data.
+- Vector migrations fall back to IndexedDB in the browser when the gateway is unavailable.
 
 ## Related Files
 - [`src/services/vectorDatabase`](../src/services/vectorDatabase)

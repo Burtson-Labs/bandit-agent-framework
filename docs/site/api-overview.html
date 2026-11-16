@@ -796,8 +796,9 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>The Bandit API is an <strong>OpenAI-compatible</strong> HTTP API for Bandit’s first-party
 models. If you’ve called OpenAI’s <code>chat/completions</code>, you already know the shape:
 point your base URL at your Bandit gateway, send a <code>model</code> from the
-<a href="api-models.html">catalogue</a>, and Bandit handles routing, scaling, and keeping
-your data private.</p>
+<a href="api-models.html">catalogue</a>, and Bandit handles routing and scaling.
+<a href="api-models.html#where-requests-run">Where requests run</a> lists which hardware or
+provider serves each model.</p>
 <h2>Base URL</h2>
 <p>All requests go to the Bandit API:</p>
 <pre><code>https://api.burtson.ai/api/chat/completions

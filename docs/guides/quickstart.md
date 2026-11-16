@@ -5,7 +5,7 @@ Two ways to start, depending on what you want:
 - **Use it** — install the CLI or the editor extension and run an agent against your code. ~2 minutes.
 - **Build on it** — pull the packages and stand up your own agent in ~15 lines. ~5 minutes.
 
-Both are **local-first**: point them at a model running on your own machine (via [Ollama](https://ollama.com)) and nothing leaves the box. No account, no phone-home.
+Both are **local-first**: point them at a model running on your own machine (via [Ollama](https://ollama.com)) and your prompts and code stay on it, with no account. Update checks and the services you turn on (web search, MCP servers, git remotes) still connect to their own hosts; every connection is listed in [What Bandit sends](https://burtson.ai/bandit/what-bandit-sends).
 
 ---
 

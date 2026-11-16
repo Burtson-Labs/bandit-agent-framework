@@ -31,7 +31,7 @@ Plain-English definitions for the terms you'll meet across these docs and the wi
 
 - <span id="llm" class="gloss-anchor"></span>**LLM (large language model)** — A model trained to predict text. The engine inside every agent.
 
-- <span id="local-model" class="gloss-anchor"></span>**Local model** — A model that runs on your own hardware (e.g. via Ollama), so prompts never leave the machine. → [Providers & models](./providers-and-models.html).
+- <span id="local-model" class="gloss-anchor"></span>**Local model** — A model that runs on your own hardware (e.g. via Ollama), so prompts stay on the machine. → [Providers & models](./providers-and-models.html).
 
 - <span id="mcp" class="gloss-anchor"></span>**MCP (Model Context Protocol)** — An open standard for exposing tools and data to an agent over a uniform interface. → [MCP connectors](./mcp.html). Source: [modelcontextprotocol.io](https://modelcontextprotocol.io).
 

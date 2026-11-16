@@ -795,8 +795,8 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <h1>Models</h1>
 <p>Bandit serves a small family of first-party models behind one OpenAI-compatible
 API. You pick a model with the <code>model</code> parameter on any request — there are no
-weights to host, no GPUs to manage, and no upstreams to wire up. Bandit routes
-each call to the right tier and keeps your data private.</p>
+weights to host, no GPUs to manage, and no upstreams to wire up. Where each call
+runs is described under <a href="#where-requests-run">Where requests run</a>.</p>
 <blockquote>
 <p>You target a <strong>capability tier</strong>, not a specific checkpoint. Bandit keeps the
 implementation behind each model free to improve over time, so your
@@ -836,6 +836,31 @@ integration keeps working as the models get better underneath it.</p>
 </table>
 <p><code>bandit-core-1</code> is a pinned alias of <code>bandit-core</code>; use the unversioned
 <code>bandit-core</code> to always track the latest of that tier.</p>
+<h2>Where requests run</h2>
+<p>Requests go to Burtson Labs’ gateway at <code>api.burtson.ai</code>, which sends each one to a backend according to the model and your plan:</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Paid plans</th>
+<th>Free accounts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bandit-core</code>, <code>bandit-core-2</code></td>
+<td>Burtson Labs’ own GPUs. If they are unavailable, the request moves to an open-weight model through OpenRouter.</td>
+<td>Burtson Labs’ own GPUs only</td>
+</tr>
+<tr>
+<td><code>bandit-logic</code>, <code>bandit-logic-2</code></td>
+<td>Open-weight models (such as Kimi) from hosting providers through OpenRouter, with Burtson Labs’ GPUs as the fallback.</td>
+<td>Burtson Labs’ own GPUs only</td>
+</tr>
+</tbody>
+</table>
+<p>Every request Bandit sends to OpenRouter asks for zero-data-retention endpoints only (<code>provider.zdr</code>) and denies data collection (<code>provider.data_collection: deny</code>), so it is served only by providers that do not store or train on prompts. When a paid plan’s weekly Bandit Cloud allowance is used up, requests continue on Burtson Labs’ GPUs.</p>
+<p>Burtson Labs does not train models on your requests. The full list of connections and data handling is in <a href="https://burtson.ai/bandit/what-bandit-sends">What Bandit sends</a> and on <a href="https://burtsonlabs.com/security">Security and trust</a>.</p>
 <h2>Choosing a model</h2>
 <ul>
 <li><strong>Start with <code>bandit-core</code>.</strong> It handles the majority of assistant work and is the fastest, lowest-cost option.</li>

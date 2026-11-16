@@ -858,7 +858,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <li><strong><code>model</code></strong> — defaults per provider (<code>gemma4:e4b</code> for Ollama, <code>bandit-logic</code> for cloud); for OpenAI-compatible you must set it.</li>
 <li><strong><code>ollama</code> / <code>bandit</code> / <code>openai</code></strong> — the connection details for whichever provider you use; each also takes <code>headers</code> for auth proxies.</li>
 <li><strong><code>repos.roots</code></strong> — extra folders the <code>find_directory</code> tool can discover.</li>
-<li><strong><code>telemetry</code></strong> — opt-in OpenTelemetry. <code>mode: &quot;metrics-only&quot;</code> drops traces; prompts/responses are never sent. See <a href="./how-a-turn-works.html">How a turn works</a>.</li>
+<li><strong><code>telemetry</code></strong> — opt-in OpenTelemetry, sent to the endpoint you configure. Full prompt and completion text is not attached. With traces on, each turn records up to 160 characters of its goal and each tool span up to 120 characters of the tool’s main argument, both passed through secret redaction; <code>mode: &quot;metrics-only&quot;</code> drops traces entirely. See <a href="./how-a-turn-works.html">How a turn works</a>.</li>
 </ul>
 <hr>
 <h2>Environment variables</h2>

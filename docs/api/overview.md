@@ -3,8 +3,9 @@
 The Bandit API is an **OpenAI-compatible** HTTP API for Bandit's first-party
 models. If you've called OpenAI's `chat/completions`, you already know the shape:
 point your base URL at your Bandit gateway, send a `model` from the
-[catalogue](api-models.html), and Bandit handles routing, scaling, and keeping
-your data private.
+[catalogue](api-models.html), and Bandit handles routing and scaling.
+[Where requests run](api-models.html#where-requests-run) lists which hardware or
+provider serves each model.
 
 ## Base URL
 

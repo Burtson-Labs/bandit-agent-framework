@@ -25,6 +25,8 @@ Three implementations ship:
 | **OpenAI-compatible** | any `/chat/completions` endpoint — LM Studio, vLLM, OpenRouter, Together, Groq, … | API key |
 | **Bandit cloud** | the Bandit gateway (`api.burtson.ai`) | `BANDIT_API_KEY` |
 
+With Ollama on your machine, prompts and code stay on it. With an OpenAI-compatible endpoint, that endpoint's operator receives them under its terms. Bandit cloud sends them to Burtson Labs' gateway, which runs `bandit-core` models on Burtson Labs' GPUs and, for paid plans, `bandit-logic` models through OpenRouter on zero-data-retention endpoints; see [Where requests run](../api/models.md#where-requests-run) and [What Bandit sends](https://burtson.ai/bandit/what-bandit-sends).
+
 Because the contract is so small, writing a fourth provider is a short afternoon — anything that can stream text qualifies.
 
 ---
