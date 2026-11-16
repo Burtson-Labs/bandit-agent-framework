@@ -310,11 +310,8 @@ jobs:
           body: |
             ## Highlights
 
-            - Read-aloud with Bandit Cloud now uses the Heart voice by default, with four voices to pick from in Settings → Voice (Heart, Michael, Emma, George).
-            - Long replies are read aloud in full with Bandit Cloud: they are split into chunks at sentence breaks and played back to back, and Stop cancels what is left.
-            - The cloud artifact tools are now called Bandit Stash in what you see; tool names and allow rules are unchanged.
-            - Setting descriptions say exactly where Ollama requests go (the Ollama server you set) instead of calling it private.
-            - New Stealth icon in the Marketplace, the activity bar and the chat panel.
+            - The Bandit ninja is the thinking indicator in the chat: its eyes glance about while the model thinks, its visor lights up while a tool call is written, and it blinks while the reply streams. Bigger (28 px) so the eyes read, in your theme's muted colour, with bouncing dots after the phrase.
+            - Signed in to Bandit Cloud, Bandit can search and read your earlier Bandit chats (`search_conversations`, `read_conversation`) and answer from what was actually said. Only your own chats synced to your Bandit account; never other people's, local-only chats or other assistants' history. Not offered with Ollama, other providers or offline.
 
             ## Install
 

@@ -2,6 +2,11 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.458 (2026-11-15)
+
+- **The Bandit ninja is the thinking indicator.** The status line in the chat now leads with the Bandit mark instead of the glowing orb. Its eyes glance left and right while the model thinks, a band of light crosses its visor while a tool call is being written, and it blinks while the reply streams in. The mark is 28 px so the eyes are readable, it takes your theme's muted text colour, and the phrase after it ends in three small bouncing dots. Screen readers hear one status ("Bandit is thinking", "Running read_file", "Writing") instead of the changing phrase. With reduced motion turned on in your system, the mark stays still and the dots become a plain "…".
+- **Bandit can look up your earlier Bandit chats.** When you are signed in to Bandit Cloud and using it as the provider, the agent has two new tools: `search_conversations` finds your past Bandit conversations by words in their titles or messages, and `read_conversation` reads one of them, so questions like "what did we decide about pricing last week?" are answered from what was actually said rather than guessed from a title. They only reach your own conversations that are synced to your Bandit account: never other people's chats, never chats kept local (sync off or a local model), never history from other AI assistants. Like the other Bandit Cloud tools they ask before running by default, the approval card names the Bandit Cloud host and the search words, plan mode does not run them, and they are not offered with Ollama, another provider or offline mode.
+
 ## 1.7.457 (2026-11-15)
 
 - **New Stealth icon.** The extension has a new icon in the Marketplace and the Extensions view, and a cropped version of the mark that fills its slot in the activity bar, the chat panel and the settings footer. The activity bar icon still takes the colour of your theme.
