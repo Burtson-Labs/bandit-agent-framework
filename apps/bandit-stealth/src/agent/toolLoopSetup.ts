@@ -43,6 +43,8 @@ import {
   buildGetArtifactTool,
   buildUpdateArtifactTool,
   buildEmailArtifactTool,
+  buildSearchConversationsTool,
+  buildReadConversationTool,
   buildFetchImageTool,
   buildGenerateImageTool,
   buildReadMemoryTool,
@@ -62,6 +64,7 @@ import type { ProviderContext } from '../provider/context';
 import type { ConversationEntry } from '../services/conversationTypes';
 import { NodeToolExecutionContext } from './nodeToolContext';
 import { extensionOfflineMode } from '../helpers/offlineMode';
+import { resolveGatewayOrigin } from '../helpers/endpoints';
 
 type SkillRegistry = ReturnType<typeof createDefaultSkillRegistry>;
 type ToolRegistry = ReturnType<SkillRegistry['buildToolRegistryWithMap']>['registry'];
@@ -203,6 +206,18 @@ export async function buildTurnRunContext(
       registry.register(buildGetArtifactTool(artifactToolOpts));
       registry.register(buildUpdateArtifactTool(artifactToolOpts));
       registry.register(buildEmailArtifactTool(artifactToolOpts));
+      // search_conversations / read_conversation — read what the user actually
+      // said in an earlier synced Bandit chat instead of guessing from a title.
+      // Same gate as the Stash tools: Bandit Cloud provider, signed in, not
+      // offline. Own synced chats only; the gateway scopes it to the account.
+      const recallOpts = {
+        token: banditApiKey,
+        gatewayBaseUrl: resolveGatewayOrigin(configuration),
+        authBaseUrl: artifactToolOpts.authBaseUrl,
+        origin: 'vscode'
+      };
+      registry.register(buildSearchConversationsTool(recallOpts));
+      registry.register(buildReadConversationTool(recallOpts));
       // generate_image — coordinated local GPU image generation/editing. The
       // tool completes the full Anton claim → render → release cycle and waits
       // for Ollama to recover before the agent loop asks the local model for its

@@ -80,6 +80,8 @@ vi.mock('@burtson-labs/host-kit', () => {
     buildGetArtifactTool: makeBuilder('get_artifact'),
     buildUpdateArtifactTool: makeBuilder('update_artifact'),
     buildEmailArtifactTool: makeBuilder('email_artifact'),
+    buildSearchConversationsTool: (opts: unknown) => ({ name: 'search_conversations', type: 'builtin', opts }),
+    buildReadConversationTool: (opts: unknown) => ({ name: 'read_conversation', type: 'builtin', opts }),
     loadCombinedMemory: vi.fn(async () => ({ content: 'memo', sources: ['BANDIT.md'] })),
     loadHookSettings: vi.fn(async () => ({ hooks: {} })),
     openTurnLog: vi.fn(async () => ({
@@ -186,6 +188,27 @@ describe('buildTurnRunContext', () => {
 
     expect(agentCoreMock.registeredTools.map((tool) => tool.name)).toContain('generate_image');
     expect(agentCoreMock.registeredTools.map((tool) => tool.name)).toContain('publish_artifact');
+  });
+
+  it('registers conversation recall for signed-in Bandit turns, against the gateway origin', async () => {
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), {
+      ...baseOptions,
+      banditApiKey: 'bai_test',
+      providerKind: 'bandit'
+    });
+    const recall = agentCoreMock.registeredTools.filter((tool) => /conversation/.test(tool.name));
+    expect(recall.map((tool) => tool.name)).toEqual(['search_conversations', 'read_conversation']);
+    const opts = (recall[0] as unknown as { opts: Record<string, string> }).opts;
+    expect(opts.token).toBe('bai_test');
+    expect(opts.gatewayBaseUrl).toBe('https://api.burtson.ai');
+    expect(opts.origin).toBe('vscode');
+  });
+
+  it('registers no conversation recall without a Bandit Cloud sign-in', async () => {
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), { ...baseOptions, providerKind: 'bandit' });
+    await buildTurnRunContext(makeCtx({ mcpListCount: 0 }), { ...baseOptions, banditApiKey: 'bai_test', providerKind: 'ollama' });
+    const names = agentCoreMock.registeredTools.map((tool) => tool.name);
+    expect(names.filter((n) => /conversation/.test(n))).toEqual([]);
   });
 
   it('registers no artifact or image tool for an Ollama turn even with a key present', async () => {

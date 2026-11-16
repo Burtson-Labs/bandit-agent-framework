@@ -5,7 +5,8 @@
  * The card has to show the exact destination, not a tool name: the full URL
  * for web_fetch / fetch_image (anything in the query string leaves the
  * machine), the search text and provider for web_search, the resolved remote
- * URL for git_push / git_pull, and the Bandit Cloud host for the Bandit Stash tools.
+ * URL for git_push / git_pull, the Bandit Cloud host for the Bandit Stash tools,
+ * and the gateway host plus the search words for conversation recall.
  */
 import { execFile } from 'child_process';
 import { isNetworkTool, mcpServerOf } from '@burtson-labs/host-kit';
@@ -76,7 +77,9 @@ export async function describeNetworkDestination(
   name: string,
   params: Record<string, string>,
   workspaceRoot: string,
-  git?: GitRunner
+  git?: GitRunner,
+  /** The Bandit gateway origin (helpers/endpoints resolveGatewayOrigin). */
+  gatewayOrigin?: string
 ): Promise<NetworkDestination | undefined> {
   if (!isNetworkTool(name)) {return undefined;}
   switch (name) {
@@ -108,6 +111,10 @@ export async function describeNetworkDestination(
       return { line: `Creates a share link${params.url ? ` for ${params.url}` : ''} to a Bandit Stash item (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')}) that works for anyone who has it` };
     case 'email_artifact':
       return { line: `Emails a link to a Bandit Stash item${params.url ? ` (${params.url})` : ''}${params.to ? ` to ${params.to}` : ''} (${hostOf(process.env.BANDIT_S3_URL, 'https://s3.burtson.ai')})` };
+    case 'search_conversations':
+      return { line: `Searches your own synced Bandit chats on Bandit Cloud (${hostOf(gatewayOrigin ?? process.env.BANDIT_GATEWAY_URL, 'https://api.burtson.ai')}) for: ${params.query ?? ''}` };
+    case 'read_conversation':
+      return { line: `Reads one of your own synced Bandit chats${params.id ? ` (id ${params.id})` : ''} from Bandit Cloud (${hostOf(gatewayOrigin ?? process.env.BANDIT_GATEWAY_URL, 'https://api.burtson.ai')})` };
     case 'generate_image':
       return { line: `Sends the image prompt to Bandit Cloud (${hostOf(process.env.BANDIT_ANTON_URL, 'https://anton.burtson.ai')})` };
     default: {

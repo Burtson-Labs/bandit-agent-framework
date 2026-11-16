@@ -106,3 +106,25 @@ export function resolveAccountUsageUrl(configuration: vscode.WorkspaceConfigurat
   const fallback = configuration.get<string>('apiUrl', DEFAULT_API_URL);
   return deriveEndpoint(undefined, fallback, 'api/stealth/account/usage');
 }
+
+/**
+ * The Bandit gateway's origin (scheme + host), for gateway APIs that live
+ * beside the completions path, such as conversation recall at
+ * `/api/v1/conversations/...`. BANDIT_GATEWAY_URL wins, then the configured
+ * `apiUrl`'s origin, then api.burtson.ai.
+ */
+export function resolveGatewayOrigin(
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const fromEnv = env.BANDIT_GATEWAY_URL?.trim();
+  for (const candidate of [fromEnv, configuration.get<string>('apiUrl', DEFAULT_API_URL)]) {
+    if (!candidate) {continue;}
+    try {
+      return new URL(candidate).origin;
+    } catch {
+      // fall through to the next candidate
+    }
+  }
+  return new URL(DEFAULT_API_URL).origin;
+}

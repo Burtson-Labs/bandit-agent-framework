@@ -24,7 +24,17 @@ import type { ConversationEntry } from '../services/conversationTypes';
 import { buildPermissionAskPreview } from './permissionAskPreview';
 import { describeNetworkDestination } from './networkDestination';
 import { extensionOfflineMode } from '../helpers/offlineMode';
+import { resolveGatewayOrigin } from '../helpers/endpoints';
 import type { TurnState } from './turnState';
+
+/** The gateway origin for the approval card; undefined if settings cannot be read. */
+function gatewayOriginForCard(): string | undefined {
+  try {
+    return resolveGatewayOrigin(vscode.workspace.getConfiguration('banditStealth'));
+  } catch {
+    return undefined;
+  }
+}
 
 export type BeforeToolExecuteResult =
   | { allow: true }
@@ -379,7 +389,13 @@ export function buildBeforeToolExecute(deps: BeforeToolExecuteDeps): BeforeToolE
       const { description, bodyPreview, diffStats, command, paramsPreview } = preview;
       // Network tools: the card names the exact destination (full URL,
       // resolved git remote, Bandit Cloud host), not just the tool.
-      const destination = await describeNetworkDestination(name, params, workspaceRoot).catch(() => undefined);
+      const destination = await describeNetworkDestination(
+        name,
+        params,
+        workspaceRoot,
+        undefined,
+        gatewayOriginForCard()
+      ).catch(() => undefined);
       const warning = destination
         ? [destination.line, preview.warning].filter(Boolean).join('\n\n')
         : preview.warning;
