@@ -86,7 +86,7 @@ export interface BanditThinkingMarkProps {
  */
 export const BanditThinkingMark = ({
   state = "thinking",
-  size = 16,
+  size = 28,
   className
 }: BanditThinkingMarkProps): JSX.Element => {
   // Each instance clips its own band: a shared id would break the moment the

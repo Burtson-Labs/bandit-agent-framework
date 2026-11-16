@@ -1089,9 +1089,15 @@
 .markdown-message .bandit-status-line .bandit-thinking-dots {
   color: var(--agent-ui-text-muted, #6b7280);
 }
+/* 28 px, the web app's size (bandit-engine 2.1.23): at the old 1.2em (about
+   15 px) the eyes were a smudge and their glance did not read. The pill's left
+   padding tightens so the bigger mark does not push the phrase out. */
 .markdown-message .bandit-status-line .bandit-thinking-mark {
-  width: 1.2em;
-  height: 1.2em;
+  width: 28px;
+  height: 28px;
+}
+.markdown-message .bandit-status-line.bandit-thinking {
+  padding-left: 0.3em;
 }
 .bandit-thinking-mark {
   display: inline-block;
