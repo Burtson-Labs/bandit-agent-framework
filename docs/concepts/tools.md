@@ -75,6 +75,8 @@ There's also `todo_write` (a working checklist), and the memory tools `remember`
 
 Hosts signed in to Bandit cloud also register the **Bandit Stash** tools (`publish_artifact`, `share_artifact`, `list_artifacts`, `get_artifact`, `update_artifact`, `delete_artifact`, `restore_artifact`, `email_artifact`). They save a workspace file to the user's Bandit Stash (formerly Artifacts) and return a link. They have nothing to do with `git_stash`, which shelves uncommitted changes in the repository.
 
+They also register the **conversation recall** tools, `search_conversations` and `read_conversation` (`buildSearchConversationsTool`, `buildReadConversationTool`). They search and read the user's own Bandit conversations that are synced to their Bandit account, through the gateway's `/api/v1/conversations` recall endpoints, so the agent answers from what was actually said rather than from a title. They never see other people's chats, chats kept local (sync off or a local model), or history from other AI assistants. Like the other cloud tools they ask by default and are not offered offline.
+
 ---
 
 ## Gating
