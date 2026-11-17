@@ -31,6 +31,16 @@ import type { ToolLoopMessage } from './tool-types';
 export interface CompactionOptions {
   /** Target token budget. Defaults to 12000 (safe for 16k num_ctx). */
   tokenBudget?: number;
+  /**
+   * Where to compact down to once the budget is exceeded. Defaults to the
+   * budget itself. Below the budget leaves headroom: compacting only to
+   * just under it meant the next tool result crossed it again, so
+   * compaction fired almost every iteration, and each time it rewrote an
+   * earlier message. A provider's prompt cache keys on the unchanged
+   * prefix, so every such rewrite re-billed the rest of the conversation
+   * at the uncached rate. Clamped to the budget.
+   */
+  targetTokens?: number;
   /** Always keep the last N tool-result messages in full. Default 2. */
   keepRecentToolResults?: number;
   /** Character-to-token ratio for heuristic counting. Default 4. */
@@ -98,6 +108,10 @@ export function compactToolMessages(
   const budget = options.tokenBudget ?? DEFAULT_BUDGET;
   const keepRecent = options.keepRecentToolResults ?? DEFAULT_KEEP_RECENT;
   const cpt = options.charsPerToken ?? DEFAULT_CPT;
+  const target =
+    options.targetTokens !== undefined && Number.isFinite(options.targetTokens) && options.targetTokens > 0
+      ? Math.min(options.targetTokens, budget)
+      : budget;
 
   const beforeTokens = messages.reduce((acc, m) => acc + estimateTokens(m.content, cpt), 0);
   if (beforeTokens <= budget) {
@@ -132,7 +146,7 @@ export function compactToolMessages(
   const summarized = new Set<number>();
   let estimatedAfter = beforeTokens;
   for (const idx of summarizableIndices) {
-    if (estimatedAfter <= budget) {break;}
+    if (estimatedAfter <= target) {break;}
     const original = messages[idx].content;
     const summary = summarizeToolResult(original);
     estimatedAfter -= estimateTokens(original, cpt);
@@ -156,6 +170,8 @@ export function compactToolMessages(
   // Still over budget after compacting tool results? Drop the oldest
   // non-system, non-first-user messages until we fit. This is the
   // "last resort" branch — well within budget in normal usage.
+  // Only to fit the budget, never to make headroom: this drops whole
+  // messages, which the target is not worth.
   if (afterTokens > budget) {
     const systemIndices = new Set<number>();
     const firstUserIndex = out.findIndex((m) => m.role === 'user');

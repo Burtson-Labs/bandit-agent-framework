@@ -35,6 +35,9 @@ export interface ApplyCompactionArgs {
   /** Token budget for the chat messages. `undefined`/`<=0`/non-finite
    * disables compaction (returns aggressive=false without doing work). */
   tokenBudget: number | undefined;
+  /** Where to compact down to once over the budget (compactMessages.ts
+   * `targetTokens`); undefined compacts to the budget. */
+  targetTokens?: number;
   /** Event sink for `tool_loop:compacted`. */
   emit: CompactionEmit;
   /** Current iteration counter — propagated into the event payload. */
@@ -49,13 +52,13 @@ export interface ApplyCompactionResult {
 }
 
 export function applyCompactionIfNeeded(args: ApplyCompactionArgs): ApplyCompactionResult {
-  const { messages, tokenBudget, emit, iteration } = args;
+  const { messages, tokenBudget, targetTokens, emit, iteration } = args;
 
   if (tokenBudget === undefined || tokenBudget <= 0 || !Number.isFinite(tokenBudget)) {
     return { aggressive: false };
   }
 
-  const report = compactToolMessages(messages, { tokenBudget });
+  const report = compactToolMessages(messages, { tokenBudget, targetTokens });
   if (report.messagesCompacted === 0) {
     return { aggressive: false };
   }

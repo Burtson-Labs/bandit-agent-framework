@@ -139,6 +139,14 @@ export interface ToolUseLoopOptions {
    */
   messageTokenBudget?: number;
   /**
+   * Where compaction trims to once `messageTokenBudget` is exceeded.
+   * Defaults to the budget. Set below it (e.g. 60%) for providers that bill
+   * a cached prompt prefix at a discount: compacting only to just under the
+   * budget re-fired on nearly every iteration and each pass rewrote an
+   * earlier message, so the cached prefix was lost every time.
+   */
+  messageTokenTarget?: number;
+  /**
    * Cooperative cancellation. When the host aborts this signal the loop
    * stops streaming the current iteration, skips remaining iterations,
    * and returns whatever has been gathered so far with `cancelled: true`
@@ -916,6 +924,7 @@ export class ToolUseLoop {
       const { aggressive: aggressiveCompactionThisIteration } = applyCompactionIfNeeded({
         messages,
         tokenBudget: effectiveOptions.messageTokenBudget,
+        targetTokens: effectiveOptions.messageTokenTarget,
         emit,
         iteration: iterations
       });

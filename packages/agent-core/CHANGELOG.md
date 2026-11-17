@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.98
+
+- Compaction can leave headroom: `messageTokenTarget` (ToolUseLoop) / `targetTokens` (`compactToolMessages`) is where history is trimmed to once `messageTokenBudget` is exceeded. It defaults to the budget, which is the old behaviour. Compacting only to just under the budget meant the next tool result crossed it again, so compaction fired on nearly every iteration, and each pass rewrote an earlier message; a provider's prompt cache covers only the unchanged prefix, so each pass re-billed the rest of the conversation at the uncached rate. In a 60-iteration simulation with a 12K budget, a 7.2K target cuts the number of compactions by more than two-thirds. The last-resort step that drops whole messages still only runs to fit the budget, never to reach the target.
+
 ## 1.6.97
 
 - The tool-error recovery nudge no longer fires when the model's reply already explains the failure (it repeats a distinctive token from the error output, or plainly says the step failed). Before, a blocked `web_fetch` the model had already explained got nudged, the model restated the same answer, and the terminal showed it twice. Short replies that drop the task are still nudged.
