@@ -82,3 +82,39 @@ describe('compactToolMessages targetTokens', () => {
     expect(report.afterTokens).toBeLessThanOrEqual(12_000);
   });
 });
+
+describe('old large tool calls, with a target', () => {
+  const write = (i: number): ToolLoopMessage => ({
+    role: 'assistant',
+    content:
+      `Writing game ${i}.\n<tool_call>{"name":"write_file","params":{"path":"games/g${i}.html","content":"` +
+      '<div>\\n'.repeat(600) +
+      '"}}</tool_call>'
+  });
+  const ok = (i: number): ToolLoopMessage => ({
+    role: 'user',
+    content: `<tool_result name="write_file">\nWrote games/g${i}.html\n</tool_result>`
+  });
+
+  it('keeps the name and path of an old write_file and drops its content', () => {
+    const messages: ToolLoopMessage[] = [{ role: 'user', content: 'build the games' }];
+    for (let i = 0; i < 12; i++) messages.push(write(i), ok(i));
+    const report = compactToolMessages(messages, { tokenBudget: 8_000, targetTokens: 4_000 });
+    // The newest four calls stay whole (~4.8K tokens), so this is as low as it goes.
+    expect(report.afterTokens).toBeLessThan(5_500);
+    const first = report.compacted[1].content;
+    expect(first).toContain('Writing game 0.');
+    expect(first).toContain('[earlier call: write_file games/g0.html');
+    expect(first).toContain('read games/g0.html for its current content');
+    expect(first).not.toContain('<tool_call>');
+    // The newest calls are kept in full.
+    expect(report.compacted.at(-2)?.content).toContain('<tool_call>');
+  });
+
+  it('leaves tool calls alone without a target', () => {
+    const messages: ToolLoopMessage[] = [{ role: 'user', content: 'build the games' }];
+    for (let i = 0; i < 12; i++) messages.push(write(i), ok(i));
+    const report = compactToolMessages(messages, { tokenBudget: 8_000 });
+    expect(report.compacted.filter((m) => m.content.includes('[earlier call:'))).toHaveLength(0);
+  });
+});

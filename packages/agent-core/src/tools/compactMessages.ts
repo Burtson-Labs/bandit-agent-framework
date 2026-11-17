@@ -96,6 +96,38 @@ function summarizeToolResult(content: string): string {
   return `<tool_result name="${toolName}">[earlier run, ${lineCount} lines elided — summary: ${shortFirst}]</tool_result>`;
 }
 
+/** An assistant turn carrying a tool call whose arguments are worth eliding. */
+const LARGE_TOOL_CALL_CHARS = 2000;
+
+function isLargeToolCallMessage(msg: ToolLoopMessage): boolean {
+  return (
+    msg.role === 'assistant' &&
+    msg.content.length > LARGE_TOOL_CALL_CHARS &&
+    msg.content.includes('<tool_call>')
+  );
+}
+
+/**
+ * The assistant's words before its first call, then one line per call with
+ * the tool and the path it touched. Plain text, no `<tool_call>` tags: a
+ * placeholder must never parse, or be copied, as a call with its content
+ * missing.
+ */
+function summarizeToolCall(content: string): string {
+  const first = content.indexOf('<tool_call>');
+  const prose = content.slice(0, first).trim();
+  const lead = prose.length > 300 ? prose.slice(0, 297) + '…' : prose;
+  const calls = content.slice(first).split('<tool_call>').slice(1);
+  const lines = calls.map((call) => {
+    const name = /"name"\s*:\s*"([^"]+)"/.exec(call)?.[1] ?? 'tool';
+    const path = /"(?:path|file|filePath)"\s*:\s*"([^"]+)"/.exec(call)?.[1];
+    const lineCount = call.split('\\n').length;
+    const where = path ? `; read ${path} for its current content` : '';
+    return `[earlier call: ${name}${path ? ` ${path}` : ''} — its ${lineCount}-line arguments are elided from history${where}]`;
+  });
+  return [lead, ...lines].filter(Boolean).join('\n');
+}
+
 /**
  * Main entry point. Returns compacted messages plus a report of what
  * changed. Callers can log the report so agents/CLIs can surface
@@ -154,11 +186,39 @@ export function compactToolMessages(
     summarized.add(idx);
   }
 
+  // With a target set, old tool calls with large arguments go next: a
+  // write_file carries the whole file, and in a long building session those
+  // calls outweigh the results (2026-11-14: 48 write_file calls averaging
+  // ~900 tokens, results trimmed to ~160). Results alone could not get under
+  // the target, so compaction re-fired on nearly every call. The file is on
+  // disk; the call's name and path are kept. Not done without a target, so
+  // hosts that did not opt in see no change.
+  const shortenedCalls = new Map<number, string>();
+  if (estimatedAfter > target && target < budget) {
+    const callIndices: number[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (isLargeToolCallMessage(messages[i])) {callIndices.push(i);}
+    }
+    const keepCalls = Math.min(callIndices.length, keepRecent);
+    for (const idx of callIndices.slice(0, callIndices.length - keepCalls)) {
+      if (estimatedAfter <= target) {break;}
+      const original = messages[idx].content;
+      const summary = summarizeToolCall(original);
+      estimatedAfter -= estimateTokens(original, cpt);
+      estimatedAfter += estimateTokens(summary, cpt);
+      shortenedCalls.set(idx, summary);
+    }
+  }
+
   const out: ToolLoopMessage[] = [];
   let messagesCompacted = 0;
   for (let i = 0; i < messages.length; i++) {
+    const shortened = shortenedCalls.get(i);
     if (summarized.has(i)) {
       out.push({ role: messages[i].role, content: summarizeToolResult(messages[i].content) });
+      messagesCompacted++;
+    } else if (shortened !== undefined) {
+      out.push({ role: messages[i].role, content: shortened });
       messagesCompacted++;
     } else {
       out.push(messages[i]);

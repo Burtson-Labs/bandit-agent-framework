@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.99
+
+- With a compaction target set, old tool calls with large arguments are shortened too, once older tool results are not enough: the assistant's words stay, and each call becomes one line naming the tool and the path it touched (`[earlier call: write_file games/g0.html — its 412-line arguments are elided from history; read games/g0.html for its current content]`). Plain text, no `<tool_call>` tags, so a placeholder never parses or gets copied as a call. The newest `keepRecentToolResults` calls stay whole. In a long building session the written files outweighed the results, so results alone could not reach the target and compaction still fired on nearly every call. Replaying a real 466-call session with a 100K budget and a 50K target: 3 compactions instead of 61, and 32% fewer input tokens than the old 196K budget. No change without a target.
+
 ## 1.6.98
 
 - Compaction can leave headroom: `messageTokenTarget` (ToolUseLoop) / `targetTokens` (`compactToolMessages`) is where history is trimmed to once `messageTokenBudget` is exceeded. It defaults to the budget, which is the old behaviour. Compacting only to just under the budget meant the next tool result crossed it again, so compaction fired on nearly every iteration, and each pass rewrote an earlier message; a provider's prompt cache covers only the unchanged prefix, so each pass re-billed the rest of the conversation at the uncached rate. In a 60-iteration simulation with a 12K budget, a 7.2K target cuts the number of compactions by more than two-thirds. The last-resort step that drops whole messages still only runs to fit the budget, never to reach the target.
