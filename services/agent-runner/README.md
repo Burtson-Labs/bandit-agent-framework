@@ -129,7 +129,12 @@ The published image runs as uid 1000, not root, and ships `/workspaces`
 owned by that uid as the conventional mount point for
 `AGENT_RUNNER_WORKSPACE_ROOT`. A workspace mounted from elsewhere must be
 owned by the same uid — both for write access and because `git` refuses
-repositories owned by another user.
+repositories owned by another user. When it is not, a change request fails
+at once with `WORKSPACE_NOT_WRITABLE` (a question still runs), and a write
+refused mid-turn tells the model the workspace is read-only instead of
+handing it a raw `EACCES` with the mount path. The Bandit gateway, which
+clones as root into the volume it shares with this sidecar, chowns each
+workspace to uid 1000 before every turn.
 
 Recommended orchestrator settings, all of which the image already
 satisfies: run as non-root, disallow privilege escalation, drop all

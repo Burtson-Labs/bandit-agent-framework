@@ -170,6 +170,36 @@ function resolveInWorkspace(root: string, p: string): string {
   throw new Error(`path escapes workspace: ${p}`);
 }
 
+/**
+ * A write the runner's own user may not make (EACCES/EPERM/EROFS) is a
+ * platform fault, not a model mistake: on 16 Nov 2026 the gateway's root-owned
+ * clone left every apply_edit failing with a raw "EACCES ... /app/app_data/..."
+ * the model could only puzzle over (`ls -l`, "owned by root"), until two give-up
+ * nudges later the turn ended NO_CHANGES_FOR_MUTATION. Say plainly what is
+ * wrong, without the internal mount path, and tell the model not to retry.
+ */
+export function describeWriteFailure(err: unknown, relPath: string): Error {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+    return new Error(
+      `the workspace is not writable by the agent runner (${code} on ${relPath}). ` +
+        'This is a platform problem, not something a different tool or path will fix — ' +
+        'do not retry the write; tell the user the cloud workspace is read-only.',
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/** True when the runner's user can create files in the workspace root. */
+export async function workspaceWritable(root: string): Promise<boolean> {
+  try {
+    await fs.access(root, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function makeContext(
   workspaceRoot: string,
   onArtifact: (p: string, kind: 'created' | 'modified' | 'deleted') => void,
@@ -186,13 +216,21 @@ function makeContext(
       } catch {
         existed = false;
       }
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, content, 'utf8');
+      try {
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, content, 'utf8');
+      } catch (err) {
+        throw describeWriteFailure(err, path.relative(workspaceRoot, abs));
+      }
       onArtifact(path.relative(workspaceRoot, abs), existed ? 'modified' : 'created');
     },
     deleteFile: async (p) => {
       const abs = resolveInWorkspace(workspaceRoot, p);
-      await fs.rm(abs, { force: true });
+      try {
+        await fs.rm(abs, { force: true });
+      } catch (err) {
+        throw describeWriteFailure(err, path.relative(workspaceRoot, abs));
+      }
       onArtifact(path.relative(workspaceRoot, abs), 'deleted');
     },
     listFiles: async (pattern, cwd) => {
@@ -335,6 +373,21 @@ export async function runTurn(
   emit({ type: 'turn.started', taskId, protocol: 1, runnerVersion: RUNNER_VERSION });
   if (signal?.aborted) {
     emit(cancelledEvent());
+    return;
+  }
+
+  // A change request into a workspace this user cannot write can only end
+  // NO_CHANGES_FOR_MUTATION after a wasted model loop. Fail it up front, with
+  // a code the gateway and a person can act on. Read-only questions still run.
+  if (requiresWorkspaceMutation(req.prompt) && !(await workspaceWritable(req.workspacePath))) {
+    emit({
+      type: 'turn.error',
+      taskId,
+      code: 'WORKSPACE_NOT_WRITABLE',
+      message:
+        'The cloud workspace is not writable by the agent runner, so no change can be made. ' +
+        'This is a platform configuration problem (workspace file ownership), not the request.',
+    });
     return;
   }
 
