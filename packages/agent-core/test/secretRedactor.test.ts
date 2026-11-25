@@ -296,4 +296,101 @@ describe('redactSecrets', () => {
       expect(typeof out).toBe('string');
     });
   });
+
+  describe('credential formats added 2026-11 (harness audit)', () => {
+    const cases: Array<[string, string, string, string]> = [
+      // [label, input, expected output, kind]
+      ['AWS INI secret key',
+        'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        'aws_secret_access_key = <REDACTED:aws-secret-key>', 'aws-secret-key'],
+      ['Azure AccountKey in a connection string',
+        'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFy==;EndpointSuffix=core.windows.net',
+        'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=<REDACTED:azure-account-key>;EndpointSuffix=core.windows.net', 'azure-account-key'],
+      ['npm token in .npmrc',
+        `//registry.npmjs.org/:_authToken=npm_${'a'.repeat(36)}`,
+        '//registry.npmjs.org/:_authToken=<REDACTED:npm-token>', 'npm-token'],
+      ['bare legacy _authToken',
+        // Assembled at runtime so the literal never sits in the tree (GitHub push protection flags it).
+        '_authToken=' + ['0f3c2a1b', '1111', '2222', '3333', '444455556666'].join('-'),
+        '_authToken=<REDACTED:npm-auth-token>', 'npm-auth-token'],
+      ['postgres URL password',
+        'postgres://admin:s3cretPass@db.local:5432/app',
+        'postgres://admin:<REDACTED:url-credentials>@db.local:5432/app', 'url-credentials'],
+      ['redis URL with empty user',
+        'redis://:hunter22@cache:6379',
+        'redis://:<REDACTED:url-credentials>@cache:6379', 'url-credentials'],
+      ['mongodb+srv URL',
+        'mongodb+srv://u:p%40ss@cluster0.x.net/db',
+        'mongodb+srv://u:<REDACTED:url-credentials>@cluster0.x.net/db', 'url-credentials'],
+      ['https basic-auth URL',
+        'https://user:pw@example.com/x',
+        'https://user:<REDACTED:url-credentials>@example.com/x', 'url-credentials'],
+      ['Slack webhook',
+        'url=https://hooks.slack.com/services/' + ['T0123ABCD', 'B0456EFGH', 'abcdefghijklmnopqrstuvwx'].join('/'),
+        'url=<REDACTED:slack-webhook>', 'slack-webhook'],
+      ['Hugging Face token',
+        `HF=hf_${'b'.repeat(34)}`,
+        'HF=<REDACTED:huggingface-token>', 'huggingface-token'],
+      ['GitHub refresh token',
+        `ghr_${'c'.repeat(36)}`,
+        '<REDACTED:github-refresh-token>', 'github-refresh-token'],
+      ['SendGrid key',
+        'SG.abcdefghijklmnopqrstuv.abcdefghijklmnopqrstuvwxyz0123',
+        '<REDACTED:sendgrid-key>', 'sendgrid-key'],
+      ['gh hosts.yml oauth_token',
+        `github.com:\n    oauth_token: gho_${'d'.repeat(36)}\n    user: mark`,
+        'github.com:\n    oauth_token: <REDACTED:github-oauth>\n    user: mark', 'github-oauth'],
+      ['gh hosts.yml legacy 40-hex token',
+        'oauth_token: 0123456789abcdef0123456789abcdef01234567',
+        'oauth_token: <REDACTED:secret-assignment>', 'secret-assignment'],
+      ['lowercase export',
+        'export x_api_key=ab12cd34ef56gh78ij90',
+        'export x_api_key=<REDACTED:secret-assignment>', 'secret-assignment'],
+      ['YAML password',
+        'db_password: Tr0ub4dor3xyzw9876',
+        'db_password: <REDACTED:secret-assignment>', 'secret-assignment'],
+      ['unquoted camelCase',
+        'clientSecret = abcdef0123456789abcd',
+        'clientSecret = <REDACTED:secret-assignment>', 'secret-assignment'],
+      ['quoted kebab key',
+        '"refresh-token": "abcDEF0123456789xyz"',
+        '"refresh-token": "<REDACTED:secret-assignment>"', 'secret-assignment']
+    ];
+    for (const [label, input, expected, kind] of cases) {
+      it(`redacts ${label}, keeping the name`, () => {
+        const r = redactSecrets(input);
+        expect(r.text).toBe(expected);
+        expect(r.kinds).toContain(kind);
+      });
+    }
+
+    const negatives = [
+      'token = "abc"',
+      'TOKEN_FILE=/home/me/.config/token1234567890',
+      'secret_key_name=my_secret_key_2024_prod',
+      'monkey: abcdefghij1234567890',
+      'key: process.env.OPENAI_API_KEY',
+      'password=os.environ["DB_PASSWORD_123456789"]',
+      'key: /etc/ssl/private/server2024.pem',
+      'sort_key: created_at',
+      'cacheKey: userProfile',
+      'primary_key = id',
+      'https://example.com/path?a=1',
+      'git@github.com:org/repo.git',
+      'ssh://git@github.com/org/repo',
+      'see http://localhost:3000/api for docs'
+    ];
+    for (const input of negatives) {
+      it(`leaves a non-secret alone: ${input}`, () => {
+        const r = redactSecrets(input);
+        expect(r.text).toBe(input);
+        expect(r.redactionCount).toBe(0);
+      });
+    }
+
+    it('never re-matches its own placeholders', () => {
+      const once = redactSecretsString('postgres://a:b1@h db_password: Tr0ub4dor3xyzw9876');
+      expect(redactSecretsString(once)).toBe(once);
+    });
+  });
 });

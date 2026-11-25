@@ -34,6 +34,13 @@ export interface SecretPattern {
   label: string;
   /** Detection regex. MUST use the `g` flag (replace-all). */
   re: RegExp;
+  /**
+   * Optional replacement builder for patterns that keep part of the match
+   * (a variable name, a URL's user/host) and hide only the value. Receives
+   * the regex's capture groups (index 0 = group 1) and the placeholder
+   * token. When absent the whole match is replaced with the token.
+   */
+  format?: (groups: string[], token: string) => string;
 }
 
 /**
@@ -74,6 +81,11 @@ export const BUILTIN_SECRET_PATTERNS: SecretPattern[] = [
     label: 'GitHub user-to-server token',
     re: /\bghu_[A-Za-z0-9]{36,251}\b/g
   },
+  {
+    kind: 'github-refresh-token',
+    label: 'GitHub refresh token',
+    re: /\bghr_[A-Za-z0-9]{36,251}\b/g
+  },
 
   // ─── Slack ────────────────────────────────────────────────────────
   {
@@ -92,6 +104,14 @@ export const BUILTIN_SECRET_PATTERNS: SecretPattern[] = [
     re: /\bxoxa-[A-Za-z0-9-]+\b/g
   },
 
+  // Incoming-webhook URLs carry their secret in the path, so the whole URL
+  // is the credential: anyone holding it can post to the channel.
+  {
+    kind: 'slack-webhook',
+    label: 'Slack incoming-webhook URL',
+    re: /https:\/\/hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/[A-Za-z0-9]+/g
+  },
+
   // ─── GitLab ───────────────────────────────────────────────────────
   {
     kind: 'gitlab-pat',
@@ -104,6 +124,59 @@ export const BUILTIN_SECRET_PATTERNS: SecretPattern[] = [
     kind: 'aws-access-key',
     label: 'AWS access key',
     re: /\b(?:AKIA|ASIA|AROA|AGPA|AIPA)[0-9A-Z]{16}\b/g
+  },
+
+  // The secret half of an AWS key pair has no prefix, so it is only
+  // recognisable by its name: `aws_secret_access_key = …` in
+  // ~/.aws/credentials (INI, lowercase — the SHOUTY env pattern below misses
+  // it) and the session token next to it.
+  {
+    kind: 'aws-secret-key',
+    label: 'AWS secret access key',
+    re: /\b(aws_secret_access_key|aws_session_token)(["']?)(\s*[:=]\s*)(["']?)([A-Za-z0-9/+=]{16,})\4/gi,
+    format: ([name, kq, sep, vq], token) => `${name}${kq}${sep}${vq}${token}${vq}`
+  },
+
+  // ─── Azure ────────────────────────────────────────────────────────
+  // Storage / Service Bus / Event Hub connection strings:
+  // `DefaultEndpointsProtocol=https;AccountName=x;AccountKey=<base64>;…`.
+  // Keeps the field name so the rest of the connection string stays legible.
+  {
+    kind: 'azure-account-key',
+    label: 'Azure account / shared access key',
+    re: /\b(AccountKey|SharedAccessKey)=([A-Za-z0-9+/]{20,}={0,2})/g,
+    format: ([name], token) => `${name}=${token}`
+  },
+
+  // ─── npm ──────────────────────────────────────────────────────────
+  {
+    kind: 'npm-token',
+    label: 'npm access token',
+    re: /\bnpm_[A-Za-z0-9]{36}\b/g
+  },
+  // .npmrc: `//registry.npmjs.org/:_authToken=…` (or a bare `_authToken=`).
+  // The value may be a legacy UUID token with no prefix, so the key is what
+  // identifies it. Runs after npm-token, whose placeholder `<…>` is outside
+  // the value class and so never re-matched.
+  {
+    kind: 'npm-auth-token',
+    label: 'npm _authToken value',
+    re: /(_authToken\s*=\s*)(["']?)([^\s"'<>]{8,})\2/g,
+    format: ([prefix, q], token) => `${prefix}${q}${token}${q}`
+  },
+
+  // ─── Hugging Face ─────────────────────────────────────────────────
+  {
+    kind: 'huggingface-token',
+    label: 'Hugging Face access token',
+    re: /\bhf_[A-Za-z0-9]{30,}\b/g
+  },
+
+  // ─── SendGrid ─────────────────────────────────────────────────────
+  {
+    kind: 'sendgrid-key',
+    label: 'SendGrid API key',
+    re: /\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g
   },
 
   // ─── Anthropic / OpenAI / Bandit ──────────────────────────────────
@@ -142,6 +215,17 @@ export const BUILTIN_SECRET_PATTERNS: SecretPattern[] = [
     kind: 'stripe-secret-key',
     label: 'Stripe secret key',
     re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b/g
+  },
+
+  // ─── Credentials embedded in URLs ─────────────────────────────────
+  // `postgres://user:pass@host/db`, `redis://:pass@host`, `https://u:p@h`.
+  // Only the password is hidden — scheme, user and host stay readable so
+  // the model can still reason about which database / service is meant.
+  {
+    kind: 'url-credentials',
+    label: 'password in a URL',
+    re: /\b([a-z][a-z0-9+.-]*:\/\/)([^\s:@/<>"'`]*):([^\s@/<>"'`]+)@/gi,
+    format: ([scheme, user], token) => `${scheme}${user}:${token}@`
   },
 
   // ─── JWTs (generic, three base64-url segments) ────────────────────
@@ -221,6 +305,27 @@ export const BUILTIN_SECRET_PATTERNS: SecretPattern[] = [
     kind: 'env-secret',
     label: 'env-style secret value',
     re: /\b((?:[A-Z][A-Z0-9_]*_)?(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?|API|AUTH))\s*[:=]\s*(['"]?)([^\s'"]{8,})\2/g
+  },
+
+  // ─── Generic secret assignments, any case ─────────────────────────
+  // Catches what the SHOUTY env pattern and the quoted-camelCase pattern
+  // miss: `export x_api_key=…`, `db_password: …` in YAML, gh's hosts.yml
+  // `oauth_token: …`, `client-secret = …`, unquoted camelCase.
+  //
+  // False positives are what make a redactor useless, so this one is strict:
+  // - the identifier must END in key / secret / token / password / passwd /
+  //   pwd, as a whole word part (`_token`, `-key`, `.secret`, `apiKey`) —
+  //   so `TOKEN_FILE=`, `secret_key_name=` and `monkey:` never match;
+  // - the value must be 16+ chars of a token alphabet, contain a letter
+  //   AND a digit, not start like a path (`/`, `.`, `~`), and end at a
+  //   delimiter — so `token = "abc"`, `key: process.env.API_KEY`,
+  //   `password=os.environ["PW"]` and file paths are left alone.
+  // Keeps the identifier, quotes and separator; replaces only the value.
+  {
+    kind: 'secret-assignment',
+    label: 'secret-named assignment value',
+    re: /(?<![A-Za-z0-9_.-])((?:[A-Za-z0-9_.-]*[_.-])?(?:[a-z][A-Za-z0-9]*(?=Key|Secret|Token|Password|Passwd|Pwd))?(?:key|secret|token|password|passwd|pwd|Key|Secret|Token|Password|Passwd|Pwd|KEY|SECRET|TOKEN|PASSWORD|PASSWD|PWD))(["']?)(\s*[:=]\s*)(["']?)(?![/.~])(?=[A-Za-z0-9_+/=.~-]*[0-9])(?=[A-Za-z0-9_+/=.~-]*[A-Za-z])([A-Za-z0-9_+/=.~-]{16,})\4(?=$|[\s"',;})\]])/gm,
+    format: ([name, kq, sep, vq], token) => `${name}${kq}${sep}${vq}${token}${vq}`
   }
 ];
 
@@ -292,6 +397,19 @@ export function redactSecrets(
         recordKind(pattern.kind);
         mutated = true;
         return `${kq}Authorization${kq}${sep}${vq}${scheme} <REDACTED:${pattern.kind}>${vq}`;
+      });
+    } else if (pattern.format) {
+      const format = pattern.format;
+      const token = `<REDACTED:${pattern.kind}>`;
+      working = working.replace(pattern.re, (...args: unknown[]) => {
+        redactionCount++;
+        recordKind(pattern.kind);
+        mutated = true;
+        // args = [match, ...groups, offset, input(, namedGroups)]; the
+        // numeric offset marks where the capture groups end.
+        const offsetIdx = args.findIndex((a, i) => i > 0 && typeof a === 'number');
+        const realGroups = args.slice(1, offsetIdx).map((g) => (typeof g === 'string' ? g : ''));
+        return format(realGroups, token);
       });
     } else {
       working = working.replace(pattern.re, () => {
