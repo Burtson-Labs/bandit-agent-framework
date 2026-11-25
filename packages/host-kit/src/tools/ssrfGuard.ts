@@ -683,7 +683,7 @@ export function responseHeader(headers: TransportResponse['headers'], name: stri
 export async function runGuardedWebFetch(
   rawUrl: string,
   options: GuardedFetchOptions = {}
-): Promise<{ output: string; isError: boolean }> {
+): Promise<{ output: string; isError: boolean; origin?: string }> {
   const got = await guardedGet(rawUrl, options);
   if (!got.ok) return { output: got.output, isError: true };
   const res = got.response;
@@ -694,6 +694,11 @@ export async function runGuardedWebFetch(
   const trimmed = body.length > 16 * 1024 ? body.slice(0, 16 * 1024) + '\n… (truncated)' : body;
   return {
     output: `HTTP ${res.status} ${res.statusText} • ${originalHost}\nContent-Type: ${ct || '(unknown)'}\n\n${trimmed}`,
-    isError: !ok
+    isError: !ok,
+    // Provenance for the <tool_result origin=…> attribute: the origin of the
+    // URL that actually served the body (after redirects), so the model sees
+    // where untrusted page text came from. Error bodies get it too — a 404
+    // page is still attacker-controlled text.
+    origin: got.url.origin
   };
 }
