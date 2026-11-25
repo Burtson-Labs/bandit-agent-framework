@@ -148,6 +148,14 @@ export interface McpCallResultLike {
   _meta?: Record<string, unknown>;
 }
 
+/**
+ * Cap on the text an MCP result puts in the model's context. Other tools
+ * already bound theirs (web_fetch 16 KB, commands 32 KB); an MCP server is
+ * third-party code and could return megabytes — a page dump, a whole table
+ * — which would blow the context window or crowd out the conversation.
+ */
+export const MAX_MCP_RESULT_CHARS = 64 * 1024;
+
 export function renderMcpResult(result: McpCallResultLike): ToolResult {
   const blocks = result?.content ?? [];
   const textParts: string[] = [];
@@ -169,7 +177,10 @@ export function renderMcpResult(result: McpCallResultLike): ToolResult {
       textParts.push(`[mcp:${block.type}] (non-text content omitted)`);
     }
   }
-  const output = textParts.join('\n').trim() || '(empty MCP response)';
+  const full = textParts.join('\n').trim() || '(empty MCP response)';
+  const output = full.length > MAX_MCP_RESULT_CHARS
+    ? `${full.slice(0, MAX_MCP_RESULT_CHARS)}\n\n[MCP result truncated: showing the first ${MAX_MCP_RESULT_CHARS / 1024} KB of ${Math.round(full.length / 1024)} KB — ask the tool for a narrower result (filter, page, or range) if you need the rest]`
+    : full;
   const metaOrigin = result?._meta?.origin;
   const origin = typeof metaOrigin === 'string' && metaOrigin ? metaOrigin : undefined;
   return {
