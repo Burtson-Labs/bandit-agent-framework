@@ -394,6 +394,7 @@ jobs:
       packageName: "@burtson-labs/core-chat"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-core:
@@ -406,6 +407,7 @@ jobs:
       packageName: "@burtson-labs/agent-core"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   # ─── Tier 2: depend on tier 1 ──────────────────────────────────────────────
@@ -419,6 +421,7 @@ jobs:
       packageName: "@burtson-labs/agent-ui"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-stealth-core-runtime:
@@ -431,6 +434,7 @@ jobs:
       packageName: "@burtson-labs/stealth-core-runtime"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-host-kit:
@@ -443,6 +447,7 @@ jobs:
       packageName: "@burtson-labs/host-kit"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-adapters-provider:
@@ -455,6 +460,7 @@ jobs:
       packageName: "@burtson-labs/agent-adapters-provider"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-adapters-node:
@@ -467,6 +473,7 @@ jobs:
       packageName: "@burtson-labs/agent-adapters-node"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-adapters-github:
@@ -479,6 +486,7 @@ jobs:
       packageName: "@burtson-labs/agent-adapters-github"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-adapters-vscode:
@@ -491,6 +499,7 @@ jobs:
       packageName: "@burtson-labs/agent-adapters-vscode"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
 
   publish-agent-adapters-web:
@@ -503,4 +512,5 @@ jobs:
       packageName: "@burtson-labs/agent-adapters-web"
       isPublic: true
       runs_on: '"ubuntu-latest"'
+      trustedPublishing: true
     secrets: inherit
