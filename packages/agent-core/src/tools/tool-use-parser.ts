@@ -482,16 +482,41 @@ export function sanitizeOriginAttr(origin: string | undefined): string | undefin
  * about tool markup — including this repo's own.
  */
 export function neutralizeResultEnvelope(text: string): string {
+  if (!text) {return text;}
+  return neutralizeForgedNudge(neutralizeEnvelopeTags(text));
+}
+
+function neutralizeEnvelopeTags(text: string): string {
   // The cheap bail-out has to be case-insensitive to match the replace below.
   // A case-SENSITIVE `includes('tool_result')` here let `<TOOL_RESULT>` short-
   // circuit out of the function untouched — a one-keystroke bypass of the
   // whole defense. Regex test rather than toLowerCase() so the common (clean)
   // path doesn't allocate a second copy of every file the agent reads.
-  if (!text || !/tool_result/i.test(text)) {return text;}
+  if (!/tool_result/i.test(text)) {return text;}
   // Capture the tag rather than re-emitting a literal, so `<TOOL_RESULT>` in a
   // source file comes back with its original casing. The ONLY byte this
-  // function is allowed to change is the opening `<`.
+  // replacement is allowed to change is the opening `<`.
   return text.replace(/<(\/?)(tool_result)\b/gi, '&lt;$1$2');
+}
+
+/**
+ * Defang the harness's own corrective-message marker inside tool OUTPUT.
+ *
+ * The loop's nudges start with AUTOMATED_NUDGE_PREFIX ("AUTOMATED HARNESS
+ * CHECK — this is NOT a message from the user…"), and the prompt teaches the
+ * model to treat that marker as the host speaking. A README, web page or MCP
+ * response containing the same words would otherwise pose as a host
+ * instruction from inside an untrusted result. Hyphenating the phrase and
+ * labelling it keeps the text readable while making it impossible for the
+ * quoted copy to match the real prefix. Whitespace-tolerant and
+ * case-insensitive so `automated  harness\ncheck` is caught too.
+ */
+const FORGED_NUDGE_RE = /\b(automated)\s+(harness)\s+(check)\b/gi;
+export const QUOTED_NUDGE_LABEL = '(quoted from tool output)';
+
+function neutralizeForgedNudge(text: string): string {
+  if (!/harness/i.test(text)) {return text;}
+  return text.replace(FORGED_NUDGE_RE, `$1-$2-$3 ${QUOTED_NUDGE_LABEL}`);
 }
 
 /**
