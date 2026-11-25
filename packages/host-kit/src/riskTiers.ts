@@ -31,6 +31,7 @@
  */
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import { isKnownLocalMcpTool, READ_ONLY_TOOLS } from './permissions';
 import { patchTargets } from './patchTargets';
 
@@ -148,7 +149,10 @@ const ROUTINE_SUBCOMMANDS: Record<string, Set<string>> = {
   dotnet: new Set(['build', 'test', 'restore', 'format']),
   mvn: new Set(['compile', 'test', 'verify']),
   gradle: new Set(['build', 'test', 'check']),
-  bundle: new Set(['exec', 'list', 'check']),
+  // `bundle exec <anything>` runs an arbitrary program under the bundle, so it
+  // is not a routine subcommand (2026-11-25 audit: `bundle exec ruby -e …`
+  // classified routine).
+  bundle: new Set(['list', 'check']),
   composer: new Set(['validate', 'show', 'outdated']),
   swift: new Set(['build', 'test'])
 };
@@ -284,7 +288,22 @@ const ELEVATED_COMMAND_RULES: CommandRule[] = [
   }
 ];
 
-const CREDENTIAL_PATH = /(^|\/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.netrc|\.npmrc|\.pypirc)(\/|$)|(^|\/)\.env(\.|$)|id_rsa|id_ed25519|credentials$/i;
+const CREDENTIAL_PATH = new RegExp([
+  String.raw`(^|[\\/])(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.netrc|\.npmrc|\.pypirc|\.azure|\.gcloud|\.bandit-keys|\.password-store|\.terraform\.d)([\\/]|$)`,
+  String.raw`(^|[\\/])\.config[\\/](gcloud|gh|hub|op)([\\/]|$)`,
+  String.raw`(^|[\\/])\.env(\.|$)`,
+  String.raw`id_rsa|id_ed25519|id_ecdsa|id_dsa`,
+  // `credentials`, `credentials.json`, `.credentials.json`, `credentials.yml` …
+  String.raw`credentials(\.(json|ya?ml|toml|ini|txt|csv))?$`,
+  // Shell / REPL / database histories hold pasted tokens and passwords.
+  String.raw`(^|[\\/])\.?[a-z_]*_history$|(^|[\\/])\.lesshst$`,
+  String.raw`(^|[\\/])(\.vault-token|\.pgpass|\.my\.cnf|\.boto|\.s3cfg|\.git-credentials|kubeconfig)$`,
+  String.raw`(^|[\\/])\.bandit[\\/]config(\.local)?\.json$`,
+  String.raw`(^|[\\/])\.m2[\\/]settings\.xml$|(^|[\\/])\.gradle[\\/]gradle\.properties$`,
+  // Files named for what they hold, data extensions only (`token.ts` is code).
+  String.raw`(^|[\\/])(secrets?|tokens?|passwords?|passwd|api[-_]?keys?|service[-_]?accounts?)\.(json|ya?ml|toml|ini|env|txt|cfg|conf|properties|xml|csv)$`,
+  String.raw`(^|[\\/])etc[\\/](shadow|gshadow|master\.passwd)$`
+].join('|'), 'i');
 
 /**
  * Files that make code run later, or let someone else in: login shells'
@@ -300,8 +319,25 @@ const PERSISTENCE_PATH = new RegExp([
   String.raw`(^|[\\/])etc[\\/](cron\.d|cron\.daily|cron\.hourly|cron\.weekly|cron\.monthly|crontab|systemd|rc\.local|profile\.d|profile|sudoers|sudoers\.d|pam\.d|ld\.so\.preload|launchd\.conf|periodic)([\\/]|$)`,
   String.raw`(^|[\\/])var[\\/]spool[\\/]cron([\\/]|$)`,
   String.raw`(^|[\\/])\.(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zshenv|zlogin|zlogout|profile|xinitrc|xsession|xprofile|gitconfig|git-credentials|hushlogin|mkshrc|kshrc|cshrc|tcshrc|config[\\/]fish[\\/]config\.fish)$`,
-  String.raw`(^|[\\/])\.git[\\/](hooks|config)([\\/]|$)`,
+  // The whole .git directory, not only hooks/ and config: `info/attributes`
+  // selects filter drivers, `index`/`HEAD`/`refs` rewrite history, and nothing
+  // under .git/ is ever an ordinary source edit. Paths are normalized before
+  // this regex runs, so `.git/./config`, `.git//hooks/x` and
+  // `.git/info/../hooks/x` cannot slip past it (2026-11-25 audit).
+  String.raw`(^|[\\/])\.git([\\/]|$)`,
   String.raw`(^|[\\/])\.husky([\\/]|$)`,
+  // Agent, editor and shell-hook configuration the next session or command
+  // reads: Bandit's own project settings, hooks and skills (a repository
+  // cannot be allowed to grant itself auto mode or define a tool that runs a
+  // command), Claude Code settings, MCP server lists, VS Code tasks and
+  // launch configs, direnv, devcontainers, pre-commit / lefthook hook files.
+  String.raw`(^|[\\/])\.bandit[\\/](settings[^\\/]*\.json|hooks[^\\/]*|skills|mcp-servers[^\\/]*)([\\/]|$)`,
+  String.raw`(^|[\\/])\.claude[\\/]settings[^\\/]*\.json$`,
+  String.raw`(^|[\\/])\.mcp\.json$`,
+  String.raw`(^|[\\/])\.vscode[\\/](tasks|launch)\.json$`,
+  String.raw`(^|[\\/])\.envrc$`,
+  String.raw`(^|[\\/])\.devcontainer([\\/]|$)`,
+  String.raw`(^|[\\/])(\.pre-commit-config\.ya?ml|lefthook(\.local)?\.ya?ml)$`,
   String.raw`authorized_keys2?$`,
   String.raw`(^|[\\/])\.ssh[\\/](config|rc|environment)$`,
   String.raw`Start Menu[\\/]Programs[\\/]Startup([\\/]|$)`
@@ -320,18 +356,101 @@ function commandParts(params: Record<string, string>): { full: string; argv: str
   return { full, argv };
 }
 
-function isOutsideWorkspace(rawPath: string, ctx: RiskContext): boolean {
-  if (!ctx.workspaceRoot || !rawPath) return false;
+function expandHome(rawPath: string, ctx: RiskContext): string {
   const home = ctx.homeDir ?? os.homedir();
-  const expanded = rawPath.trim().replace(/^~(?=\/|$)/, home);
-  const resolved = path.resolve(ctx.workspaceRoot, expanded);
-  const root = path.resolve(ctx.workspaceRoot);
-  return resolved !== root && !resolved.startsWith(root + path.sep);
+  return rawPath.trim().replace(/^~(?=[\\/]|$)/, home);
 }
 
-/** Any param value that names a credential file. */
-function touchesCredentials(params: Record<string, string>): boolean {
-  return Object.values(params).some((v) => typeof v === 'string' && CREDENTIAL_PATH.test(v));
+/**
+ * The spellings of a path the rule regexes must see. The model writes paths
+ * the way it likes, and a rule that only reads the raw text is a rule the
+ * model can step around: `.git/./config`, `.git//hooks/x` and
+ * `.git/info/../hooks/x` all name files the `.git/` rule exists for, and
+ * none of them matched it (2026-11-25 audit, auto mode ran the write). So
+ * every rule gets the raw text, the lexically normalized form (`~` expanded,
+ * backslashes to slashes, `.`/`..`/`//` folded) and, when a workspace is
+ * known, the absolute form. A command line is normalized the same way; its
+ * words are not path segments, so the fold only ever touches the path-like
+ * runs inside it.
+ */
+function pathForms(raw: string, ctx: RiskContext): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  const expanded = expandHome(trimmed, ctx).replace(/\\/g, '/');
+  const forms = new Set<string>([trimmed, path.posix.normalize(expanded)]);
+  if (ctx.workspaceRoot && !/\s/.test(trimmed)) {
+    forms.add(path.resolve(ctx.workspaceRoot, expanded).replace(/\\/g, '/'));
+  }
+  return [...forms];
+}
+
+/**
+ * Where a path really leads: the real path when it exists, and when it does
+ * not, the final components are followed by hand so a dangling symlink still
+ * resolves to its target's directory. Bounded; a failure to stat anything
+ * returns the lexical resolution, which is what the check used before.
+ */
+function resolveThroughLinks(absolute: string, depth = 0): string {
+  if (depth > 40) return absolute;
+  try {
+    return fs.realpathSync.native(absolute);
+  } catch {
+    /* not (fully) on disk */
+  }
+  try {
+    if (fs.lstatSync(absolute).isSymbolicLink()) {
+      const target = fs.readlinkSync(absolute);
+      return resolveThroughLinks(path.resolve(path.dirname(absolute), target), depth + 1);
+    }
+  } catch {
+    /* no entry: resolve the parent and keep this name */
+  }
+  const parent = path.dirname(absolute);
+  if (parent === absolute) return absolute;
+  return path.join(resolveThroughLinks(parent, depth + 1), path.basename(absolute));
+}
+
+/**
+ * 'outside' when the path names a place outside the workspace; 'symlink'
+ * when it is spelled inside the workspace but a symlink planted there
+ * (`notes.md -> ~/Library/LaunchAgents/x.plist`) makes it land outside; null
+ * when it stays inside. Judged against the real root, because `/tmp` is
+ * `/private/tmp` on macOS.
+ */
+function workspaceEscape(rawPath: string, ctx: RiskContext): 'outside' | 'symlink' | null {
+  if (!ctx.workspaceRoot || !rawPath) return null;
+  const expanded = expandHome(rawPath, ctx);
+  const root = path.resolve(ctx.workspaceRoot);
+  const resolved = path.resolve(root, expanded);
+  const inside = (candidate: string, base: string): boolean =>
+    candidate === base || candidate.startsWith(base + path.sep);
+  if (!inside(resolved, root)) return 'outside';
+  const realRoot = resolveThroughLinks(root);
+  const realTarget = resolveThroughLinks(resolved);
+  return inside(realTarget, realRoot) ? null : 'symlink';
+}
+
+function isOutsideWorkspace(rawPath: string, ctx: RiskContext): boolean {
+  return workspaceEscape(rawPath, ctx) !== null;
+}
+
+/**
+ * The narrow credential list applied to EVERY param, content included (the
+ * long-standing behaviour: a write whose body ends in a credential path is
+ * reviewed). The full CREDENTIAL_PATH list runs on location params only,
+ * in every spelling, so a README that merely mentions `tokens.json` is not a
+ * credential read.
+ */
+const CREDENTIAL_MENTION = /(^|\/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.netrc|\.npmrc|\.pypirc)(\/|$)|(^|\/)\.env(\.|$)|id_rsa|id_ed25519|credentials$/i;
+
+/** Any param value that names a credential file (location params in every spelling). */
+function touchesCredentials(params: Record<string, string>, ctx: RiskContext): boolean {
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value !== 'string') continue;
+    if (CREDENTIAL_MENTION.test(value)) return true;
+    if (LOCATION_PARAMS.includes(key) && pathForms(value, ctx).some((f) => CREDENTIAL_PATH.test(f))) return true;
+  }
+  return false;
 }
 
 /** Params that name a location or a command line, as opposed to file
@@ -339,10 +458,44 @@ function touchesCredentials(params: Record<string, string>): boolean {
 const LOCATION_PARAMS = ['path', 'cwd', 'cmd', 'args', 'url', 'file', 'target', 'destination', 'dest'];
 
 /** Any location-shaped param (or patch target) in a startup / login / git-hook place. */
-function touchesPersistence(name: string, params: Record<string, string>): boolean {
+function touchesPersistence(name: string, params: Record<string, string>, ctx: RiskContext): boolean {
   const values = LOCATION_PARAMS.map((k) => params[k]).filter((v): v is string => typeof v === 'string');
   if (name === 'apply_patch') values.push(...patchTargets(params));
-  return values.some((v) => PERSISTENCE_PATH.test(v));
+  return values.some((v) => pathForms(v, ctx).some((f) => PERSISTENCE_PATH.test(f)));
+}
+
+/**
+ * Flags that make a build, test or format tool run a program it was handed
+ * rather than the project's own definition: `go test -exec`, `go build
+ * -toolexec`, `prettier --plugin`, `eslint --rulesdir`, `vitest --require`,
+ * `node --import`, `cargo --config target.x.runner=…`. The project's own
+ * config (vitest.config.ts, .eslintrc) is project code the user opened and
+ * stays routine; a program named on the command line is not.
+ */
+const EXEC_FLAG = /^-(?:exec|execdir|toolexec)(?:=|$)|^--(?:toolexec|exec|plugins?|rulesdir|require|loader|import|experimental-loader|config-loader|preload|eval|runner)(?:=|$)|^-e$/;
+const CARGO_CONFIG_FLAG = /^(?:--config|-Z)(?:=|$)/;
+
+function namesAProgramToRun(argv: string[]): boolean {
+  const bin = argv[0] ?? '';
+  if (argv.slice(1).some((a) => EXEC_FLAG.test(a))) return true;
+  return bin === 'cargo' && argv.slice(1).some((a) => CARGO_CONFIG_FLAG.test(a));
+}
+
+/**
+ * A recursive read (`grep -r`, `find`, `ls -R`) rooted at the home directory,
+ * a user's folder, or the filesystem root: the shape of "search the machine
+ * for keys", which no project task needs.
+ */
+function sweepsHomeOrRoot(argv: string[], ctx: RiskContext): boolean {
+  const bin = argv[0] ?? '';
+  const recursive = bin === 'find' || argv.slice(1).some((a) => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(a) || a === '--recursive' || a === '--dereference-recursive');
+  if (!recursive) return false;
+  const home = expandHome('~', ctx).replace(/[\\/]+$/, '');
+  const roots = argv
+    .slice(1)
+    .filter((a) => a !== '--' && !a.startsWith('-'))
+    .map((a) => expandHome(a.replace(/^['"]|['"]$/g, ''), ctx).replace(/\\/g, '/').replace(/\/+$/, ''));
+  return roots.some((r) => r === '' || r === '/' || r === home || /^\/(Users|home)(\/[^/]+)?$/.test(r) || /^[A-Za-z]:$/.test(r));
 }
 
 /**
@@ -387,18 +540,26 @@ export function classifyRisk(
     const name = call.name;
     const params = call.params ?? {};
 
-    if (touchesCredentials(params)) {
+    if (touchesCredentials(params, ctx)) {
       return { tier: 'critical', rule: 'credential-path', why: 'Touches a credentials or secrets file.' };
     }
 
-    if (touchesPersistence(name, params)) {
+    if (touchesPersistence(name, params, ctx)) {
       return { tier: 'critical', rule: 'persistence-path', why: 'Touches a file that runs at login, on a schedule, or on the next git command.' };
     }
 
     // Any file-touching tool aimed outside the workspace is critical
     // regardless of which tool it is — that is the boundary the user
     // actually reasons about.
-    if (writeTargets(name, params).some((p) => isOutsideWorkspace(p, ctx))) {
+    const escapes = writeTargets(name, params).map((p) => workspaceEscape(p, ctx));
+    if (escapes.includes('symlink')) {
+      // A distinct rule on purpose: hosts relax `outside-workspace` for
+      // read tools (a read of ~/notes.md is the user's business), but a
+      // path that LOOKS inside the project and secretly leaves it is never
+      // relaxed — that is a planted link, not a user's choice.
+      return { tier: 'critical', rule: 'symlink-escape', why: 'This path is a symbolic link that leads outside your project folder.' };
+    }
+    if (escapes.includes('outside')) {
       return { tier: 'critical', rule: 'outside-workspace', why: 'Writes outside your project folder.' };
     }
 
@@ -486,6 +647,11 @@ export function classifyRisk(
       // in another directory it is somebody else's code, so it is not routine.
       const cwdOutside = !!params.cwd && isOutsideWorkspace(params.cwd, ctx);
       const allowedSubs = ROUTINE_SUBCOMMANDS[bin];
+      // A build/test/format tool told to run a program it was handed is
+      // whatever that program is, not "the project's tests".
+      if ((allowedSubs || ROUTINE_COMMANDS.has(bin)) && !READ_ONLY_COMMANDS.has(bin) && namesAProgramToRun(argv)) {
+        return { tier: 'elevated', rule: 'exec-flag', why: 'Runs a program named on the command line, not just the project\'s own build or tests.' };
+      }
       if (allowedSubs) {
         if (allowedSubs.has(sub) && cwdOutside) {
           return { tier: 'elevated', rule: 'outside-workspace-cwd', why: 'Runs a build or test step in a directory outside your project folder.' };
@@ -498,9 +664,19 @@ export function classifyRisk(
         if (readOnlyCommandWrites(argv)) {
           return { tier: 'elevated', rule: 'in-place-edit', why: 'Rewrites files in place.' };
         }
+        // Reads elsewhere stay routine (hosts decide how to treat reads
+        // outside the workspace), except a sweep of the whole home directory
+        // or disk: `grep -r token ~` is how a prompt-injected turn hunts for
+        // secrets, not how a user's project is inspected.
+        if (sweepsHomeOrRoot(argv, ctx)) {
+          return { tier: 'elevated', rule: 'home-wide-read', why: 'Searches your whole home directory or disk, not the project.', readOnly: true };
+        }
         return { tier: 'routine', rule: 'read-only-command', why: 'Inspects files or state without changing them.', readOnly: true };
       }
       if (ROUTINE_COMMANDS.has(bin)) {
+        if (bin === 'find' && sweepsHomeOrRoot(argv, ctx)) {
+          return { tier: 'elevated', rule: 'home-wide-read', why: 'Searches your whole home directory or disk, not the project.' };
+        }
         if (cwdOutside) {
           return { tier: 'elevated', rule: 'outside-workspace-cwd', why: 'Runs a build or test step in a directory outside your project folder.' };
         }
@@ -518,7 +694,12 @@ export function classifyRisk(
     if (MUTATING_MCP.test(bare)) {
       return { tier: 'elevated', rule: 'mcp-mutating', why: 'Changes data in a connected service.' };
     }
-    if (/^(list|get|search|read|find|fetch|query|describe)[A-Z_]/.test(bare)) {
+    // Only a namespaced name (`server.tool`, `mcp__server__tool`) is an MCP
+    // tool. A bare `get_project_info` is a tool a workspace manifest
+    // (.bandit/skills/*.json) declared, and a manifest can make it run any
+    // command; "the name says read" is no reason to run that unattended
+    // (2026-11-25 audit).
+    if (bare !== name && /^(list|get|search|read|find|fetch|query|describe)[A-Z_]/.test(bare)) {
       // The name says "read", but Bandit cannot see what the server does with
       // the call (a fetch_* tool can send its arguments anywhere). Only a
       // server the user declared local (`"local": true`) counts as read-only
