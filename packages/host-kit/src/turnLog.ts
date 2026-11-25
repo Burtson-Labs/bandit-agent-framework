@@ -26,6 +26,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { redactSecretsString } from '@burtson-labs/agent-core';
 import { mkdirInProjectBandit } from './projectDir';
 
 const MAX_PREVIEW_CHARS = 2048;
@@ -111,13 +112,38 @@ export async function openTurnLog(workspaceRoot: string): Promise<TurnLogger> {
     filePath,
     async append(event: Record<string, unknown>): Promise<void> {
       try {
-        const line = JSON.stringify({ t: new Date().toISOString(), ...event }) + '\n';
+        const line = JSON.stringify({ t: new Date().toISOString(), ...redactLogValue(event) as Record<string, unknown> }) + '\n';
         await fs.promises.appendFile(filePath, line);
       } catch {
         // Logging must never break the agent. Swallow write errors.
       }
     }
   };
+}
+
+/**
+ * Redact secrets from every string in a log event, at any depth.
+ *
+ * The log lives in the workspace (`.bandit/turns/`) and records prompts,
+ * tool params and 2 KB previews of tool output — exactly where a `cat .env`
+ * or `printenv` result would land. The model-facing copy of that output is
+ * already redacted; this keeps the on-disk copy from holding the raw value.
+ * Always on, independent of the `/secrets off` debugging switch, because the
+ * file outlives the session and can be committed or attached to a bug report.
+ */
+export function redactLogValue(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') return redactSecretsString(value);
+  if (value === null || typeof value !== 'object') return value;
+  const toJSON = (value as { toJSON?: () => unknown }).toJSON;
+  if (typeof toJSON === 'function') return redactLogValue(toJSON.call(value), depth + 1);
+  // Past a sane depth, flatten to text rather than skip — never write raw.
+  if (depth > 8) return redactSecretsString(JSON.stringify(value) ?? '');
+  if (Array.isArray(value)) return value.map((item) => redactLogValue(item, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = redactLogValue(item, depth + 1);
+  }
+  return out;
 }
 
 /** Truncate a string for log preview — protects against multi-MB tool outputs. */
