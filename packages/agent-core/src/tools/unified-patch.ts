@@ -209,11 +209,9 @@ export interface ApplyError {
  * (the @@ header says "line 42" but the actual matching context is at
  * line 39) by searching forward + backward up to FUZZ lines.
  *
- * Lines in the source preserve their original line endings via the
- * caller (we operate on `\n`-split arrays and re-join at the end).
- * Files with `\r\n` should be normalised by the caller before parsing
- * the patch — keeping that detail outside this module avoids having
- * to thread a "preserve CRLF" flag through every code path.
+ * Operates on `\n`-split arrays and re-joins at the end. CRLF files are
+ * normalised by the caller (detectLineEnding / toLf below) and the ending
+ * re-applied on write (withLineEnding), so this function never sees `\r`.
  */
 export function applyParsedPatch(source: string, patch: ParsedPatch): ApplyResult | ApplyError {
   const FUZZ = 5;
@@ -280,4 +278,27 @@ function findContextIndex(lines: string[], context: string[], expected: number, 
     if (matches(expected + d)) {return expected + d;}
   }
   return -1;
+}
+
+/**
+ * The file's dominant line ending: CRLF when more lines end in `\r\n` than
+ * in a bare `\n`. Patch tools match and edit in LF and put this back on at
+ * write, so a Windows file is not silently rewritten to LF (and a CRLF file
+ * can be matched at all: hunk lines never carry the `\r`).
+ */
+export function detectLineEnding(text: string): '\n' | '\r\n' {
+  const crlf = text.match(/\r\n/g)?.length ?? 0;
+  if (crlf === 0) {return '\n';}
+  const lf = (text.match(/\n/g)?.length ?? 0) - crlf;
+  return crlf > lf ? '\r\n' : '\n';
+}
+
+/** `\r\n` → `\n`. */
+export function toLf(text: string): string {
+  return text.replace(/\r\n/g, '\n');
+}
+
+/** Re-apply a line ending to LF text (a no-op for `\n`). */
+export function withLineEnding(text: string, eol: '\n' | '\r\n'): string {
+  return eol === '\r\n' ? text.replace(/\r?\n/g, '\r\n') : text;
 }

@@ -76,15 +76,36 @@ describe('apply_patch with a multi-file unified diff', () => {
     expect([...files.values()]).toEqual(['ONE\n', 'TWO\n', 'THREE\n']);
   });
 
-  it('one file failing is reported by name and does not stop the others', async () => {
+  it('one file failing is reported by name and nothing is written', async () => {
     const { files, ctx } = memoryCtx({ '/work/src/format.ts': FORMAT, '/work/src/render.ts': 'something else entirely\n' });
     const result = await applyPatchTool.execute({ patch: RENAME_PATCH }, ctx);
-    expect(result.isError).toBeFalsy(); // partial success, as with the Codex envelope
-    expect(files.get('/work/src/format.ts')).toContain('formatUserLabel');
+    // Changed deliberately (was isError:false with format.ts written): a
+    // rename that lands in one file and not the other is the worst outcome.
+    expect(result.isError).toBe(true);
+    expect(files.get('/work/src/format.ts')).toBe(FORMAT);
     expect(files.get('/work/src/render.ts')).toBe('something else entirely\n');
-    expect(result.output).toContain('apply_patch applied 1 of 2 files');
+    expect(result.output).toContain('wrote nothing: 1 of 2 files failed');
     expect(result.output).toContain('FAILED "src/render.ts"');
-    expect(result.output).toContain('NOT changed');
+  });
+
+  it('keeps CRLF endings and can match a CRLF file at all', async () => {
+    const crlf = FORMAT.replace(/\n/g, '\r\n');
+    const { files, ctx } = memoryCtx({ '/work/src/format.ts': crlf });
+    const single = RENAME_PATCH.split('\n').slice(0, 7).join('\n');
+    const result = await applyPatchTool.execute({ patch: single }, ctx);
+    expect(result.isError).toBeFalsy();
+    expect(files.get('/work/src/format.ts')).toBe(crlf.replace('formatUser', 'formatUserLabel'));
+  });
+
+  it('two sections for the same file stack instead of the second overwriting the first', async () => {
+    const { files, ctx } = memoryCtx({ '/work/a.txt': 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n' });
+    const patch = [
+      '--- a/a.txt', '+++ b/a.txt', '@@ -1 +1 @@', '-one', '+ONE',
+      '--- a/a.txt', '+++ b/a.txt', '@@ -8 +8 @@', '-eight', '+EIGHT'
+    ].join('\n');
+    const result = await applyPatchTool.execute({ patch }, ctx);
+    expect(result.isError).toBeFalsy();
+    expect(files.get('/work/a.txt')).toBe('ONE\ntwo\nthree\nfour\nfive\nsix\nseven\nEIGHT\n');
   });
 
   it('is an error when no file applies', async () => {

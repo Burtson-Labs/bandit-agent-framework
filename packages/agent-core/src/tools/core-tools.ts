@@ -8,7 +8,7 @@
 import type { AgentTool, ToolExecutionContext, ToolResult } from './tool-types';
 import { runPostEditTypeCheck } from './post-edit-checks';
 import { ToolRegistry } from './tool-registry';
-import { parseUnifiedPatch, applyParsedPatch, splitUnifiedPatchByFile } from './unified-patch';
+import { parseUnifiedPatch, applyParsedPatch, splitUnifiedPatchByFile, detectLineEnding, toLf, withLineEnding } from './unified-patch';
 
 const MAX_FILE_CHARS = 80_000;   // ~20k tokens — hard cap for read_file output
 const MAX_SEARCH_CHARS = 16_000; // ~4k tokens — cap search results
@@ -1165,9 +1165,198 @@ export function resolvePatchHunk(hunk: PatchHunkItem[], file: string): ResolvedP
   return { ...oneChar, occurrences: oneCharCount, spelling: 'one-char' };
 }
 
+/** One file's staged state inside an apply_patch call. */
+interface StagedFile {
+  /** On-disk content before the patch, or null when the file did not exist. */
+  original: string | null;
+  /** New content in LF form, or null to delete the file. */
+  content: string | null;
+  /** The file's dominant line ending, re-applied when written. */
+  eol: '\n' | '\r\n';
+}
+
+/**
+ * Write every staged file, or none. When a write fails part-way, files
+ * already written are put back (original content restored, files the
+ * patch created removed) so a disk error cannot leave half a patch behind.
+ */
+async function commitStagedFiles(
+  staged: Map<string, StagedFile>,
+  ctx: ToolExecutionContext
+): Promise<{ ok: true; blanked: Set<string> } | { ok: false; failure: string; rollbackNote: string }> {
+  const done: Array<[string, StagedFile]> = [];
+  const blanked = new Set<string>();
+  const rel = (p: string): string => (p.startsWith(`${ctx.workspaceRoot}/`) ? p.slice(ctx.workspaceRoot.length + 1) : p);
+  for (const [absPath, file] of staged) {
+    try {
+      if (file.content === null) {
+        if (file.original === null) {continue;} // added then deleted in the same patch
+        if (typeof ctx.deleteFile === 'function') {
+          await ctx.deleteFile(absPath);
+        } else {
+          await ctx.writeFile(absPath, '');
+          blanked.add(absPath);
+        }
+      } else {
+        await ctx.writeFile(absPath, withLineEnding(file.content, file.eol));
+      }
+      done.push([absPath, file]);
+    } catch (err) {
+      const verb = file.content === null ? 'Delete' : file.original === null ? 'Add' : 'Update';
+      const failure = `${verb} ${rel(absPath)}: ${err instanceof Error ? err.message : String(err)}`;
+      const unrestored: string[] = [];
+      for (const [donePath, doneFile] of done.reverse()) {
+        try {
+          if (doneFile.original !== null) {
+            await ctx.writeFile(donePath, doneFile.original);
+          } else if (typeof ctx.deleteFile === 'function') {
+            await ctx.deleteFile(donePath);
+          } else {
+            unrestored.push(rel(donePath));
+          }
+        } catch {
+          unrestored.push(rel(donePath));
+        }
+      }
+      const rollbackNote = done.length === 0
+        ? 'Nothing was written.'
+        : unrestored.length === 0
+          ? `The ${done.length} file${done.length === 1 ? '' : 's'} written before the failure ${done.length === 1 ? 'was' : 'were'} restored; nothing changed.`
+          : `Could not restore: ${unrestored.join(', ')} — check ${unrestored.length === 1 ? 'it' : 'them'} with read_file before retrying.`;
+      return { ok: false, failure, rollbackNote };
+    }
+  }
+  return { ok: true, blanked };
+}
+
+/**
+ * Re-indent a replacement to the file's real indentation after a
+ * whitespace-tolerant match.
+ *
+ * The fallback match ignores indentation width, so a hunk written at four
+ * spaces matches a block that sits at eight (or at a tab). Splicing the
+ * replacement as written then moved the block to the patch's indentation —
+ * harmless in a brace language, a syntax or scoping change in Python or
+ * YAML. When the matched file lines and the patch's find lines differ by a
+ * consistent leading prefix (file = A + rest wherever patch = B + rest),
+ * apply the same A-for-B swap to every replacement line that starts with B.
+ * If the relation is not consistent, the replacement is left as written.
+ */
+export function reindentToFile(findLines: string[], fileLines: string[], replace: string): string {
+  const ws = (l: string): string => /^[ \t]*/.exec(l)?.[0] ?? '';
+  const pairs = findLines
+    .map((l, i) => [l, fileLines[i] ?? ''] as const)
+    .filter(([l, f]) => l.trim().length > 0 && f.trim().length > 0);
+  if (pairs.length === 0) {return replace;}
+  let base = pairs[0];
+  for (const p of pairs) {if (ws(p[0]).length < ws(base[0]).length) {base = p;}}
+  const fromPrefix = ws(base[0]);
+  const toPrefix = ws(base[1]);
+  if (fromPrefix === toPrefix) {return replace;}
+  const consistent = pairs.every(([l, f]) => {
+    const li = ws(l);
+    const fi = ws(f);
+    return li.startsWith(fromPrefix) && fi.startsWith(toPrefix) && li.slice(fromPrefix.length) === fi.slice(toPrefix.length);
+  });
+  if (!consistent) {return replace;}
+  return replace
+    .split('\n')
+    .map((l) => (l.trim().length > 0 && l.startsWith(fromPrefix) ? toPrefix + l.slice(fromPrefix.length) : l))
+    .join('\n');
+}
+
+/**
+ * Apply an envelope Update block's hunks to `before`, in order. Every hunk
+ * is tried (so the failure report names all of them), but the caller only
+ * uses `after` when `failed` is empty.
+ */
+function applyEnvelopeHunks(before: string, hunks: PatchHunkItem[][]): { after: string; failed: string[] } {
+  let after = before;
+  const failed: string[] = [];
+  for (let hi = 0; hi < hunks.length; hi++) {
+    const hunk = hunks[hi];
+    const contextCount = hunk.filter((item) => item.kind === 'context').length;
+    const resolved = resolvePatchHunk(hunk, after);
+    const { find, occurrences } = resolved;
+    let { replace } = resolved;
+    if (!find) {
+      failed.push(`hunk #${hi + 1}: empty (no removed lines and no context)`);
+      continue;
+    }
+    if (occurrences === 1) {
+      // Function replacer: a string one would expand `$&`, `$$`, `$1` in the patch text.
+      after = after.replace(find, () => replace);
+      continue;
+    }
+    if (occurrences > 1) {
+      failed.push(`hunk #${hi + 1}: matches ${occurrences} places — add more context to make it unique`);
+      continue;
+    }
+    // occurrences === 0: whitespace-tolerant fallback. Collapse every run
+    // of whitespace within a line to a single space (newlines kept as line
+    // separators) on BOTH sides; a unique match is mapped back to its line
+    // range in the file and spliced. Catches indentation drift and
+    // trailing-whitespace differences without giving up multi-match safety.
+    const normalize = (s: string): string =>
+      s.split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trimEnd()).join('\n');
+    const normalizedFind = normalize(find);
+    const normalOccurrences = normalize(after).split(normalizedFind).length - 1;
+    if (normalOccurrences === 1) {
+      const afterLines = after.split('\n');
+      const findWindow = find.split('\n');
+      const findLineCount = findWindow.length;
+      let matchedStart = -1;
+      for (let i = 0; i + findLineCount <= afterLines.length; i++) {
+        if (normalize(afterLines.slice(i, i + findLineCount).join('\n')) === normalizedFind) {
+          matchedStart = i;
+          break;
+        }
+      }
+      if (matchedStart >= 0) {
+        const fileWindow = afterLines.slice(matchedStart, matchedStart + findLineCount);
+        let offByOne = false;
+        // A whitespace-tolerant match says nothing about the marker
+        // spelling. When every matched file line is indented exactly
+        // one space less than the patch's line, the model wrote
+        // "marker + space": drop that space from the added lines too.
+        if (resolved.spelling === 'one-char') {
+          // Removed lines only: context lines may be spelled either way.
+          const findKinds = hunk.filter((item) => item.kind !== 'added').map((item) => item.kind);
+          const pairs = findWindow
+            .map((l, i) => [l, fileWindow[i] ?? '', findKinds[i]] as const)
+            .filter(([l, , kind]) => kind === 'removed' && l.trim().length > 0);
+          offByOne = pairs.length > 0 &&
+            pairs.every(([l, f]) => leadingSpaces(l) === leadingSpaces(f) + 1 && !/^\s*\t/.test(f));
+          if (offByOne) {
+            replace = hunk
+              .filter((item) => item.kind !== 'removed')
+              .map((item) => (item.kind === 'added' ? dropMarkerSpace(item.text) : item.text))
+              .join('\n');
+          }
+        }
+        if (!offByOne) {
+          replace = reindentToFile(findWindow, fileWindow, replace);
+        }
+        after = [
+          ...afterLines.slice(0, matchedStart),
+          ...replace.split('\n'),
+          ...afterLines.slice(matchedStart + findLineCount)
+        ].join('\n');
+        continue;
+      }
+    }
+    const preview = find.length > 160 ? find.slice(0, 160) + '…' : find;
+    failed.push(
+      `hunk #${hi + 1}: text not found (${contextCount} context line${contextCount === 1 ? '' : 's'} provided). ` +
+      `Tried to find:\n${preview.split('\n').map((l) => `      ${l}`).join('\n')}`
+    );
+  }
+  return { after, failed };
+}
+
 const applyPatchTool: AgentTool = {
   name: 'apply_patch',
-  description: 'Apply a multi-file patch in a single tool call. Use this when you have to change 2+ files (rename, refactor, multi-method comment pass) — much cheaper than calling apply_edit N times. Two accepted formats: (1) **standard unified diff** — what `git diff` produces, with `--- a/path`, `+++ b/path`, `@@` hunks, ` `/`-`/`+` body lines. Most models emit this format natively. Single-file unified diffs accepted; for multi-file, concatenate diffs with their own headers. (2) **Codex envelope** — `*** Begin Patch` / `*** End Patch` wrapping `*** Update File: <path>` / `*** Add File:` / `*** Delete File:` blocks. The tool auto-detects the format from the input.',
+  description: 'Apply a multi-file patch in a single tool call. Use this when you have to change 2+ files (rename, refactor, multi-method comment pass) — much cheaper than calling apply_edit N times. Two accepted formats: (1) **standard unified diff** — what `git diff` produces, with `--- a/path`, `+++ b/path`, `@@` hunks, ` `/`-`/`+` body lines. Most models emit this format natively. Single-file unified diffs accepted; for multi-file, concatenate diffs with their own headers. (2) **Codex envelope** — `*** Begin Patch` / `*** End Patch` wrapping `*** Update File: <path>` / `*** Add File:` / `*** Delete File:` blocks. The tool auto-detects the format from the input. All-or-nothing: if any hunk fails, no file is written and the error names the failing hunks.',
   parameters: [
     { name: 'patch', description: 'The full patch — either a unified diff (starts with `--- ` / `+++ ` / `@@`) or a `*** Begin Patch` envelope. For unified diffs the path is read from the `+++ b/<path>` header; for the envelope each `*** Update File:` block names its own path.', required: true },
     { name: 'path', description: 'Optional explicit path. When set with a unified diff, overrides whatever the `+++ b/...` header says — useful when the model emits a diff without proper headers.', required: false }
@@ -1292,204 +1481,116 @@ const applyPatchTool: AgentTool = {
       return { output: 'apply_patch rejected: envelope contained no action blocks. Use `*** Update File:`, `*** Add File:`, or `*** Delete File:` headers.', isError: true };
     }
 
-    // Execute actions sequentially. Stop on the first error to avoid
-    // partial application. Surface what succeeded so the model can
-    // recover with a smaller patch.
-    const results: string[] = [];
+    // Atomic: stage every action against an in-memory view of the files
+    // first, and write only when every action staged cleanly. A failure
+    // anywhere writes nothing and returns isError:true naming the action
+    // and hunk.
+    //
+    // This replaced per-action / per-hunk partial application (v1.7.298),
+    // which wrote the files whose hunks matched, skipped the rest and
+    // returned isError:false with "Partially updated". A rename or
+    // refactor applied half-way leaves the tree in a state neither the
+    // model nor the user asked for (a renamed definition with stale call
+    // sites), and isError:false let the model carry on as if it had
+    // landed. The failure notes still name each failing hunk with what was
+    // searched for, so the retry only has to fix those hunks — but it
+    // re-sends the whole patch, against files that are still as it read
+    // them.
+    const staged = new Map<string, StagedFile>();
+    const pending: Array<{ absPath: string; note: string }> = [];
+    const failures: string[] = [];
     for (const action of actions) {
       const absPath = isAbsolutePath(action.path)
         ? action.path
         : `${ctx.workspaceRoot}/${action.path}`;
+      const prior = staged.get(absPath);
       if (action.kind === 'delete') {
-        try {
-          // when the host wires `deleteFile`, do a real
-          // `fs.unlink` so the file is gone from disk. Hosts on older
-          // builds fall back to blanking the file with a clear note
-          // so the model knows a hard delete didn't happen and can
-          // run `rm` via run_command instead. the only
-          // path was the blank, which left 0-byte file ghosts behind
-          // — Bandit's own self-eval flagged this as a real footgun.
-          if (typeof ctx.deleteFile === 'function') {
-            await ctx.deleteFile(absPath);
-            results.push(`Deleted: ${action.path}`);
-          } else {
-            await ctx.writeFile(absPath, '');
-            results.push(`Deleted (blanked — host does not support hard delete; run \`rm ${action.path}\` via run_command to remove the empty file): ${action.path}`);
+        if (prior) {
+          staged.set(absPath, { ...prior, content: null });
+        } else {
+          let original: string;
+          try {
+            original = await ctx.readFile(absPath);
+          } catch (err) {
+            failures.push(`FAILED Delete ${action.path}: ${err instanceof Error ? err.message : String(err)}`);
+            continue;
           }
-        } catch (err) {
-          // v1.7.298 right-way fix: don't bail the whole patch on
-          // first failure. Log this action's failure and try the rest
-          // — model can re-emit just the failed actions.
-          results.push(`FAILED Delete ${action.path}: ${err instanceof Error ? err.message : String(err)}`);
+          staged.set(absPath, { original, content: null, eol: '\n' });
         }
+        pending.push({ absPath, note: `Deleted: ${action.path}` });
         continue;
       }
       if (action.kind === 'add') {
-        try {
-          const addLines = addFileLines(action.lines);
-          await ctx.writeFile(absPath, addLines.join('\n') + (addLines.length > 0 ? '\n' : ''));
-          results.push(`Added: ${action.path} (${addLines.length} lines)`);
-        } catch (err) {
-          results.push(`FAILED Add ${action.path}: ${err instanceof Error ? err.message : String(err)}`);
+        const addLines = addFileLines(action.lines);
+        const content = addLines.join('\n') + (addLines.length > 0 ? '\n' : '');
+        let original: string | null = prior ? prior.original : null;
+        if (!prior) {
+          try { original = await ctx.readFile(absPath); } catch { original = null; }
         }
+        staged.set(absPath, { original, content, eol: '\n' });
+        pending.push({ absPath, note: `Added: ${action.path} (${addLines.length} lines)` });
         continue;
       }
-      // Update: apply each hunk. Read-before-edit guard applies.
-      if (ctx.hasFileBeenRead && !ctx.hasFileBeenRead(absPath)) {
-        results.push(`FAILED Update ${action.path}: read this file with read_file first — apply_patch's "find" strings must match verbatim, which fails on unread files.`);
+      // Update: read-before-edit guard applies to files on disk.
+      if (!prior && ctx.hasFileBeenRead && !ctx.hasFileBeenRead(absPath)) {
+        failures.push(`FAILED Update ${action.path}: read this file with read_file first — apply_patch's "find" strings must match verbatim, which fails on unread files.`);
         continue;
       }
-      let before: string;
-      try {
-        before = await ctx.readFile(absPath);
-      } catch (err) {
-        results.push(`FAILED Update ${action.path}: cannot read (${err instanceof Error ? err.message : String(err)})`);
+      if (prior && prior.content === null) {
+        failures.push(`FAILED Update ${action.path}: the file is deleted earlier in this same patch.`);
         continue;
       }
-      // Process each hunk independently with per-hunk pass/fail.
-      // v1.7.298 right-way fix: prior behavior aborted the ENTIRE
-      // action (often a 5-file patch) on first hunk failure, even
-      // when later hunks would have applied cleanly. The model then
-      // had to regenerate the whole patch. Now: try each hunk, apply
-      // those that match cleanly, report the rest with enough detail
-      // (preview + fuzzy-match attempt notes) for the model to fix
-      // just the failed hunks on retry. Per-hunk also adds a
-      // whitespace-tolerant fallback: when exact match misses, retry
-      // after collapsing whitespace runs in BOTH the file and the
-      // find string — if that produces a unique match, use the
-      // matched-region positions to splice in the replacement.
-      let after = before;
-      let hunksApplied = 0;
-      let hunksFailed = 0;
-      const hunkFailureNotes: string[] = [];
-      for (let hi = 0; hi < action.hunks.length; hi++) {
-        const hunk = action.hunks[hi];
-        const contextCount = hunk.filter((item) => item.kind === 'context').length;
-        const resolved = resolvePatchHunk(hunk, after);
-        const { find, occurrences } = resolved;
-        let { replace } = resolved;
-        if (!find) {
-          hunksFailed++;
-          hunkFailureNotes.push(`hunk #${hi + 1}: empty (no removed lines and no context)`);
-          continue;
-        }
-        if (occurrences === 1) {
-          // Function replacer: a string one would expand `$&`, `$$`, `$1` in the patch text.
-          after = after.replace(find, () => replace);
-          hunksApplied++;
-          continue;
-        }
-        if (occurrences > 1) {
-          hunksFailed++;
-          hunkFailureNotes.push(
-            `hunk #${hi + 1}: matches ${occurrences} places — add more context to make it unique`
-          );
-          continue;
-        }
-        // occurrences === 0: try whitespace-tolerant fallback. Collapse
-        // every run of whitespace within a line to a single space (but
-        // keep newlines as line separators) on BOTH sides, search,
-        // and if there's a unique match recover the original byte range
-        // in the file and splice. This catches indentation drift /
-        // trailing-whitespace differences without compromising the
-        // multi-match safety.
-        const normalize = (s: string): string =>
-          s.split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trimEnd()).join('\n');
-        const normalizedFile = normalize(after);
-        const normalizedFind = normalize(find);
-        const normalOccurrences = normalizedFile.split(normalizedFind).length - 1;
-        if (normalOccurrences === 1) {
-          // Map the normalized match back to a real range in `after`.
-          // The simplest correct approach: walk `after` line-by-line,
-          // accumulating normalized text, and find the line index
-          // where the normalized window matches. Then slice the
-          // original bytes at that line range and replace with `replace`.
-          const afterLines = after.split('\n');
-          const findLineCount = find.split('\n').length;
-          let matchedStart = -1;
-          for (let i = 0; i + findLineCount <= afterLines.length; i++) {
-            const window = afterLines.slice(i, i + findLineCount).join('\n');
-            if (normalize(window) === normalizedFind) {
-              matchedStart = i;
-              break;
-            }
-          }
-          if (matchedStart >= 0) {
-            // A whitespace-tolerant match says nothing about the marker
-            // spelling. When every matched file line is indented exactly
-            // one space less than the patch's line, the model wrote
-            // "marker + space": drop that space from the added lines too.
-            if (resolved.spelling === 'one-char') {
-              // Removed lines only: context lines may be spelled either way.
-              const findKinds = hunk.filter((item) => item.kind !== 'added').map((item) => item.kind);
-              const findWindow = find.split('\n');
-              const fileWindow = afterLines.slice(matchedStart, matchedStart + findLineCount);
-              const pairs = findWindow
-                .map((l, i) => [l, fileWindow[i] ?? '', findKinds[i]] as const)
-                .filter(([l, , kind]) => kind === 'removed' && l.trim().length > 0);
-              const offByOne = pairs.length > 0 &&
-                pairs.every(([l, f]) => leadingSpaces(l) === leadingSpaces(f) + 1 && !/^\s*\t/.test(f));
-              if (offByOne) {
-                replace = hunk
-                  .filter((item) => item.kind !== 'removed')
-                  .map((item) => (item.kind === 'added' ? dropMarkerSpace(item.text) : item.text))
-                  .join('\n');
-              }
-            }
-            const replaceLineCount = replace.split('\n').length;
-            const replacedLines = [
-              ...afterLines.slice(0, matchedStart),
-              ...replace.split('\n'),
-              ...afterLines.slice(matchedStart + findLineCount)
-            ];
-            after = replacedLines.join('\n');
-            hunksApplied++;
-            void replaceLineCount;
-            continue;
-          }
-        }
-        hunksFailed++;
-        const preview = find.length > 160 ? find.slice(0, 160) + '…' : find;
-        hunkFailureNotes.push(
-          `hunk #${hi + 1}: text not found (${contextCount} context line${contextCount === 1 ? '' : 's'} provided). ` +
-          `Tried to find:\n${preview.split('\n').map((l) => `      ${l}`).join('\n')}`
-        );
-      }
-      // Write the file IFF we applied at least one hunk. If every
-      // hunk failed we leave the file untouched — better to surface
-      // the failure than to write a stale snapshot.
-      if (hunksApplied > 0) {
-        try {
-          await ctx.writeFile(absPath, after);
-          const lineDelta = after.split('\n').length - before.split('\n').length;
-          const tail = hunksFailed > 0
-            ? ` — ${hunksApplied}/${action.hunks.length} hunks applied, ${hunksFailed} skipped:\n  ${hunkFailureNotes.join('\n  ')}`
-            : ` (${action.hunks.length} hunk${action.hunks.length === 1 ? '' : 's'}, ${lineDelta >= 0 ? '+' : ''}${lineDelta} lines)`;
-          results.push(`${hunksFailed > 0 ? 'Partially updated' : 'Updated'}: ${action.path}${tail}`);
-        } catch (err) {
-          results.push(`FAILED Update ${action.path}: write failed (${err instanceof Error ? err.message : String(err)})`);
-        }
+      let entry: StagedFile;
+      if (prior) {
+        entry = prior;
       } else {
-        results.push(
-          `FAILED Update ${action.path}: 0/${action.hunks.length} hunks applied — file left untouched.\n  ${hunkFailureNotes.join('\n  ')}`
-        );
+        let original: string;
+        try {
+          original = await ctx.readFile(absPath);
+        } catch (err) {
+          failures.push(`FAILED Update ${action.path}: cannot read (${err instanceof Error ? err.message : String(err)})`);
+          continue;
+        }
+        // Match and edit in LF; the file's dominant ending goes back on at write.
+        const eol = detectLineEnding(original);
+        entry = { original, content: eol === '\r\n' ? toLf(original) : original, eol };
       }
+      const before = entry.content as string;
+      const applied = applyEnvelopeHunks(before, action.hunks);
+      if (applied.failed.length > 0) {
+        failures.push(
+          `FAILED Update ${action.path}: ${action.hunks.length - applied.failed.length}/${action.hunks.length} hunks matched, ${applied.failed.length} did not:\n  ${applied.failed.join('\n  ')}`
+        );
+        continue;
+      }
+      staged.set(absPath, { ...entry, content: applied.after });
+      const lineDelta = applied.after.split('\n').length - before.split('\n').length;
+      pending.push({
+        absPath,
+        note: `Updated: ${action.path} (${action.hunks.length} hunk${action.hunks.length === 1 ? '' : 's'}, ${lineDelta >= 0 ? '+' : ''}${lineDelta} lines)`
+      });
     }
 
-    // Aggregate success/failure. The whole call is an error iff
-    // EVERY action ended in a hunk-level FAILED line. Partial success
-    // is reported with isError:false so the model can build on what
-    // landed instead of retrying the whole patch.
-    const totalFailures = results.filter((r) => r.startsWith('FAILED ')).length;
-    const allFailed = totalFailures === results.length;
-    const summary = allFailed
-      ? `apply_patch could not land any changes. Inspect the per-action notes below, then either re-emit only the failing hunks with more context (verify whitespace matches read_file output exactly) or fall back to apply_edit for individual lines.`
-      : totalFailures > 0
-        ? `apply_patch partially applied (${actions.length - totalFailures}/${actions.length} actions changed the file). Failed actions list specific hunks; retry just those.`
-        : `Patch applied successfully (${actions.length} action${actions.length === 1 ? '' : 's'}). Do not restate the changes — the user can see the diff. Move on to the next pending task or summarize briefly if done.`;
+    if (failures.length > 0) {
+      const okCount = actions.length - failures.length;
+      const summary = `apply_patch wrote nothing: ${failures.length} of ${actions.length} action${actions.length === 1 ? '' : 's'} failed, and a patch is applied whole or not at all. ` +
+        `Fix the failing hunks below (re-read the file and copy its current text verbatim) and re-send the whole patch${okCount > 0 ? ` — the ${okCount} other action${okCount === 1 ? '' : 's'} matched and will apply once these do` : ''}.`;
+      return { output: `${summary}\n\n${failures.join('\n')}`, isError: true };
+    }
+
+    const commit = await commitStagedFiles(staged, ctx);
+    if (!commit.ok) {
+      return {
+        output: `apply_patch failed while writing: FAILED ${commit.failure}\n${commit.rollbackNote}`,
+        isError: true
+      };
+    }
+    const results = pending.map((p) => (commit.blanked.has(p.absPath) && p.note.startsWith('Deleted: ')
+      ? `Deleted (blanked — host does not support hard delete; run \`rm ${p.note.slice('Deleted: '.length)}\` via run_command to remove the empty file): ${p.note.slice('Deleted: '.length)}`
+      : p.note));
     return {
-      output: `${summary}\n\n${results.join('\n')}`,
-      isError: allFailed
+      output: `Patch applied successfully (${actions.length} action${actions.length === 1 ? '' : 's'}). Do not restate the changes — the user can see the diff. Move on to the next pending task or summarize briefly if done.\n\n${results.join('\n')}`,
+      isError: false
     };
   }
 };
@@ -1585,9 +1686,10 @@ function introducedNewErrors(before: string | undefined, after: string | undefin
  * it had applied, and left the call site in the other file unchanged (BanditBench
  * 2026-10-05, edit.rename_across_files).
  *
- * Each file is all-or-nothing; files are independent, like the actions of the Codex
- * envelope: the ones that apply are written, the ones that do not are reported with the
- * reason, and the call is an error only when nothing was written.
+ * The whole diff is atomic: every file is staged (read, every hunk applied, validated)
+ * before anything is written, and one failing file means nothing is written and the call
+ * is an error naming it. Writing the files that applied and skipping the rest (the
+ * earlier behaviour) left a rename with its definition changed and its call sites not.
  */
 async function executeUnifiedDiffPatch(
   patchText: string,
@@ -1595,47 +1697,69 @@ async function executeUnifiedDiffPatch(
   ctx: ToolExecutionContext
 ): Promise<ToolResult> {
   const sections = splitUnifiedPatchByFile(patchText);
-  if (sections.length <= 1) {
-    return executeUnifiedDiffForFile(patchText, pathOverride, ctx);
-  }
+  const single = sections.length <= 1;
+  const staged = new Map<string, StagedFile>();
   // Several files: every section names its own path, so an explicit `path` (meant for a
   // diff without headers) does not apply.
-  const results: Array<ToolResult & { file: string }> = [];
-  for (const section of sections) {
+  const stages: Array<{ file: string; stage: UnifiedStage }> = [];
+  for (const section of single ? [patchText] : sections) {
     const header = /^\+\+\+ (?:b\/)?(.+?)\s*$/m.exec(section) ?? /^--- (?:a\/)?(.+?)\s*$/m.exec(section);
-    const result = await executeUnifiedDiffForFile(section, undefined, ctx);
-    results.push({ ...result, file: header?.[1] ?? '(no path)' });
+    const stage = await stageUnifiedDiffForFile(section, single ? pathOverride : undefined, ctx, staged);
+    if (stage.ok) {
+      const prior = staged.get(stage.absPath);
+      staged.set(stage.absPath, { original: prior ? prior.original : stage.original, content: stage.next, eol: stage.eol });
+    }
+    stages.push({ file: header?.[1] ?? '(no path)', stage });
   }
-  const applied = results.filter((r) => !r.isError).length;
-  const failed = results.length - applied;
-  const body = results.map((r) => (r.isError ? `FAILED "${r.file}" — ${r.output}` : r.output)).join('\n\n');
-  if (failed === 0) {
-    return { output: body, isError: false };
+  const failed = stages.filter((s) => !s.stage.ok);
+  if (failed.length > 0) {
+    if (single) {
+      return { output: (failed[0].stage as { output: string }).output, isError: true };
+    }
+    const body = failed.map((s) => `FAILED "${s.file}" — ${(s.stage as { output: string }).output}`).join('\n\n');
+    const okCount = stages.length - failed.length;
+    const summary = okCount === 0
+      ? `apply_patch failed for all ${stages.length} files in the diff. Nothing was written.`
+      : `apply_patch wrote nothing: ${failed.length} of ${stages.length} files failed, and a diff is applied whole or not at all. Fix ${failed.length === 1 ? 'that file' : 'those files'} and re-send the whole diff — the ${okCount} other file${okCount === 1 ? '' : 's'} matched and will apply once ${failed.length === 1 ? 'it does' : 'they do'}.`;
+    return { output: `${summary}\n\n${body}`, isError: true };
   }
-  const summary = applied === 0
-    ? `apply_patch failed for all ${results.length} files in the diff. Nothing was written.`
-    : `apply_patch applied ${applied} of ${results.length} files. The ${failed === 1 ? 'file marked FAILED was' : 'files marked FAILED were'} NOT changed — fix and re-send only ${failed === 1 ? 'that file' : 'those files'}.`;
-  return { output: `${summary}\n\n${body}`, isError: applied === 0 };
+  const commit = await commitStagedFiles(staged, ctx);
+  if (!commit.ok) {
+    return { output: `apply_patch failed while writing: FAILED ${commit.failure}\n${commit.rollbackNote}`, isError: true };
+  }
+  const body = stages.map((s) => (s.stage as UnifiedStageOk).summary).join('\n\n');
+  return { output: body, isError: false };
 }
 
+interface UnifiedStageOk {
+  ok: true;
+  absPath: string;
+  original: string;
+  /** New content, LF. */
+  next: string;
+  eol: '\n' | '\r\n';
+  summary: string;
+}
+type UnifiedStage = UnifiedStageOk | { ok: false; output: string };
+
 /**
- * Apply a single-file unified-diff payload. Path is read from the
- * `+++ b/<path>` header unless the caller passed an explicit `path`
- * param. We deliberately reuse the same read-before-edit guard,
- * language-adapter validation, and markFileWrite hooks as apply_edit
- * — apply_patch is a different INPUT format, not a different write
- * pipeline.
+ * Stage a single-file unified-diff payload: read, apply every hunk, validate — no write.
+ * Path is read from the `+++ b/<path>` header unless the caller passed an explicit `path`
+ * param. We deliberately reuse the same language-adapter validation as apply_edit —
+ * apply_patch is a different INPUT format, not a different write pipeline. A file an
+ * earlier section of the same diff already changed is staged on top of that change.
  */
-async function executeUnifiedDiffForFile(
+async function stageUnifiedDiffForFile(
   patchText: string,
   pathOverride: string | undefined,
-  ctx: ToolExecutionContext
-): Promise<ToolResult> {
+  ctx: ToolExecutionContext,
+  staged: Map<string, StagedFile>
+): Promise<UnifiedStage> {
   const parsed = parseUnifiedPatch(patchText);
   if (!parsed) {
     return {
-      output: 'apply_patch rejected: input looked like a unified diff but contains no `@@` hunks. Emit at least one hunk header with the form `@@ -<old_start>,<old_count> +<new_start>,<new_count> @@`.',
-      isError: true
+      ok: false,
+      output: 'apply_patch rejected: input looked like a unified diff but contains no `@@` hunks. Emit at least one hunk header with the form `@@ -<old_start>,<old_count> +<new_start>,<new_count> @@`.'
     };
   }
   // Resolve path: explicit param wins, then `+++ b/<path>` header,
@@ -1645,8 +1769,8 @@ async function executeUnifiedDiffForFile(
   const relPath = (pathOverride ?? stripped ?? '').trim();
   if (!relPath) {
     return {
-      output: 'apply_patch rejected: no path. The unified diff has no `+++ b/<path>` header AND no explicit `path` param was provided. Either include the headers or pass `path` alongside the patch.',
-      isError: true
+      ok: false,
+      output: 'apply_patch rejected: no path. The unified diff has no `+++ b/<path>` header AND no explicit `path` param was provided. Either include the headers or pass `path` alongside the patch.'
     };
   }
   const absPath = isAbsolutePath(relPath) ? relPath : `${ctx.workspaceRoot}/${relPath}`;
@@ -1661,11 +1785,23 @@ async function executeUnifiedDiffForFile(
   // the first unread file, and burned an iteration re-reading. The
   // hint about "did you read this first?" still fires below when the
   // patch fails AND the file hasn't been read.
+  const prior = staged.get(absPath);
+  let original: string;
+  let eol: '\n' | '\r\n';
   let before: string;
-  try {
-    before = await ctx.readFile(absPath);
-  } catch (err) {
-    return { output: `Error reading "${relPath}": ${err instanceof Error ? err.message : String(err)}`, isError: true };
+  if (prior && prior.content !== null && prior.original !== null) {
+    original = prior.original;
+    eol = prior.eol;
+    before = prior.content;
+  } else {
+    try {
+      original = await ctx.readFile(absPath);
+    } catch (err) {
+      return { ok: false, output: `Error reading "${relPath}": ${err instanceof Error ? err.message : String(err)}` };
+    }
+    // Match and edit in LF; the file's dominant ending goes back on at write.
+    eol = detectLineEnding(original);
+    before = eol === '\r\n' ? toLf(original) : original;
   }
   const result = applyParsedPatch(before, parsed);
   if (!result.ok) {
@@ -1674,40 +1810,36 @@ async function executeUnifiedDiffForFile(
       ? ''
       : `\n\nYou have not called read_file on "${relPath}" in this conversation. If your hunk context was reconstructed from memory, that's almost certainly why the match failed — call read_file first, then retry with the verbatim text.`;
     const ctxLine = result.contextSnippet ? `\n\nFile content near the expected position:\n${result.contextSnippet}` : '';
-    return {
-      output: `apply_patch failed: ${result.reason}${readHint}${ctxLine}`,
-      isError: true
-    };
+    return { ok: false, output: `apply_patch failed: ${result.reason}${readHint}${ctxLine}` };
   }
   if (result.next === before) {
-    return { output: 'apply_patch produced no change. Either the patch is empty or it duplicates content already in the file.', isError: true };
+    return { ok: false, output: 'apply_patch produced no change. Either the patch is empty or it duplicates content already in the file.' };
   }
   if (ctx.languageAdapters) {
-    const afterValidation = await ctx.languageAdapters.validate(absPath, result.next, ctx);
+    const afterValidation = await ctx.languageAdapters.validate(absPath, withLineEnding(result.next, eol), ctx);
     if (!afterValidation.ok) {
       // Pre-existing-error guard — same as apply_edit. Don't block a
       // patch that targets the comparison-grid bug just because the
       // file ALSO had unrelated TypeScript rot the user hasn't gotten
       // to. See introducedNewErrors() above for the rationale.
-      const beforeValidation = await ctx.languageAdapters.validate(absPath, before, ctx);
+      const beforeValidation = await ctx.languageAdapters.validate(absPath, withLineEnding(before, eol), ctx);
       if (introducedNewErrors(beforeValidation.error, afterValidation.error)) {
         return {
-          output: `Validation failed after apply_patch on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Fix the patch and retry.`,
-          isError: true
+          ok: false,
+          output: `Validation failed after apply_patch on "${relPath}":\n${afterValidation.error}\n\nThe file was NOT written. Fix the patch and retry.`
         };
       }
     }
   }
-  try {
-    await ctx.writeFile(absPath, result.next);
-  } catch (err) {
-    return { output: `Error writing "${relPath}": ${err instanceof Error ? err.message : String(err)}`, isError: true };
-  }
   const lineCount = result.next.split('\n').length;
   const hunkCount = parsed.hunks.length;
   return {
-    output: `Applied ${hunkCount} hunk${hunkCount === 1 ? '' : 's'} to "${relPath}" (${lineCount} lines after).`,
-    isError: false
+    ok: true,
+    absPath,
+    original,
+    next: result.next,
+    eol,
+    summary: `Applied ${hunkCount} hunk${hunkCount === 1 ? '' : 's'} to "${relPath}" (${lineCount} lines after).`
   };
 }
 
