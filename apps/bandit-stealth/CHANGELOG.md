@@ -2,6 +2,15 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.460 (2026-11-28)
+
+Fixes found by testing 1.7.459 hands-on in Windows 11 and Ubuntu 24.04 virtual machines, with and without Python installed.
+
+- **A failing project script is reported as failed.** When an agent plan ran the project's `lint` or `test` script and the script exited with an error, the step still said "Scripts succeeded" (the run is allowed to continue past a failure, and that was mistaken for the result). It now says "Some scripts failed", marks the failing script, and shows its error output.
+- **Windows: absolute paths inside the workspace are accepted whatever the drive-letter case.** VS Code reports the workspace as `c:\...` while tools and models usually write `C:\...`; plan reads and writes of such a path inside the workspace were refused as "outside project root". Windows paths are now compared without case. Paths outside the workspace, including a sibling folder whose name starts with the workspace name, are still refused.
+- **Windows: an installed Python is found again for the `.py` syntax check.** The Python probe replaced the Windows `Path` with three macOS/Linux folders, so Python was never found on Windows unless `banditStealth.pythonPath` was set. The probe now uses your `Path` as it is. Nothing changes when Python is not installed: the check is skipped silently.
+- **Long command output keeps non-English text intact.** Output from a plan command was decoded piece by piece, so a character split between two reads (common in output over 64 KB with accented letters, CJK or emoji) turned into "�". Output is now decoded as one stream.
+
 ## 1.7.459 (2026-11-28)
 
 - **Python is no longer required.** Plan steps that scan the project, read and write files, run a command or build a diff used to run in a Python helper (`bandit_agent.py`), so on a machine without Python 3 the extension showed an "install Python" warning at startup and a modal error when a plan ran. These steps now run inside the extension, the helper is gone from the package, and neither prompt appears. Results, error messages, the 400-file and depth-5 scan limits and the rule that reads and writes stay inside the workspace are unchanged; commands still run in `/bin/sh` (`cmd.exe` on Windows) only after the same approval as before. Saved plans keep working. If Python 3 is installed it is still used, silently, to syntax-check `.py` files the agent writes; `banditStealth.pythonPath` now only affects that check.

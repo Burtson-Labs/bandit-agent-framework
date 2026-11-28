@@ -130,13 +130,32 @@ function logDetection(message: string) {
   pythonLog.appendLine(message);
 }
 
-function getSpawnEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+/** Name of the PATH variable in `env` (`Path` on Windows, `PATH` elsewhere). */
+export function pathKeyOf(env: NodeJS.ProcessEnv): string {
+  return Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+}
+
+/**
+ * Environment for the Python probe. On macOS/Linux, VS Code launched from the
+ * Dock can have a minimal PATH, so common install locations are put in front.
+ * Windows keeps its own `Path` untouched: it used to be read as `env.PATH`
+ * (undefined there), so the probe ran with only "/opt/homebrew/bin;/usr/local/bin;/usr/bin"
+ * and never found an installed Python.
+ */
+export function buildPythonSpawnEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): NodeJS.ProcessEnv {
+  const env = { ...baseEnv };
+  if (platform === 'win32') {
+    return env;
+  }
+  const key = pathKeyOf(env);
   const extra = new Set<string>();
 
   for (const candidate of getCommonPythonPaths()) {
     if (candidate.startsWith('/')) {
-      extra.add(path.dirname(candidate));
+      extra.add(path.posix.dirname(candidate));
     }
   }
 
@@ -146,9 +165,18 @@ function getSpawnEnv(): NodeJS.ProcessEnv {
     extra.add(dir);
   }
 
-  const existing = env.PATH ? env.PATH.split(path.delimiter) : [];
-  env.PATH = Array.from(extra).concat(existing).join(path.delimiter);
+  const existing = env[key] ? String(env[key]).split(':') : [];
+  env[key] = Array.from(extra).concat(existing).join(':');
   return env;
+}
+
+function getSpawnEnv(): NodeJS.ProcessEnv {
+  return buildPythonSpawnEnv();
+}
+
+function spawnPathValue(): string {
+  const env = getSpawnEnv();
+  return env[pathKeyOf(env)] ?? '';
 }
 
 export async function ensurePython(
@@ -165,7 +193,7 @@ export async function ensurePython(
     [
       'Starting Python detection',
       `configuredPath="${vscode.workspace.getConfiguration('banditStealth').get<string | null>(PYTHON_CONFIGURATION_KEY) ?? ''}"`,
-      `PATH="${getSpawnEnv().PATH ?? ''}"`,
+      `PATH="${spawnPathValue()}"`,
       `candidates=[${commands.join(', ')}]`
     ].join(' | ')
   );
@@ -327,7 +355,7 @@ function buildErrorMessage(commands: string[], lastError?: string): string {
     : '';
 
   const detail = lastError ? ` Last error: ${lastError}.` : '';
-  const pathEnv = getSpawnEnv().PATH ?? '';
+  const pathEnv = spawnPathValue();
   const pathInfo = pathEnv ? ` PATH used: ${pathEnv}` : '';
 
   return `${base}${attempted}${detail}${pathInfo}`;

@@ -116,14 +116,20 @@ function byteLength(content: string, encoding: ResolvedEncoding): number {
 /**
  * True when `target` is `root` or inside it. Python compared with a bare
  * `startswith(root)`, which let `/work/app-secrets` pass for root
- * `/work/app`; this checks a whole path segment.
+ * `/work/app`; this checks a whole path segment. Windows paths compare
+ * without case: VS Code hands over `c:\repo` (lower-case drive) while
+ * tools and models write `C:\repo\src\a.ts`, which is the same file.
  */
-export function isInsideRoot(root: string, target: string): boolean {
-  if (target === root) {
+export function isInsideRoot(root: string, target: string, platform: string = currentPlatform()): boolean {
+  const win = platform === 'win32';
+  const sep = path.sep;
+  const a = win ? root.toLowerCase() : root;
+  const b = win ? target.toLowerCase() : target;
+  if (b === a) {
     return true;
   }
-  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
-  return target.startsWith(prefix);
+  const prefix = a.endsWith(sep) ? a : a + sep;
+  return b.startsWith(prefix);
 }
 
 /**
@@ -486,7 +492,7 @@ export function createWorkspaceActionBridge(deps: WorkspaceActionBridgeDeps): Wo
       return failed('Path is required for readFile action.');
     }
     const absolutePath = path.resolve(root, relativePath);
-    if (!isInsideRoot(root, absolutePath)) {
+    if (!isInsideRoot(root, absolutePath, platform)) {
       return failed('Attempt to read outside project root.');
     }
     if (!(await deps.fs.exists(absolutePath))) {
@@ -520,7 +526,7 @@ export function createWorkspaceActionBridge(deps: WorkspaceActionBridgeDeps): Wo
       return failed('Content is required for writeFile action.');
     }
     const absolutePath = path.resolve(root, relativePath);
-    if (!isInsideRoot(root, absolutePath)) {
+    if (!isInsideRoot(root, absolutePath, platform)) {
       return failed('Attempt to write outside project root.');
     }
     try {

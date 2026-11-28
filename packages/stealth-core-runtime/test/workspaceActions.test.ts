@@ -180,6 +180,16 @@ describe('readFile / writeFile', () => {
     expect(isInsideRoot('/work/app', '/work/app-secrets/a')).toBe(false);
     expect(isInsideRoot('/', '/etc')).toBe(true);
   });
+
+  it('isInsideRoot ignores case on Windows only', () => {
+    // VS Code's fsPath has a lower-case drive letter; tools write "C:\\".
+    const sep = path.sep;
+    const root = `c:${sep}repo`;
+    const inside = `C:${sep}Repo${sep}src${sep}a.ts`;
+    expect(isInsideRoot(root, inside, 'win32')).toBe(true);
+    expect(isInsideRoot(root, `C:${sep}repo-secrets${sep}a`, 'win32')).toBe(false);
+    expect(isInsideRoot('/work/app', '/work/App/src', 'linux')).toBe(false);
+  });
 });
 
 describe('runCommand', () => {
@@ -232,5 +242,17 @@ describe('runCommand', () => {
     const missingCwd = await bridge().run('runCommand', { command: 'true', cwd: path.join(root, 'does-not-exist') });
     expect(missingCwd.status).toBe('FAILED');
     expect(missingCwd.error).toMatch(/^Command failed: /);
+  });
+});
+
+describe('shell adapter output decoding', () => {
+  it('keeps multi-byte UTF-8 intact across pipe reads', async () => {
+    const { createShellAdapter } = await import('../src/runtime/adapters/shellAdapter');
+    const shell = createShellAdapter();
+    // 360,000 bytes in one write: the pipe hands it over in reads that split characters.
+    const result = await shell.run(process.execPath, ['-e', "process.stdout.write('\u65e5\u672c\u8a9e'.repeat(40000))"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout.includes('\ufffd')).toBe(false);
+    expect(result.stdout.length).toBe(120000);
   });
 });

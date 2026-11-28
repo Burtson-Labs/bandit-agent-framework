@@ -201,4 +201,55 @@ describe('createStealthRuntime', () => {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  it('reports a failing project script as failed (allowFailure only keeps the run going)', async () => {
+    const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'stealth-runtime-scripts-'));
+    const savedReports: AgentReport[] = [];
+    const bindings = createFakeHostBindings(workspaceRoot, savedReports);
+    bindings.fs = createNodeFsAdapter(workspaceRoot);
+    bindings.shell = createShellAdapter();
+    delete bindings.python;
+    writeFileSync(
+      path.join(workspaceRoot, 'package.json'),
+      JSON.stringify({
+        name: 'demo',
+        scripts: { lint: 'node -e "process.exit(0)"', test: 'node -e "console.error(\'expected 2, got 3\'); process.exit(1)"' }
+      })
+    );
+    const runtime = createStealthRuntime(bindings);
+    try {
+      const createdAt = Date.now();
+      bindings.planner.createPlan = async (goal) => ({
+        id: `plan-${createdAt}`,
+        goal,
+        summary: goal,
+        createdAt,
+        version: 'test',
+        steps: [
+          {
+            id: 'scan',
+            title: 'Scan project',
+            description: '',
+            metadata: { action: { type: 'python', name: 'scanProject', storeKey: 'project' } }
+          },
+          {
+            id: 'scripts',
+            title: 'Run project scripts',
+            description: '',
+            metadata: { action: { type: 'internal', name: 'runProjectScripts', scripts: ['lint', 'test'] } }
+          }
+        ]
+      });
+      const report = await runtime.startGoal('Run the scripts');
+      const scripts = report.results.find((result) => result.stepId === 'scripts');
+      expect(scripts?.ok).toBe(false);
+      expect(scripts?.output).toBe('Some scripts failed: lint, test');
+      const runs = (scripts?.data as { runs: Array<{ script: string; ok: boolean; error?: string }> }).runs;
+      expect(runs.map((run) => [run.script, run.ok])).toEqual([['lint', true], ['test', false]]);
+      expect(runs[1].error).toContain('expected 2, got 3');
+    } finally {
+      runtime.cancel();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  }, 60000);
 });

@@ -54,11 +54,15 @@ export function createShellAdapter(options: ShellAdapterOptions = {}): IShellAda
             }, opts.timeoutMs)
           : undefined;
 
-        child.stdout?.on('data', (chunk) => {
-          stdout += chunk.toString();
+        // Decode as a stream: a multi-byte UTF-8 character split across two
+        // pipe reads must not turn into two U+FFFD (chunk.toString() per read did).
+        child.stdout?.setEncoding('utf8');
+        child.stderr?.setEncoding('utf8');
+        child.stdout?.on('data', (chunk: string) => {
+          stdout += chunk;
         });
-        child.stderr?.on('data', (chunk) => {
-          stderr += chunk.toString();
+        child.stderr?.on('data', (chunk: string) => {
+          stderr += chunk;
         });
 
         if (opts.input !== undefined && child.stdin) {

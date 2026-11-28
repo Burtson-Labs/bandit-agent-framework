@@ -310,8 +310,9 @@ jobs:
           body: |
             ## Highlights
 
-            - The Bandit ninja is the thinking indicator in the chat: its eyes glance about while the model thinks, its visor lights up while a tool call is written, and it blinks while the reply streams. Bigger (28 px) so the eyes read, in your theme's muted colour, with bouncing dots after the phrase.
-            - Signed in to Bandit Cloud, Bandit can search and read your earlier Bandit chats (`search_conversations`, `read_conversation`) and answer from what was actually said. Only your own chats synced to your Bandit account; never other people's, local-only chats or other assistants' history. Not offered with Ollama, other providers or offline.
+            - Python is no longer required (since 1.7.459): plan steps that scan the project, read and write files, run a command or build a diff run inside the extension, so there is no "install Python" warning or modal.
+            - A failing project script (`lint`, `test`) in an agent plan is reported as failed with its error output, instead of "Scripts succeeded".
+            - Windows: absolute workspace paths are accepted whatever the drive-letter case (`c:\` vs `C:\`); an installed Python is found again for the optional `.py` syntax check; long non-English command output no longer shows "�".
 
             ## Install
 

@@ -244,8 +244,13 @@ export function createInternalActionExecutor(deps: InternalActionDeps) {
         allowFailure: true
       };
       const outcome = await deps.runPythonStep(commandAction, undefined, undefined);
-      runs.push({ script, ok: outcome.ok, output: outcome.output, error: outcome.error });
-      if (!outcome.ok) {
+      // allowFailure keeps a failing script from aborting the run, so the
+      // step outcome is always ok; whether the script passed is the
+      // command's own status (exit code 0), not outcome.ok.
+      const status = (outcome.data as { status?: unknown } | undefined)?.status;
+      const passed = outcome.ok && (status === undefined || status === 'SUCCESS');
+      runs.push({ script, ok: passed, output: outcome.output, error: outcome.error });
+      if (!passed) {
         allPassed = false;
       }
     }
