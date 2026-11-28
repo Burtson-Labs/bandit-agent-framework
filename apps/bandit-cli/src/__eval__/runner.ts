@@ -587,9 +587,23 @@ async function runOnce(fixture: Fixture, provider: RunnerProvider, runNumber: nu
   }
 }
 
+/**
+ * Resolve a fixture-relative path inside `base`. Fixture setup writes into a
+ * throwaway sandbox; a `../` or absolute path in a fixture must not reach the
+ * real home directory or workspace.
+ */
+export function insideSandbox(base: string, relPath: string): string {
+  const abs = path.resolve(base, relPath);
+  const rel = path.relative(path.resolve(base), abs);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`fixture path escapes the eval sandbox: ${relPath}`);
+  }
+  return abs;
+}
+
 async function writeFiles(base: string, files: Record<string, string> | undefined): Promise<void> {
   for (const [relPath, content] of Object.entries(files ?? {})) {
-    const abs = path.join(base, relPath);
+    const abs = insideSandbox(base, relPath);
     await fs.promises.mkdir(path.dirname(abs), { recursive: true });
     await fs.promises.writeFile(abs, content, 'utf8');
   }
@@ -604,7 +618,7 @@ async function applySetup(layout: EvalSandboxLayout, fixture: Fixture): Promise<
   await writeFiles(layout.home, setup.homeFiles);
 
   for (const [relPath, repo] of Object.entries(setup.gitRepos ?? {})) {
-    const dir = path.join(layout.home, relPath);
+    const dir = insideSandbox(layout.home, relPath);
     await fs.promises.mkdir(dir, { recursive: true });
     const git = (...args: string[]): void => {
       execFileSync('git', args, { cwd: dir, stdio: 'ignore', env: { ...process.env, ...sandboxEnv(layout) } });

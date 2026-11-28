@@ -14,7 +14,7 @@ import {
   type EvalSandboxLayout
 } from '../src/__eval__/sandboxContext';
 import { buildRunTrace, TRACE_WORKSPACE } from '../src/__eval__/traceOut';
-import { runFixture, type RunnerProvider } from '../src/__eval__/runner';
+import { insideSandbox, runFixture, type RunnerProvider } from '../src/__eval__/runner';
 import type { Fixture } from '../src/__eval__/types';
 
 const roots: string[] = [];
@@ -315,6 +315,19 @@ describe('eval runner: nothing carries over from one run to the next', () => {
     } finally {
       configureSemanticSearchOllamaUrl('http://localhost:11434');
       await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+});
+
+describe('insideSandbox', () => {
+  const base = path.join(os.tmpdir(), 'eval-sandbox-base');
+  it('resolves fixture paths under the sandbox', () => {
+    expect(insideSandbox(base, 'src/a.ts')).toBe(path.join(base, 'src', 'a.ts'));
+    expect(insideSandbox(base, './nested/../b.txt')).toBe(path.join(base, 'b.txt'));
+  });
+  it('rejects paths that escape it', () => {
+    for (const p of ['../outside.txt', 'a/../../outside.txt', path.join(os.tmpdir(), 'abs.txt'), '.']) {
+      expect(() => insideSandbox(base, p), p).toThrow(/escapes the eval sandbox/);
     }
   });
 });

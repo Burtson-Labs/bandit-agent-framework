@@ -1363,7 +1363,7 @@ catastrophic <code>rm -rf /</code> · <code>~</code> · <code>/*</code> · a rem
 <p><strong>Privacy:</strong> prompt and completion <strong>text is never sent</strong> — only metadata (model, tool name, durations, token counts), and that metadata is run through secret redaction first. <code>metrics-only</code> drops traces entirely. Nothing is sent unless you set <code>enabled: true</code> (or <code>BANDIT_TELEMETRY=1</code>).</p>
 <h3>Remote GPU</h3>
 <p>Running a bigger model on a remote Ollama instance? Point <code>OLLAMA_URL</code> at the remote endpoint and set <code>BANDIT_MODEL</code> to the bigger model. Requests route to the remote node; everything else stays local.</p>
-<h4>Rented GPU (RunPod / <a href="http://Vast.ai">Vast.ai</a> / Lambda)</h4>
+<h4>Rented GPU (RunPod / Vast.ai / Lambda)</h4>
 <p>When you need to run a model your local hardware can’t fit, Bandit talks to any remote Ollama endpoint — including rented GPU pods. Same shape on every provider: spin up a pod with Ollama on port 11434, copy the proxy URL, point <code>OLLAMA_URL</code> at it.</p>
 <p><strong>RunPod</strong> (recommended — simplest UX):</p>
 <pre><code class="language-bash"># 1. From the RunPod template gallery, pick any Ollama template.
@@ -1383,7 +1383,7 @@ export BANDIT_MODEL=&quot;qwen3.6:27b&quot;
 bandit
 </code></pre>
 <p>Tear the pod down when you’re done. ~$2/hr for an H100 SXM × 15-20 min agent session = under $1.</p>
-<p><strong><a href="http://Vast.ai">Vast.ai</a> / Lambda Labs</strong>: same pattern. Find an Ollama-preloaded image (or <code>apt install</code> Ollama yourself), expose port 11434, set <code>OLLAMA_URL</code> to the host URL.</p>
+<p><strong>Vast.ai / Lambda Labs</strong>: same pattern. Find an Ollama-preloaded image (or <code>apt install</code> Ollama yourself), expose port 11434, set <code>OLLAMA_URL</code> to the host URL.</p>
 <p><strong>Recommended models for rented GPU:</strong></p>
 <table>
 <thead>

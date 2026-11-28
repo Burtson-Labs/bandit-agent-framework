@@ -1266,7 +1266,7 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <p>See the <a href="https://github.com/Burtson-Labs/bandit-agent-framework/tree/main/apps/bandit-cli/README.md#telemetry-opt-in" target="_blank" rel="noopener noreferrer">CLI telemetry docs</a> for the full reference.</p>
 <h3>Remote GPU</h3>
 <p>Running a bigger model on a remote Ollama instance? Set <code>banditStealth.ollamaNodeUrl</code> to the remote endpoint and <code>banditStealth.ollamaModel</code> to your larger model. Prompts and the context the agent includes go to that node; the agent’s tools still run on your machine.</p>
-<h4>Rented GPU (RunPod / <a href="http://Vast.ai">Vast.ai</a> / Lambda)</h4>
+<h4>Rented GPU (RunPod / Vast.ai / Lambda)</h4>
 <p>When you want to run a model your local hardware can’t fit — or just want H100-class throughput for a session — Bandit talks to any Ollama endpoint, including rented GPU pods. The setup is the same shape on every provider: spin up a pod with Ollama running on port 11434, copy the proxy URL, paste it into Bandit.</p>
 <p><strong>RunPod</strong> (recommended — simplest UX):</p>
 <ol>
@@ -1276,7 +1276,7 @@ Bandit runs the whole agent loop right in the side panel — listing and reading
 <li>SSH into the pod and pull the model: <code>ollama pull qwen3.6:27b</code> (or whichever tag matches what you set in step 3).</li>
 <li>Use Bandit normally. Tool calls, edits, voice — everything works against the remote endpoint.</li>
 </ol>
-<p><strong><a href="http://Vast.ai">Vast.ai</a> / Lambda Labs</strong>: same pattern. Look for an Ollama-preloaded image, expose port 11434, set <code>banditStealth.ollamaBaseUrl</code> to the host’s public URL.</p>
+<p><strong>Vast.ai / Lambda Labs</strong>: same pattern. Look for an Ollama-preloaded image, expose port 11434, set <code>banditStealth.ollamaBaseUrl</code> to the host’s public URL.</p>
 <p><strong>Recommended models for rented GPU:</strong></p>
 <ul>
 <li><code>qwen3.6:27b</code> (~17 GB) — same model as <code>bandit-logic</code>. Native tool calling, vision, 256K context. Best general-purpose pick.</li>

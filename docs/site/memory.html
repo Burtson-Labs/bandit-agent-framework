@@ -796,7 +796,7 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 <p>A fresh model knows nothing about your project. Memory is how Bandit carries the durable facts — your conventions, your architecture, the decisions you don’t want to re-explain — from one session into the next.</p>
 <p>It’s deliberately simple: <strong>plain markdown files you can read, edit, and commit.</strong> No vector database, no opaque store. (For <em>why</em> it’s built this way, see the <a href="./memory-as-synthesis.html">Memory as synthesis</a> pattern.)</p>
 <hr>
-<h2>Always-in-context: <a href="http://BANDIT.md">BANDIT.md</a></h2>
+<h2>Always-in-context: BANDIT.md</h2>
 <p>At the start of a session Bandit loads a project memory file and injects it into the system prompt under a <code>## Project Memory</code> heading. It looks for the first of these (each capped at ~32 KB):</p>
 <pre><code>BANDIT.md · CLAUDE.md · AGENTS.md · .bandit/BANDIT.md · .bandit/memory.md
 </code></pre>

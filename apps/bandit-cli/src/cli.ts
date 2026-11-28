@@ -62,6 +62,7 @@ import { PasteBuffer } from './input/pasteBuffer';
 import { createInkLineInterface, type InkLineInterface } from './input/inkInterface';
 import { CliToolExecutionContext, SessionFileLedger, expandHome } from './cliToolContext';
 import { readClipboardImage } from './clipboardImage';
+import { openExternal } from './openExternal';
 import { openFilePicker } from './filePicker';
 import { pdfReadTool, pdfPreviewTool, pdfRenderTool } from './pdfTool';
 import { c, glyph, banner, launchBanner, divider, skillLine, toolLine, errorLine, setActiveTheme, linkify, THEME_NAMES, supportsTrueColor, supportsBlockArt, downsampleTruecolorTo256 } from './ansi';
@@ -6153,10 +6154,7 @@ async function main(): Promise<void> {
       // on macOS, `xdg-open` on Linux, `start` on Windows. We don't
       // care about the spawn result — failure to launch is silent and
       // the user can open the path manually from the line above.
-      const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-      try {
-        cp.spawn(opener, [written], { detached: true, stdio: 'ignore' }).unref();
-      } catch { /* opener missing — silent */ }
+      openExternal(written);
     }
     return;
   }

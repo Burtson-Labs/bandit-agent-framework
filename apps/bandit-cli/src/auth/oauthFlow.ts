@@ -17,6 +17,7 @@ import * as net from 'net';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import { spawn } from 'child_process';
+import { openerCommand } from '../openExternal';
 
 // Self-hosters point this at their own OIDC issuer. Resolution order:
 // 1. explicit `authBaseUrl` passed in OAuthSignInOptions (highest precedence)
@@ -179,18 +180,7 @@ function startLoopbackListener(state: string): Promise<{
  */
 function openBrowser(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    let cmd: string;
-    let args: string[];
-    if (process.platform === 'darwin') {
-      cmd = 'open';
-      args = [url];
-    } else if (process.platform === 'win32') {
-      cmd = 'cmd';
-      args = ['/c', 'start', '""', url];
-    } else {
-      cmd = 'xdg-open';
-      args = [url];
-    }
+    const { cmd, args } = openerCommand(url);
     const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
     child.on('error', (err) => reject(err));
     child.unref();

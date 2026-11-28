@@ -27,6 +27,7 @@ import type { SessionStore } from './session';
 import type { ToolExecutionContext } from '@burtson-labs/agent-core';
 import { describeConfig, globalConfigPath, saveApiKey, clearApiKey, saveProvider, saveOllamaUrl, saveOpenaiConfig, saveTavilyKey, clearTavilyKey, addRepoRoot, removeRepoRoot, type ResolvedConfig, type ConfiguredProviderKind } from './config';
 import { OPENAI_PRESETS } from './openaiPresets';
+import { openExternal } from './openExternal';
 import { isStandaloneBinary } from './install/manage';
 
 // Canonical registry package — version checks always go here.
@@ -1665,10 +1666,7 @@ export const slashCommands: SlashCommand[] = [
 
         // Try to open in browser (cross-platform). Best-effort — if it
         // fails, the path is right above so the user can open manually.
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const cp = require('node:child_process') as typeof import('node:child_process');
-        const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-        try { cp.spawn(opener, [written], { detached: true, stdio: 'ignore' }).unref(); } catch { /* opener missing */ }
+        openExternal(written);
         return c.green('✓ insights written to ') + c.cyan(written) + c.dim('\n  (opening in your default browser)');
       } catch (err) {
         return c.red(`Insights failed: ${err instanceof Error ? err.message : String(err)}`);

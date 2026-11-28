@@ -33,7 +33,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { openExternal } from './openExternal';
 import { addMcpServerToConfig, loadMcpServersConfig } from '@burtson-labs/host-kit';
 import { c } from './ansi';
 import type { ResolvedConfig } from './config';
@@ -124,16 +124,7 @@ async function exchangeApiKeyForJwt(apiKey: string, authApiUrl: string): Promise
  * printing the URL for manual copy.
  */
 function openBrowser(url: string): boolean {
-  const cmd = process.platform === 'darwin' ? 'open'
-    : process.platform === 'win32' ? 'start'
-    : 'xdg-open';
-  try {
-    const child = spawn(cmd, [url], { detached: true, stdio: 'ignore' });
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+  return openExternal(url);
 }
 
 /**

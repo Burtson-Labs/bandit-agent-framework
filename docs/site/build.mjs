@@ -34,6 +34,10 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true
 });
+// Autolink only text that carries a scheme (https://…). Fuzzy matching turned
+// bare words like "Vast.ai" and file names like "BANDIT.md" into plaintext
+// http:// links.
+md.linkify.set({ fuzzyLink: false });
 
 // ── Glossary auto-linking ────────────────────────────────────────────────────
 // At build time, link the first mention of each curated term on a page to its

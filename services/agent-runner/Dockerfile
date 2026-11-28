@@ -8,7 +8,7 @@
 #
 #   docker build -f services/agent-runner/Dockerfile -t agent-runner .
 
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS build
 RUN corepack enable
 WORKDIR /repo
 COPY . .
@@ -16,7 +16,7 @@ RUN pnpm install --frozen-lockfile --filter "@burtson-labs/agent-runner..."
 RUN pnpm --filter "@burtson-labs/agent-runner..." build
 RUN pnpm --filter "@burtson-labs/agent-runner" deploy --prod /out
 
-FROM node:22-alpine
+FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
 # git: the turn loop's command allowlist includes git, and workspace
 # operations diff/restore through it.
 RUN apk add --no-cache git

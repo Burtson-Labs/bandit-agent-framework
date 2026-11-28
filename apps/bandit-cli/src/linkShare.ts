@@ -9,6 +9,7 @@
  */
 import * as cp from 'child_process';
 import { c, glyph, linkify } from './ansi';
+import { openExternal } from './openExternal';
 
 /** Copy text to the OS clipboard. Best-effort — returns true on success. */
 export function copyToClipboard(text: string): boolean {
@@ -17,7 +18,7 @@ export function copyToClipboard(text: string): boolean {
       return cp.spawnSync('pbcopy', [], { input: text }).status === 0;
     }
     if (process.platform === 'win32') {
-      return cp.spawnSync('clip', [], { input: text, shell: true }).status === 0;
+      return cp.spawnSync('clip', [], { input: text }).status === 0;
     }
     // Linux: Wayland first, then X11.
     if (cp.spawnSync('wl-copy', [], { input: text }).status === 0) return true;
@@ -29,12 +30,8 @@ export function copyToClipboard(text: string): boolean {
 
 /** Open a URL in the default browser (best-effort, detached so it never blocks). */
 export function openInBrowser(url: string): void {
-  try {
-    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    cp.spawn(opener, [url], { detached: true, stdio: 'ignore', shell: process.platform === 'win32' }).unref();
-  } catch {
-    /* opener missing — the printed link is still clickable */
-  }
+  // A missing opener is fine: the printed link is still clickable.
+  openExternal(url);
 }
 
 /**

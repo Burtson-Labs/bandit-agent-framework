@@ -46,6 +46,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Typecheck (CLI + extension)
+        run: pnpm --filter @burtson-labs/bandit-stealth-cli --filter bandit-stealth typecheck
+
       # Every package with a test script, in one task. The previous version
       # named three packages explicitly and silently skipped the rest —
       # agent-core, host-kit, agent-ui and the CLI's own suite never ran on a
@@ -88,3 +91,22 @@ jobs:
 
       - name: Audit production dependencies
         run: node scripts/check-audit.mjs
+
+  sentinel:
+    # Static analysis, a secret scan over the full history and a dependency
+    # audit. Fails only when the profile gate blocks.
+    name: Sentinel scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Burtson-Labs/sentinel-audit@92d75402690302b9f1693a557eb66bf543369fd6 # v0.2.3
+        with:
+          fail-on: gate
