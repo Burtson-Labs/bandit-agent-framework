@@ -75,6 +75,7 @@
     "test": "turbo run test",
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
+    "typecheck": "pnpm --filter @burtson-labs/bandit-stealth-cli --filter bandit-stealth typecheck",
     "lint:fix": "turbo run lint -- --fix",
     "clean": "turbo run clean",
     "demo": "pnpm --filter agent-node-demo run demo",

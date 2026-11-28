@@ -47,7 +47,7 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck (CLI + extension)
-        run: pnpm --filter @burtson-labs/bandit-stealth-cli --filter bandit-stealth typecheck
+        run: pnpm typecheck
 
       # Every package with a test script, in one task. The previous version
       # named three packages explicitly and silently skipped the rest —
