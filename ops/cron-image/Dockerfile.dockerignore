@@ -1,0 +1,7 @@
+# Used instead of the root .dockerignore for ops/cron-image/Dockerfile. Unlike
+# the root file this keeps .git: social-drafts reads history and self-improve
+# pushes a branch from it.
+**/node_modules
+**/dist
+**/*.vsix
+**/.DS_Store
