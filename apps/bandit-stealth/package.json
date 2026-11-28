@@ -809,7 +809,7 @@
     "esbuild": "0.28.2",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.0",
+    "typescript-eslint": "^8.74.0",
     "vitest": "^4.0.10"
   },
   "dependencies": {
