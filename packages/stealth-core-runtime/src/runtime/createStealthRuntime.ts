@@ -1,11 +1,11 @@
-import type { StealthHostBindings, ITelemetry } from '../hostTypes';
+import type { StealthHostBindings } from '../hostTypes';
 import type { StealthRuntime } from './stealthRuntimeTypes';
 import { EmbeddingCache } from '../embeddingCache';
 import { createEventBus } from './eventBus';
 import { createGoalEngine } from './goalEngine';
 import { createSessionRuntime } from './sessionRuntime';
 import { createBaseServices } from './hosts/baseServices';
-import { createPythonBridge } from './pythonBridge';
+import { createWorkspaceActionBridge, type WorkspaceActionBridge } from './workspaceActions';
 import { createEmbeddingServices } from './hosts/embeddingServices';
 import { createAgentWorkspaceRuntime } from './hosts/workspaceHost';
 import { createAgentRewriteOrchestration } from './hosts/rewriteHost';
@@ -95,8 +95,13 @@ export function createStealthRuntime(host: StealthHostBindings): StealthRuntime 
     getContextValue: (key) => sessionRuntime.getContextValue(key),
     getSessionGoal: () => sessionRuntime.getSessionGoal(),
     python: {
-      ensure: () => host.python.ensure(),
-      clearCache: () => host.python.clearCache()
+      ensure: () =>
+        host.python
+          ? host.python.ensure()
+          : Promise.resolve({ ok: false, error: 'Python runtime not configured.' }),
+      clearCache: async () => {
+        await host.python?.clearCache();
+      }
     },
     fsAdapter: host.fs,
     shellAdapter: host.shell,
@@ -107,7 +112,9 @@ export function createStealthRuntime(host: StealthHostBindings): StealthRuntime 
       });
     },
     onPythonError: (message) => {
-      void host.telemetry.log({ level: 'error', message });
+      if (host.python) {
+        void host.telemetry.log({ level: 'error', message });
+      }
     }
   });
 
@@ -133,12 +140,12 @@ export function createStealthRuntime(host: StealthHostBindings): StealthRuntime 
     throttleMs: 4000
   });
 
-  const pythonBridge = createPythonBridge({
-    pythonEnv,
-    shellAdapter,
-    getScriptPath: () => host.python.scriptPath,
-    getWorkingDirectory: () => host.python.getWorkingDirectory(),
-    onMissingPython: (detail) => notifyMissingPython(host, telemetry, detail)
+  // Plan file actions (scan/read/write/run/diff) run in-process on the
+  // host's fs and shell adapters; no Python needed.
+  const pythonBridge = createWorkspaceActionBridge({
+    fs: fsAdapter,
+    shell: shellAdapter,
+    getDefaultRoot: () => sessionRuntime.getLastWorkspaceRoot() ?? getWorkspaceRoot()
   });
 
   const embeddingServices = createEmbeddingServices({
@@ -544,7 +551,7 @@ function clampConfidence(value: number) {
 }
 
 async function computeDiff(
-  pythonBridge: ReturnType<typeof createPythonBridge>,
+  pythonBridge: WorkspaceActionBridge,
   before: string,
   after: string,
   relativePath: string
@@ -583,15 +590,4 @@ function resolveRootParam(
     return sessionRuntime.ensureSession().workspaceRoot;
   }
   return sessionRuntime.getContextValue<string>(ref) ?? fallback;
-}
-
-async function notifyMissingPython(host: StealthHostBindings, telemetry: ITelemetry, detail?: string) {
-  const message = detail
-    ? `Python 3 is required but could not be started. ${detail}`
-    : 'Python 3 is required but was not detected.';
-  const detailText = detail ?? message;
-   
-  console.error('[Bandit Stealth] Python error:', detailText);
-  await telemetry.log({ level: 'error', message: `${message} | detail: ${detailText}` });
-  await host.ui.showError('Bandit Stealth requires Python 3 to run agent tasks.', detailText);
 }

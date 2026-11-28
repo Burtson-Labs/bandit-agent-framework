@@ -2,7 +2,7 @@
   "name": "bandit-stealth",
   "displayName": "Bandit Stealth",
   "description": "Free, local-first coding agent for VS Code \u2014 run Ollama models (Gemma, Qwen, Devstral) with tool use, diff approvals, and voice. Optional Bandit cloud.",
-  "version": "1.7.458",
+  "version": "1.7.459",
   "publisher": "BurtsonLabs",
   "license": "Apache-2.0",
   "homepage": "https://burtson.ai/stealth",
@@ -381,7 +381,7 @@
             "scope": "machine",
             "type": "string",
             "default": "",
-            "description": "Absolute path to a Python 3 executable. Leave empty to let Bandit Stealth auto-detect python3/python."
+            "description": "Optional. Absolute path to a Python 3 executable used to syntax-check Python files the agent edits. Leave empty to auto-detect python3/python; the check is skipped when none is found. Bandit Stealth does not need Python to run."
           },
           "banditStealth.insightsAi": {
             "scope": "machine",

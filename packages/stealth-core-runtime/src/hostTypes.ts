@@ -5,6 +5,11 @@ export interface IFsAdapter {
   listRecursive(root: string): Promise<string[]>;
   ensureDir(absPath: string): Promise<void>;
   readDir(absPath: string): Promise<string[]>;
+  /**
+   * Optional typed listing. Symlinks to directories report `other` so a walk
+   * does not follow them. Hosts without it fall back to `readDir`.
+   */
+  readDirEntries?(absPath: string): Promise<Array<{ name: string; type: 'file' | 'directory' | 'other' }>>;
   remove(absPath: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
 }
 
@@ -12,7 +17,7 @@ export interface IShellAdapter {
   run(
     command: string,
     args: string[],
-    options?: { cwd?: string; timeoutMs?: number; input?: string | Buffer }
+    options?: { cwd?: string; timeoutMs?: number; input?: string | Buffer; windowsVerbatimArguments?: boolean }
   ): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
@@ -63,9 +68,16 @@ export interface StealthHostBindings {
     getGlobalStoragePath(): string | undefined;
   };
 
-  python: {
-    scriptPath: string;
-    getWorkingDirectory(): string;
+  /**
+   * Optional Python 3 detection, used only to syntax-check `.py` files the
+   * agent writes (`python -m py_compile`). Plan file actions no longer need
+   * Python: they run in-process (see `workspaceActions`).
+   */
+  python?: {
+    /** @deprecated Ignored; the Python bridge script was removed. */
+    scriptPath?: string;
+    /** @deprecated Ignored; the Python bridge script was removed. */
+    getWorkingDirectory?(): string;
     ensure(): Promise<{ ok: boolean; version?: string; command?: string; error?: string }>;
     clearCache(): Promise<void> | void;
   };

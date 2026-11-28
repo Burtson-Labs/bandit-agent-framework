@@ -285,6 +285,11 @@ export interface IFsAdapter {
   listRecursive(root: string): Promise<string[]>;
   ensureDir(absPath: string): Promise<void>;
   readDir(absPath: string): Promise<string[]>;
+  /**
+   * Optional typed listing. Symlinks to directories report `other` so a walk
+   * does not follow them. Hosts without it fall back to `readDir`.
+   */
+  readDirEntries?(absPath: string): Promise<Array<{ name: string; type: 'file' | 'directory' | 'other' }>>;
   remove(absPath: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
 }
 
@@ -292,7 +297,7 @@ export interface IShellAdapter {
   run(
     cmd: string,
     args: string[],
-    opts?: { cwd?: string; timeoutMs?: number; input?: string | Buffer }
+    opts?: { cwd?: string; timeoutMs?: number; input?: string | Buffer; windowsVerbatimArguments?: boolean }
   ): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 

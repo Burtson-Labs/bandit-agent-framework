@@ -69,14 +69,13 @@ for (const asset of [
   'extension/media/logo.png',
   'extension/media/icon.png',
   'extension/media/bandit-stealth-activity.svg',
-  'extension/src/python/bandit_agent.py',
   'extension/media/recorders/bandit-mic-darwin',
 ]) {
   if (!entries.has(asset)) problems.push(`missing asset ${asset}`);
 }
 
 // 5. Sources and tests don't ship.
-const stray = [...entries.keys()].filter((n) => !entries.get(n).isDirectory && /^extension\/(src\/(?!python\/)|test\/|webview\/|scripts\/|out\/test\/)/.test(n));
+const stray = [...entries.keys()].filter((n) => !entries.get(n).isDirectory && /^extension\/(src\/|test\/|webview\/|scripts\/|out\/test\/)/.test(n));
 if (stray.length) problems.push(`the package ships ${stray.length} source/test files (e.g. ${stray[0]})`);
 
 const sizeMb = require('node:fs').statSync(vsixPath).size / 1024 / 1024;

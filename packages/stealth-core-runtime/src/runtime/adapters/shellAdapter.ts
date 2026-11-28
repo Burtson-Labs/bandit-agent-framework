@@ -33,13 +33,14 @@ export function createShellAdapter(options: ShellAdapterOptions = {}): IShellAda
     async run(
       cmd: string,
       args: string[],
-      opts: { cwd?: string; timeoutMs?: number; input?: string | Buffer } = {}
+      opts: { cwd?: string; timeoutMs?: number; input?: string | Buffer; windowsVerbatimArguments?: boolean } = {}
     ): Promise<{ code: number; stdout: string; stderr: string }> {
       const spawn = await getSpawn();
       return new Promise((resolve, reject) => {
         const child = spawn(cmd, args, {
           cwd: opts.cwd,
           env,
+          windowsVerbatimArguments: opts.windowsVerbatimArguments,
           stdio: [opts.input !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe']
         });
 

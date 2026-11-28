@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 import type { AgentPlan } from '@burtson-labs/agent-core';
-import { createStealthRuntime } from '../src';
+import { createNodeFsAdapter, createShellAdapter, createStealthRuntime } from '../src';
 import type { StealthHostBindings } from '../src/hostTypes';
 import type { IFsAdapter, IShellAdapter, ITelemetry } from '../src/hostTypes';
 import type { AgentReport } from '../src/types';
@@ -46,26 +46,8 @@ function createFakeHostBindings(workspaceRoot: string, savedReports: AgentReport
     async remove() {}
   };
   const shellAdapter: IShellAdapter = {
-    async run(_command, _args, options = {}) {
-      const rawInput =
-        typeof options.input === 'string'
-          ? options.input
-          : options.input instanceof Buffer
-            ? options.input.toString()
-            : '{}';
-      let action = 'unknown';
-      try {
-        const parsed = JSON.parse(rawInput) as { action?: string };
-        action = parsed.action ?? 'unknown';
-      } catch {
-        action = 'unknown';
-      }
-      const payload = buildPythonResponse(action);
-      return {
-        code: 0,
-        stdout: JSON.stringify(payload),
-        stderr: ''
-      };
+    async run() {
+      return { code: 0, stdout: '', stderr: '' };
     }
   };
 
@@ -104,8 +86,6 @@ function createFakeHostBindings(workspaceRoot: string, savedReports: AgentReport
       getGlobalStoragePath: () => path.join(workspaceRoot, '.bandit-global')
     },
     python: {
-      scriptPath: path.join(workspaceRoot, 'bridge.py'),
-      getWorkingDirectory: () => workspaceRoot,
       ensure: async () => ({ ok: true, version: '3.10.0', command: 'python3' }),
       clearCache: async () => {}
     },
@@ -118,13 +98,6 @@ function createFakeHostBindings(workspaceRoot: string, savedReports: AgentReport
       createPlan: async (goal) => createFakeAgentPlan(goal)
     }
   };
-}
-
-function buildPythonResponse(action: string): Record<string, unknown> {
-  if (action === 'diffText') {
-    return { status: 'SUCCESS', data: { diff: '' } };
-  }
-  return { status: 'SUCCESS', data: {} };
 }
 
 function createFakeAgentPlan(goal: string): AgentPlan {
@@ -174,6 +147,58 @@ describe('createStealthRuntime', () => {
       expect(savedReports[0].goal).toBe('Ship feature');
     } finally {
       cleanup();
+    }
+  });
+
+  it('runs plan file actions in-process with no Python binding', async () => {
+    const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'stealth-runtime-nopy-'));
+    const savedReports: AgentReport[] = [];
+    const errors: string[] = [];
+    const bindings = createFakeHostBindings(workspaceRoot, savedReports);
+    bindings.fs = createNodeFsAdapter(workspaceRoot);
+    bindings.shell = createShellAdapter();
+    bindings.ui.showError = async (message) => {
+      errors.push(message);
+    };
+    delete bindings.python;
+    writeFileSync(path.join(workspaceRoot, 'package.json'), JSON.stringify({ name: 'demo', scripts: {} }));
+    const runtime = createStealthRuntime(bindings);
+    try {
+      const createdAt = Date.now();
+      bindings.planner.createPlan = async (goal) => ({
+        id: `plan-${createdAt}`,
+        goal,
+        summary: goal,
+        createdAt,
+        version: 'test',
+        steps: [
+          {
+            id: 'scan',
+            title: 'Scan project',
+            description: '',
+            metadata: { action: { type: 'python', name: 'scanProject', storeKey: 'project.scan' } }
+          },
+          {
+            id: 'run',
+            title: 'Run command',
+            description: '',
+            metadata: {
+              action: {
+                type: 'python',
+                name: 'runCommand',
+                command: 'node -e "require(\'fs\').writeFileSync(\'ran.txt\', \'ok\')"'
+              }
+            }
+          }
+        ]
+      });
+      const report = await runtime.startGoal('Scan and run');
+      expect(errors.filter((message) => /python/i.test(message))).toEqual([]);
+      expect(report.results.map((result) => [result.stepId, result.ok])).toEqual([['scan', true], ['run', true]]);
+      expect(readFileSync(path.join(workspaceRoot, 'ran.txt'), 'utf8')).toBe('ok');
+    } finally {
+      runtime.cancel();
+      rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
 });

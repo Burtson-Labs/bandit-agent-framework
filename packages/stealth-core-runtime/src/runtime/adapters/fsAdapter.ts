@@ -29,6 +29,7 @@ export function createNodeFsAdapter(workspaceRoot: string, options: NodeFsAdapte
       listRecursive: async () => [],
       ensureDir: thrower,
       readDir: async () => [],
+      readDirEntries: async () => [],
       remove: thrower
     };
   }
@@ -102,6 +103,30 @@ export function createNodeFsAdapter(workspaceRoot: string, options: NodeFsAdapte
       pathMod = path;
       root = path.resolve(workspaceRoot);
       return fsp.readdir(resolvePath(absPath));
+    },
+    async readDirEntries(absPath: string): Promise<Array<{ name: string; type: 'file' | 'directory' | 'other' }>> {
+      const { fsp, path } = await getNodeDeps();
+      pathMod = path;
+      root = path.resolve(workspaceRoot);
+      const dir = resolvePath(absPath);
+      const entries = await fsp.readdir(dir, { withFileTypes: true });
+      const result: Array<{ name: string; type: 'file' | 'directory' | 'other' }> = [];
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          result.push({ name: entry.name, type: 'directory' });
+        } else if (entry.isSymbolicLink()) {
+          // os.walk semantics: a link to a directory is neither listed nor
+          // followed; a link to a file (or a dangling link) is a file.
+          const isDir = await fsp
+            .stat(path.join(dir, entry.name))
+            .then((stats) => stats.isDirectory())
+            .catch(() => false);
+          result.push({ name: entry.name, type: isDir ? 'other' : 'file' });
+        } else {
+          result.push({ name: entry.name, type: 'file' });
+        }
+      }
+      return result;
     },
     async remove(absPath: string, options: { recursive?: boolean; force?: boolean } = {}): Promise<void> {
       const { fsp, path } = await getNodeDeps();

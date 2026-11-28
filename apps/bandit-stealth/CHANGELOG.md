@@ -2,6 +2,12 @@
 
 All notable changes to **Bandit Stealth** are listed here. Versions follow the extension's own release cadence.
 
+## 1.7.459 (2026-11-28)
+
+- **Python is no longer required.** Plan steps that scan the project, read and write files, run a command or build a diff used to run in a Python helper (`bandit_agent.py`), so on a machine without Python 3 the extension showed an "install Python" warning at startup and a modal error when a plan ran. These steps now run inside the extension, the helper is gone from the package, and neither prompt appears. Results, error messages, the 400-file and depth-5 scan limits and the rule that reads and writes stay inside the workspace are unchanged; commands still run in `/bin/sh` (`cmd.exe` on Windows) only after the same approval as before. Saved plans keep working. If Python 3 is installed it is still used, silently, to syntax-check `.py` files the agent writes; `banditStealth.pythonPath` now only affects that check.
+- **A failed plan command no longer opens the Python error.** Any failed step (a command exiting non-zero, a missing file) used to be reported as "Bandit Stealth requires Python 3 to run agent tasks." It is now reported as the step's own error.
+- **Tighter workspace boundary for plan reads and writes.** A path such as `../app-secrets/key.txt` from a workspace named `app` was accepted because the old check compared text prefixes; it is now refused like any other path outside the workspace.
+
 ## 1.7.458 (2026-11-15)
 
 - **The Bandit ninja is the thinking indicator.** The status line in the chat now leads with the Bandit mark instead of the glowing orb. Its eyes glance left and right while the model thinks, a band of light crosses its visor while a tool call is being written, and it blinks while the reply streams in. The mark is 28 px so the eyes are readable, it takes your theme's muted text colour, and the phrase after it ends in three small bouncing dots. Screen readers hear one status ("Bandit is thinking", "Running read_file", "Writing") instead of the changing phrase. With reduced motion turned on in your system, the mark stays still and the dots become a plain "…".

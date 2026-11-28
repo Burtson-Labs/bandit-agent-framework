@@ -1,0 +1,402 @@
+[
+ {
+  "name": "both empty",
+  "before": "",
+  "after": "",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "identical",
+  "before": "a\nb\nc\n",
+  "after": "a\nb\nc\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "from empty",
+  "before": "",
+  "after": "x\ny\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -0,0 +1,2 @@\n+x\n+y"
+ },
+ {
+  "name": "to empty",
+  "before": "x\ny\n",
+  "after": "",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,2 +0,0 @@\n-x\n-y"
+ },
+ {
+  "name": "one line change",
+  "before": "a\nb\nc\n",
+  "after": "a\nB\nc\n",
+  "fromFile": "src/a.ts (old)",
+  "toFile": "src/a.ts (new)",
+  "diff": "--- src/a.ts (old)\n+++ src/a.ts (new)\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c"
+ },
+ {
+  "name": "crlf and cr",
+  "before": "a\r\nb\rc\n",
+  "after": "a\nb\nc\nd",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,3 +1,4 @@\n a\n b\n c\n+d"
+ },
+ {
+  "name": "unicode separators",
+  "before": "a\u2028b\u000bc\fd\u001ce\u0085f\u2029g",
+  "after": "a\nb\nc\nd\ne\nf\ng\nh",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -5,3 +5,4 @@\n e\n f\n g\n+h"
+ },
+ {
+  "name": "trailing blank lines",
+  "before": "a\n\n\n",
+  "after": "a\n\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,3 +1,2 @@\n a\n \n-"
+ },
+ {
+  "name": "far apart edits",
+  "before": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39",
+  "after": "0\n1\nX\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\nX\n31\n32\n33\n34\n35\n36\n37\n38\n39",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,6 +1,6 @@\n 0\n 1\n-2\n+X\n 3\n 4\n 5\n@@ -28,7 +28,7 @@\n 27\n 28\n 29\n-30\n+X\n 31\n 32\n 33"
+ },
+ {
+  "name": "autojunk popular lines",
+  "before": "}\nline 1\nline 2\n}\nline 4\nline 5\n}\nline 7\nline 8\n}\nline 10\nline 11\n}\nline 13\nline 14\n}\nline 16\nline 17\n}\nline 19\nline 20\n}\nline 22\nline 23\n}\nline 25\nline 26\n}\nline 28\nline 29\n}\nline 31\nline 32\n}\nline 34\nline 35\n}\nline 37\nline 38\n}\nline 40\nline 41\n}\nline 43\nline 44\n}\nline 46\nline 47\n}\nline 49\nline 50\n}\nline 52\nline 53\n}\nline 55\nline 56\n}\nline 58\nline 59\n}\nline 61\nline 62\n}\nline 64\nline 65\n}\nline 67\nline 68\n}\nline 70\nline 71\n}\nline 73\nline 74\n}\nline 76\nline 77\n}\nline 79\nline 80\n}\nline 82\nline 83\n}\nline 85\nline 86\n}\nline 88\nline 89\n}\nline 91\nline 92\n}\nline 94\nline 95\n}\nline 97\nline 98\n}\nline 100\nline 101\n}\nline 103\nline 104\n}\nline 106\nline 107\n}\nline 109\nline 110\n}\nline 112\nline 113\n}\nline 115\nline 116\n}\nline 118\nline 119\n}\nline 121\nline 122\n}\nline 124\nline 125\n}\nline 127\nline 128\n}\nline 130\nline 131\n}\nline 133\nline 134\n}\nline 136\nline 137\n}\nline 139\nline 140\n}\nline 142\nline 143\n}\nline 145\nline 146\n}\nline 148\nline 149\n}\nline 151\nline 152\n}\nline 154\nline 155\n}\nline 157\nline 158\n}\nline 160\nline 161\n}\nline 163\nline 164\n}\nline 166\nline 167\n}\nline 169\nline 170\n}\nline 172\nline 173\n}\nline 175\nline 176\n}\nline 178\nline 179\n}\nline 181\nline 182\n}\nline 184\nline 185\n}\nline 187\nline 188\n}\nline 190\nline 191\n}\nline 193\nline 194\n}\nline 196\nline 197\n}\nline 199\nline 200\n}\nline 202\nline 203\n}\nline 205\nline 206\n}\nline 208\nline 209\n}\nline 211\nline 212\n}\nline 214\nline 215\n}\nline 217\nline 218\n}\nline 220\nline 221\n}\nline 223\nline 224\n}\nline 226\nline 227\n}\nline 229\nline 230\n}\nline 232\nline 233\n}\nline 235\nline 236\n}\nline 238\nline 239\n}\nline 241\nline 242\n}\nline 244\nline 245\n}\nline 247\nline 248\n}\nline 250\nline 251\n}\nline 253\nline 254\n}\nline 256\nline 257\n}\nline 259",
+  "after": "}\nline 1\nline 2\n}\nline 4\nline 5\n}\nline 7\nline 8\n}\nline 10\nline 11\n}\nline 13\nline 14\n}\nline 16\nline 17\n}\nline 19\nline 20\n}\nline 22\nline 23\n}\nline 25\nline 26\n}\nline 28\nline 29\n}\nline 31\nline 32\n}\nline 34\nline 35\n}\nline 37\nline 38\n}\nline 40\nline 41\n}\nline 43\nline 44\n}\nline 46\nline 47\n}\nline 49\nchanged\n}\nline 52\nline 53\n}\nline 55\nline 56\n}\nline 58\nline 59\n}\nline 61\nline 62\n}\nline 64\nline 65\n}\nline 67\nline 68\n}\nline 70\nline 71\n}\nline 73\nline 74\n}\nline 76\nline 77\n}\nline 79\nline 80\n}\nline 82\nline 83\n}\nline 85\nline 86\n}\nline 88\nline 89\n}\nline 91\nline 92\n}\nline 94\nline 95\n}\nline 97\nline 98\n}\nline 100\nline 101\n}\nline 103\nline 104\n}\nline 106\nline 107\n}\nline 109\nline 110\n}\nline 112\nline 113\n}\nline 115\nline 116\n}\nline 118\nline 119\ninserted\n}\nline 121\nline 122\n}\nline 124\nline 125\n}\nline 127\nline 128\n}\nline 130\nline 131\n}\nline 133\nline 134\n}\nline 136\nline 137\n}\nline 139\nline 140\n}\nline 142\nline 143\n}\nline 145\nline 146\n}\nline 148\nline 149\n}\nline 151\nline 152\n}\nline 154\nline 155\n}\nline 157\nline 158\n}\nline 160\nline 161\n}\nline 163\nline 164\n}\nline 166\nline 167\n}\nline 169\nline 170\n}\nline 172\nline 173\n}\nline 175\nline 176\n}\nline 178\nline 179\n}\nline 181\nline 182\n}\nline 184\nline 185\n}\nline 187\nline 188\n}\nline 190\nline 191\n}\nline 193\nline 194\n}\nline 196\nline 197\n}\nline 200\n}\nline 202\nline 203\n}\nline 205\nline 206\n}\nline 208\nline 209\n}\nline 211\nline 212\n}\nline 214\nline 215\n}\nline 217\nline 218\n}\nline 220\nline 221\n}\nline 223\nline 224\n}\nline 226\nline 227\n}\nline 229\nline 230\n}\nline 232\nline 233\n}\nline 235\nline 236\n}\nline 238\nline 239\n}\nline 241\nline 242\n}\nline 244\nline 245\n}\nline 247\nline 248\n}\nline 250\nline 251\n}\nline 253\nline 254\n}\nline 256\nline 257\n}\nline 259",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -48,7 +48,7 @@\n line 47\n }\n line 49\n-line 50\n+changed\n }\n line 52\n line 53\n@@ -118,6 +118,7 @@\n }\n line 118\n line 119\n+inserted\n }\n line 121\n line 122\n@@ -197,7 +198,6 @@\n line 196\n line 197\n }\n-line 199\n line 200\n }\n line 202"
+ },
+ {
+  "name": "random 0",
+  "before": "  // c\nbaz\nreturn x;\nbar\nreturn x;\nbar\n{\nreturn x;\n{\n}\nreturn x;\nqux\n{\nfoo\n{\n}\n\n  // c\nfoo\nreturn x;\n}\n}\nfoo\n  // c\n}\nfoo\n  // c\n}\nqux\nfoo\n}\n\n{\nqux\n{\n  // c\n\n",
+  "after": "  // c\nbaz\nreturn x;\nbar\nreturn x;\nbar\n{\nreturn x;\n{\n}\nreturn x;\nqux\n{\nfoo\n{\n}\n\n  // c\nfoo\nreturn x;\n}\n}\nfoo\n  // c\n}\nfoo\n  // c\n}\nqux\nfoo\n}\n\n{\nqux\n{\n  // c\n\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 1",
+  "before": "{\nqux\n{\nqux\nqux\nqux\nbaz\nfoo\nbaz\nfoo\n{\nbar\nfoo\nbaz\nfoo\n  // c\nqux\n{\n",
+  "after": "{\nqux\n{\nqux\nqux\nqux\nbaz\nfoo\nbaz\n{\nfoo\nbaz\n\nreturn x;\n  // c\n  // c\nbar\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -7,12 +7,12 @@\n baz\n foo\n baz\n-foo\n {\n-bar\n foo\n baz\n-foo\n+\n+return x;\n   // c\n-qux\n+  // c\n+bar\n {"
+ },
+ {
+  "name": "random 2",
+  "before": "foo\nbaz\nfoo\n  // c\nqux\n}\nbar\n  // c\nbar\n  // c\n  // c\nbar\n\nreturn x;\nqux\nqux\nbaz\n  // c\nqux\n}\nreturn x;\nqux",
+  "after": "foo\nbaz\nfoo\nqux\n}\nbar\n  // c\nbar\n  // c\n  // c\nbar\n\nreturn x;\nqux\nqux\nbaz\n  // c\nreturn x;\n}\nreturn x;\nqux",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,6 @@\n foo\n baz\n foo\n-  // c\n qux\n }\n bar\n@@ -16,7 +15,7 @@\n qux\n baz\n   // c\n-qux\n+return x;\n }\n return x;\n qux"
+ },
+ {
+  "name": "random 3",
+  "before": "return x;\nbar\n  // c\nfoo\nfoo\nreturn x;\n}\nbaz\nfoo\nqux\nfoo\n\nreturn x;\nbaz\n  // c\n  // c\n  // c\n",
+  "after": "return x;\nbar\nbaz\nfoo\nreturn x;\n}\nbaz\nfoo\nqux\nfoo\n\nreturn x;\nbaz\n  // c\n  // c\n  // c\n{\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,6 @@\n return x;\n bar\n-  // c\n-foo\n+baz\n foo\n return x;\n }\n@@ -15,3 +14,5 @@\n   // c\n   // c\n   // c\n+{\n+{"
+ },
+ {
+  "name": "random 4",
+  "before": "\n  // c\n\nreturn x;\n  // c\nbaz\nqux\nfoo\nbar\n\nqux",
+  "after": "foo\n  // c\nreturn x;\n\nbaz\nqux\nfoo\nbar\n}\nfoo\nqux",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,11 +1,11 @@\n+foo\n+  // c\n+return x;\n \n-  // c\n-\n-return x;\n-  // c\n baz\n qux\n foo\n bar\n-\n+}\n+foo\n qux"
+ },
+ {
+  "name": "random 5",
+  "before": "foo\nreturn x;\nqux\n  // c\nqux\nqux\nreturn x;\nreturn x;\nfoo\nfoo\nreturn x;\nfoo\n\nreturn x;\n\n}\nbaz\nbaz\n\nfoo\n{\n{\n{\nqux\n  // c\nfoo\n}\n}\nbar\n}\n\nbar\n{\n  // c\nreturn x;\nbar\nbar\n\nbaz\nreturn x;\n\nbar\nfoo\nbar\nreturn x;\n\n{\nfoo\n}\nbar\nfoo\n{\nbaz\nreturn x;\nqux\nqux\nreturn x;\n{\nqux\n}\nqux\nbaz\nqux\n  // c\nbaz\nfoo\nbaz\nbar\n}\n{\nfoo\nreturn x;\nbaz\n  // c\n{\n\nqux\n\n\nreturn x;\n",
+  "after": "foo\nreturn x;\nqux\n  // c\nqux\nqux\nreturn x;\nreturn x;\nfoo\nfoo\nreturn x;\nfoo\n\nreturn x;\n\n}\nbaz\nbaz\n\nfoo\n{\n{\n{\nqux\n  // c\nfoo\n}\n}\nbar\n}\n\nbar\n{\n  // c\nreturn x;\nbar\nbar\n\nbaz\nreturn x;\n\nbar\nfoo\nbar\nreturn x;\n\n{\nfoo\n}\nbar\nfoo\n{\nbaz\nreturn x;\nqux\nqux\nreturn x;\n{\nqux\n}\nqux\nbaz\nqux\n  // c\nbaz\nfoo\nbaz\nfoo\n}\n{\nfoo\nreturn x;\nbaz\n  // c\n{\n\nqux\n\n\nreturn x;",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -65,7 +65,7 @@\n baz\n foo\n baz\n-bar\n+foo\n }\n {\n foo"
+ },
+ {
+  "name": "random 6",
+  "before": "foo\n  // c\n  // c\n}\n}\nbaz\n\n\n\nreturn x;\n",
+  "after": "  // c\n}\nbar\nbaz\nbaz\nreturn x;\nreturn x;\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,10 +1,7 @@\n-foo\n-  // c\n   // c\n }\n-}\n+bar\n baz\n-\n-\n-\n+baz\n return x;\n+return x;"
+ },
+ {
+  "name": "random 7",
+  "before": "foo\nqux\nreturn x;\n}\nreturn x;\n\n}\nbar\n  // c\n}\n\nfoo\nreturn x;\nqux\n}\nbar\n\nbar\n{\nqux\n\n\nreturn x;\n\n  // c\nbar\n  // c\nbar\n",
+  "after": "foo\nqux\n}\n}\nreturn x;\n\n\n}\nbar\n  // c\n}\n\nfoo\nqux\n}\n\nbar\n{\nqux\n\n\nreturn x;\n\n  // c\nbar\n  // c\nfoo",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,8 +1,9 @@\n foo\n qux\n-return x;\n+}\n }\n return x;\n+\n \n }\n bar\n@@ -10,10 +11,8 @@\n }\n \n foo\n-return x;\n qux\n }\n-bar\n \n bar\n {\n@@ -25,4 +24,4 @@\n   // c\n bar\n   // c\n-bar\n+foo"
+ },
+ {
+  "name": "random 8",
+  "before": "foo\nfoo\nfoo\n{",
+  "after": "foo\nfoo\n  // c\n{\nreturn x;\nbaz",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,4 +1,6 @@\n foo\n foo\n-foo\n+  // c\n {\n+return x;\n+baz"
+ },
+ {
+  "name": "random 9",
+  "before": "foo\nqux\nreturn x;\nbaz\nqux\n  // c\n}\n{\nreturn x;\nfoo\nfoo\nfoo\nfoo\nreturn x;\n  // c\nqux\n  // c\n  // c\n  // c\n}\n",
+  "after": "foo\nqux\nbaz\nbaz\nqux\n  // c\n}\n{\nreturn x;\nfoo\nfoo\nfoo\nfoo\nreturn x;\n  // c\nqux\n  // c\n  // c\n  // c\n}",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,6 +1,6 @@\n foo\n qux\n-return x;\n+baz\n baz\n qux\n   // c"
+ },
+ {
+  "name": "random 10",
+  "before": "\nbaz\nreturn x;\nreturn x;\nbar\n}\n{\nfoo\n}\nreturn x;\n{\nreturn x;\n\nqux\nbaz\nbaz\n\nfoo\nfoo\nreturn x;\nqux\n}\nbar\nreturn x;\n}\nbar\nbaz\n  // c\nbar\nbar\n{\n{\n\n{\n}\nreturn x;\nqux\nbaz\n{\nbar\nfoo\nfoo\nqux\nbar\n{\n\n{\nreturn x;\n\n}\nfoo\nqux\n}\n  // c\n{\nbar\nreturn x;\nreturn x;\nfoo\n\n\n  // c\nbar\n  // c\nbaz\nbaz\n}\n}\n}\n\n{\n{\n\n}\n\nfoo\n}\nfoo\nbar\n\nbaz\n  // c\nreturn x;\nbar\nbar\nbar\n  // c\n{\nfoo\n\n}\nreturn x;\n\nqux\nqux\nbaz\nfoo\nqux\n\nbaz\n\n  // c\nbar\n\n{\nbaz\nfoo\nbar\nbaz\nbar\nreturn x;\nfoo\nbar\n\n{\nbar\n\n\nfoo\n\nqux\n{\n\n  // c\nqux\nbaz\nbar\nbaz\nqux\nfoo\nfoo\nreturn x;\nbar\nqux\nfoo\nfoo\n  // c\nfoo\n\n  // c\nreturn x;\nbar\n}\nqux\nbaz\nbaz\nreturn x;\nfoo\nqux\nbaz\nreturn x;\n}\nbaz\nreturn x;\n\n}\n  // c\nqux\n{\n{\nfoo\nbar\nbar\n\n\nreturn x;\n{\n{\nbar\nfoo\nqux\n}\n  // c\n}\nfoo\n}\nbar\n  // c\n  // c\nreturn x;\nbaz\n  // c\n  // c\n  // c\nbaz\n}\nbaz\n{\nreturn x;\n  // c\nqux\n  // c\n  // c\nqux\nqux\n}\nbar\nreturn x;\nfoo\nqux\nbar\n  // c\nreturn x;\n}\nqux\nfoo\nreturn x;\n}\n  // c\nfoo\n  // c\nqux\n{\nfoo\n  // c\n  // c\nreturn x;\n}\n{\n{\nreturn x;\n\nfoo\nfoo\nbaz\n\n}\n  // c\n\nbaz\nreturn x;\nbar\nqux\n\nqux\n}\nbaz\n  // c\n}\n{\n  // c\nfoo\nqux\nreturn x;\nreturn x;\n{\n}\n}\n\n}\nfoo\n{",
+  "after": "\nbaz\nreturn x;\nreturn x;\nbar\n}\n{\nfoo\n}\nreturn x;\n{\nreturn x;\n\nqux\nbaz\n\nfoo\nfoo\nreturn x;\nqux\n}\nbar\nreturn x;\n}\nbar\nbaz\n  // c\nbar\nbar\n{\n{\n\n{\n}\nreturn x;\nfoo\nqux\nbaz\n{\nbar\nfoo\nfoo\nqux\nbar\nbar\n\n{\nreturn x;\n\n}\nfoo\nqux\n}\n  // c\n{\nbar\nreturn x;\nreturn x;\nfoo\n\n\n  // c\nbar\n  // c\nbaz\nbaz\n}\n}\n}\n\n{\n{\n\n}\n\nfoo\n}\nfoo\nbar\n\nbaz\n  // c\nreturn x;\nbar\nbar\nbar\n  // c\n{\nfoo\n\n}\nreturn x;\n\nqux\nqux\nbaz\nfoo\nqux\n\nbaz\n\n  // c\nbar\n\n{\nbaz\nfoo\nbar\nbaz\nbar\nreturn x;\nfoo\nbar\n\n{\nbar\n\n\nfoo\n\nqux\n{\n\n  // c\nqux\nbaz\nbar\nbaz\nqux\nfoo\nfoo\nreturn x;\nbar\nqux\nfoo\nfoo\n  // c\nfoo\n\n  // c\nreturn x;\nfoo\n}\nqux\nbaz\nbaz\nreturn x;\nfoo\nqux\nbaz\nreturn x;\n}\nbaz\nreturn x;\n\n}\n  // c\nqux\n{\n{\nfoo\nbar\nbar\n\n\nreturn x;\n{\n{\nbar\nfoo\nqux\n}\n  // c\n}\nfoo\n}\nbar\n  // c\n  // c\nreturn x;\nbaz\n  // c\n  // c\n  // c\nbaz\n}\nbaz\n{\nreturn x;\n  // c\n}\n  // c\n  // c\nqux\nqux\n}\nbar\nreturn x;\nfoo\nqux\nbar\n  // c\nreturn x;\n}\nqux\nfoo\nreturn x;\n}\n  // c\nfoo\n  // c\nqux\n{\nfoo\n  // c\n  // c\nreturn x;\n}\n{\n{\nreturn x;\n\nfoo\nfoo\nbaz\n\n}\n  // c\n\nbaz\nreturn x;\nqux\n\nqux\n}\nbaz\n  // c\n}\n{\n  // c\nfoo\nqux\nreturn x;\nreturn x;\n{\n}\n}\n\n}\nfoo\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -13,240 +13,239 @@\n \n qux\n baz\n-baz\n-\n-foo\n-foo\n-return x;\n-qux\n-}\n-bar\n-return x;\n-}\n-bar\n-baz\n-  // c\n-bar\n-bar\n-{\n-{\n-\n-{\n-}\n-return x;\n-qux\n-baz\n-{\n-bar\n-foo\n-foo\n-qux\n-bar\n-{\n-\n-{\n-return x;\n-\n-}\n-foo\n-qux\n-}\n-  // c\n-{\n-bar\n-return x;\n-return x;\n-foo\n-\n-\n-  // c\n-bar\n-  // c\n-baz\n-baz\n-}\n-}\n-}\n-\n-{\n-{\n-\n-}\n-\n-foo\n-}\n-foo\n-bar\n-\n-baz\n-  // c\n-return x;\n-bar\n-bar\n-bar\n-  // c\n-{\n-foo\n-\n-}\n-return x;\n-\n-qux\n-qux\n-baz\n-foo\n-qux\n-\n-baz\n-\n-  // c\n-bar\n-\n-{\n-baz\n-foo\n-bar\n-baz\n-bar\n-return x;\n-foo\n-bar\n-\n-{\n-bar\n-\n-\n-foo\n-\n-qux\n-{\n-\n-  // c\n-qux\n-baz\n-bar\n-baz\n-qux\n-foo\n-foo\n-return x;\n-bar\n-qux\n-foo\n-foo\n-  // c\n-foo\n-\n-  // c\n-return x;\n-bar\n-}\n-qux\n-baz\n-baz\n-return x;\n-foo\n-qux\n-baz\n-return x;\n-}\n-baz\n-return x;\n-\n-}\n-  // c\n-qux\n-{\n-{\n-foo\n-bar\n-bar\n-\n-\n-return x;\n-{\n-{\n-bar\n-foo\n-qux\n-}\n-  // c\n-}\n-foo\n-}\n-bar\n-  // c\n-  // c\n-return x;\n-baz\n-  // c\n-  // c\n-  // c\n-baz\n-}\n-baz\n-{\n-return x;\n-  // c\n-qux\n-  // c\n-  // c\n-qux\n-qux\n-}\n-bar\n-return x;\n-foo\n-qux\n-bar\n-  // c\n-return x;\n-}\n-qux\n-foo\n-return x;\n-}\n-  // c\n-foo\n-  // c\n-qux\n-{\n-foo\n-  // c\n-  // c\n-return x;\n-}\n-{\n-{\n-return x;\n-\n-foo\n-foo\n-baz\n-\n-}\n-  // c\n-\n-baz\n-return x;\n-bar\n-qux\n-\n-qux\n-}\n-baz\n-  // c\n-}\n-{\n-  // c\n-foo\n-qux\n-return x;\n-return x;\n-{\n-}\n-}\n-\n-}\n-foo\n-{\n+\n+foo\n+foo\n+return x;\n+qux\n+}\n+bar\n+return x;\n+}\n+bar\n+baz\n+  // c\n+bar\n+bar\n+{\n+{\n+\n+{\n+}\n+return x;\n+foo\n+qux\n+baz\n+{\n+bar\n+foo\n+foo\n+qux\n+bar\n+bar\n+\n+{\n+return x;\n+\n+}\n+foo\n+qux\n+}\n+  // c\n+{\n+bar\n+return x;\n+return x;\n+foo\n+\n+\n+  // c\n+bar\n+  // c\n+baz\n+baz\n+}\n+}\n+}\n+\n+{\n+{\n+\n+}\n+\n+foo\n+}\n+foo\n+bar\n+\n+baz\n+  // c\n+return x;\n+bar\n+bar\n+bar\n+  // c\n+{\n+foo\n+\n+}\n+return x;\n+\n+qux\n+qux\n+baz\n+foo\n+qux\n+\n+baz\n+\n+  // c\n+bar\n+\n+{\n+baz\n+foo\n+bar\n+baz\n+bar\n+return x;\n+foo\n+bar\n+\n+{\n+bar\n+\n+\n+foo\n+\n+qux\n+{\n+\n+  // c\n+qux\n+baz\n+bar\n+baz\n+qux\n+foo\n+foo\n+return x;\n+bar\n+qux\n+foo\n+foo\n+  // c\n+foo\n+\n+  // c\n+return x;\n+foo\n+}\n+qux\n+baz\n+baz\n+return x;\n+foo\n+qux\n+baz\n+return x;\n+}\n+baz\n+return x;\n+\n+}\n+  // c\n+qux\n+{\n+{\n+foo\n+bar\n+bar\n+\n+\n+return x;\n+{\n+{\n+bar\n+foo\n+qux\n+}\n+  // c\n+}\n+foo\n+}\n+bar\n+  // c\n+  // c\n+return x;\n+baz\n+  // c\n+  // c\n+  // c\n+baz\n+}\n+baz\n+{\n+return x;\n+  // c\n+}\n+  // c\n+  // c\n+qux\n+qux\n+}\n+bar\n+return x;\n+foo\n+qux\n+bar\n+  // c\n+return x;\n+}\n+qux\n+foo\n+return x;\n+}\n+  // c\n+foo\n+  // c\n+qux\n+{\n+foo\n+  // c\n+  // c\n+return x;\n+}\n+{\n+{\n+return x;\n+\n+foo\n+foo\n+baz\n+\n+}\n+  // c\n+\n+baz\n+return x;\n+qux\n+\n+qux\n+}\n+baz\n+  // c\n+}\n+{\n+  // c\n+foo\n+qux\n+return x;\n+return x;\n+{\n+}\n+}\n+\n+}\n+foo\n+{"
+ },
+ {
+  "name": "random 11",
+  "before": "  // c\nbar\nreturn x;\nfoo\nreturn x;\n}\nbaz\nbaz\nbaz\n{\nfoo\nbar\nreturn x;\nfoo\n  // c\n",
+  "after": "  // c\nbar\nreturn x;\nfoo\nreturn x;\n}\nbaz\nbaz\nbaz\n{\nfoo\nbar\nreturn x;\nfoo\n  // c",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 12",
+  "before": "{\n{\nbar\nfoo\nfoo\n{\nbar\n\n\n}\n}\nreturn x;\n\n\n{\n}\nbar",
+  "after": "\n\n{\nbar\nfoo\nfoo\n{\nbar\n\n\n}\n}\n}\nreturn x;\n\n\n{\n}\nbar",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,4 +1,5 @@\n-{\n+\n+\n {\n bar\n foo\n@@ -9,6 +10,7 @@\n \n }\n }\n+}\n return x;\n \n "
+ },
+ {
+  "name": "random 13",
+  "before": "baz\n}\nbar\nbaz\n  // c\n  // c\nreturn x;\n",
+  "after": "baz\n  // c\n{\n}\nbaz\n  // c\n  // c\nbar\nreturn x;\n  // c",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,10 @@\n baz\n+  // c\n+{\n }\n-bar\n baz\n   // c\n   // c\n+bar\n return x;\n+  // c"
+ },
+ {
+  "name": "random 14",
+  "before": "bar\nqux\nbaz\nreturn x;\n}\n}\n\nqux\n}\n  // c\nqux\nfoo\n{\n{\nreturn x;\n  // c\n}\nfoo\n\nqux\nfoo",
+  "after": "bar\nqux\nreturn x;\n}\n{\n\n  // c\nqux\nfoo\n{\n{\nreturn x;\n}\n}\nfoo\n{\nfoo",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,21 +1,17 @@\n bar\n qux\n-baz\n return x;\n }\n-}\n+{\n \n-qux\n-}\n   // c\n qux\n foo\n {\n {\n return x;\n-  // c\n+}\n }\n foo\n-\n-qux\n+{\n foo"
+ },
+ {
+  "name": "random 15",
+  "before": "\nreturn x;\nbar\n  // c\n}\nbar\n}\n\nfoo\n\n}\n}\nbar\nreturn x;\nfoo\nbar\n}\n}\n{\n{\nreturn x;\nbaz\nqux\nfoo\nqux\n{\n}\n{\nreturn x;\n{\n\n  // c\n  // c\n\n  // c\nfoo\nreturn x;\nbar\nqux\nbar\n}\n{\nbaz\n\nfoo\nbaz\nfoo\nreturn x;\nfoo\n  // c\n  // c\nbar\n{\nfoo\nreturn x;\n{\nbaz\nreturn x;\n{\nfoo\nqux\nbaz\n}\nbar\nfoo\n\nqux\nfoo\nbaz\n\n  // c\n{\n}\nbaz\nbaz\nreturn x;\n}\nbar\nfoo\n{\n{\nfoo\n{\n  // c\nqux\nbaz\n{\n  // c\n{\n{\nfoo\nreturn x;\nfoo\nfoo\n{\n}\nbar\nfoo\nqux\nqux\nbar\nreturn x;\nbaz\n}\n{\n{\nreturn x;\nreturn x;\n}\n}\n  // c\n{\nreturn x;\n{\nbar\n{\nbar\nbaz\nqux\n}\n{\n{\nfoo\nbaz\n{\n{\nbaz\nbaz\nbaz\n\nbar\n{\n{\nbar\n\n  // c\nfoo\n  // c\nbar\n  // c\n}\n}\nreturn x;\nbar\nbar\nfoo\nbaz\nbaz\n{\n  // c\nreturn x;\n  // c\n  // c\nreturn x;\nqux\nbar\nreturn x;\n",
+  "after": "\nreturn x;\nbar\n  // c\n}\nbar\n}\n\nfoo\n\n}\n}\nbar\nreturn x;\nfoo\nbar\n}\n}\n{\n{\nreturn x;\nbaz\nqux\nfoo\nqux\n{\n}\n{\nreturn x;\n{\n\n  // c\n  // c\n\n  // c\nfoo\nreturn x;\nbar\nqux\nbar\n}\n{\nbaz\n\nfoo\nbaz\nfoo\nreturn x;\nfoo\n  // c\n  // c\nbar\n{\nfoo\nreturn x;\n{\nbaz\nreturn x;\n{\nfoo\nqux\nbaz\n}\nbar\nfoo\n\nqux\nfoo\nbaz\n\n  // c\n{\n}\nbaz\nbaz\nreturn x;\n}\nbar\nfoo\n{\n{\nfoo\n{\n  // c\nqux\nbaz\n{\n  // c\n{\n{\nfoo\nreturn x;\nfoo\nfoo\n{\n}\nbar\nfoo\nqux\nqux\nbar\nreturn x;\nbaz\n}\n{\n{\nreturn x;\nreturn x;\n}\n}\n  // c\n{\nreturn x;\n{\nbar\n{\nbar\nbaz\nqux\n}\n{\n{\nfoo\nbaz\n{\n{\nbaz\nbaz\nbaz\n\nbar\n{\n{\nbar\n\n  // c\nfoo\n  // c\nbar\n  // c\n}\n}\nreturn x;\nbar\nbar\nfoo\nbaz\nbaz\n{\n  // c\nreturn x;\n  // c\n  // c\nreturn x;\nqux\nbar\nreturn x;",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 16",
+  "before": "baz\n\n}\nbaz\n{\n{\n{\n\n  // c\nreturn x;\n  // c\nfoo\nreturn x;\nbaz\nreturn x;\n  // c\n}\n  // c\nreturn x;\nqux\n}\nfoo\nbaz\n\nreturn x;\nreturn x;\n\nbar",
+  "after": "qux\nbaz\n\n}\n{\n{\n{\n{\n\n  // c\nreturn x;\n  // c\nfoo\nreturn x;\nbaz\nreturn x;\n  // c\n  // c\nreturn x;\nqux\n}\nfoo\nbaz\n\nreturn x;\nreturn x;\n\nbar",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,8 @@\n+qux\n baz\n \n }\n-baz\n+{\n {\n {\n {\n@@ -14,7 +15,6 @@\n baz\n return x;\n   // c\n-}\n   // c\n return x;\n qux"
+ },
+ {
+  "name": "random 17",
+  "before": "}\nfoo\nbar\n}\nbaz\nqux\n}\n",
+  "after": "foo\n}\nfoo\nbar\n}\nbaz\nqux\nfoo",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,8 @@\n+foo\n }\n foo\n bar\n }\n baz\n qux\n-}\n+foo"
+ },
+ {
+  "name": "random 18",
+  "before": "qux\nbar\nqux\nqux\n\nqux\nreturn x;\nreturn x;\n}\n\n{\nqux\n\n\n}\nreturn x;\n{\n\n  // c",
+  "after": "qux\nbar\nqux\nqux\n\nqux\nreturn x;\nreturn x;\n}\n\n{\nqux\n\n\n}\nreturn x;\n{\n\n  // c",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 19",
+  "before": "{\nqux\n\n}\n{\n}\nfoo\n  // c\nfoo\nfoo\nbaz\n}\n}\nqux\nfoo\nqux\n}\n",
+  "after": "{\nqux\n\n}\nbaz\n{\n}\nfoo\n  // c\nfoo\nfoo\n}\n}\nqux\nfoo\n}",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -2,16 +2,15 @@\n qux\n \n }\n+baz\n {\n }\n foo\n   // c\n foo\n foo\n-baz\n }\n }\n qux\n foo\n-qux\n }"
+ },
+ {
+  "name": "random 20",
+  "before": "foo\n}\nbaz\nreturn x;\nfoo\nbaz\n\n{\nbaz\n}\nqux\n}\nqux\n\nreturn x;\nfoo\nbar\nreturn x;\nbar\n}\n{\n}\n}\n\n{\nqux\nreturn x;\nfoo\nqux\nqux\n  // c\nfoo\nbaz\nbaz\nreturn x;\n\nfoo\n\n}\n}\nreturn x;\nbar\nqux\n}\nfoo\n  // c\n\nqux\n{\nqux\nbar\n}\n  // c\nreturn x;\nqux\nbaz\n\nqux\nbar\nbar\nqux\nreturn x;\n\n  // c\nfoo\nqux\n}\nbaz\nqux\nqux\nbaz\n  // c\nbaz\nfoo\nreturn x;\nbar\nreturn x;\nqux\n  // c\nbaz\nreturn x;\nreturn x;\nbaz\nfoo\n{\nbar\n\n\nreturn x;\nbar\n\nreturn x;\nqux\nfoo\nbar\n\nbar\nreturn x;\n}\n}\n}\n  // c\nbaz\n  // c\nbaz\nfoo\nfoo\nbar\nbaz\nbar\n}\nqux\nreturn x;\nqux\n\nqux\n\nfoo\nbaz\n}\n  // c\nbaz\n{\nbar\nbaz\n}\n{\n  // c\nfoo\n  // c\n  // c\n  // c\nbaz\n\nqux\nbaz\nfoo\nfoo\n}\nqux\n  // c\nreturn x;\n  // c\nreturn x;\n\nfoo\nbar\nqux\nfoo\nqux\nbar\n}\nbar\nqux\n  // c\nbar\n\n  // c\n\nqux\n{\n}\n  // c\nbar\nfoo\nbaz\nbar\nbaz\n\nbar\nbar\nbaz\n  // c\n{\nbaz\n}\n\nreturn x;\n}\n{\n}\nreturn x;\n}\nqux\nbaz\nreturn x;\nqux\nbar\n\nqux\n}\nfoo\n  // c\nfoo\n}\n{\n  // c\nbaz\nreturn x;\nfoo\nqux\n\n\n}\n}\nbaz\n{\n}\n\nqux\nreturn x;\nfoo\n  // c\nreturn x;\nbaz\nfoo\nbaz\n\n  // c\nqux\nbaz\n\nbaz\nfoo\n{\n}\nbaz\nbar\nbaz\nbar\nbar\nbaz\n  // c\nbar\n  // c\n}\n{\n  // c\n{\nfoo\nqux\nbaz",
+  "after": "foo\n}\nbaz\nreturn x;\nfoo\nbaz\n\n{\nbaz\n}\nqux\n}\nqux\n\nreturn x;\nfoo\nbar\nreturn x;\nbar\n}\n{\n}\n}\n\n{\nqux\nreturn x;\nfoo\nqux\nreturn x;\nqux\n  // c\nfoo\nbaz\nbaz\nreturn x;\n\nfoo\n\n}\n}\nreturn x;\nbar\nqux\n}\nfoo\n  // c\n\nqux\n{\nqux\nbar\n}\n  // c\nreturn x;\nqux\n}\n\nqux\nbar\nbar\nqux\nreturn x;\n\n  // c\nfoo\nqux\n}\nbaz\nqux\nqux\nbaz\n  // c\nbaz\nfoo\nreturn x;\nbar\nreturn x;\nqux\n  // c\nbaz\nreturn x;\nreturn x;\nbaz\n{\n{\nbar\n\n\nreturn x;\nbar\n\nreturn x;\nqux\nfoo\nbar\n\nbar\nreturn x;\n}\n}\n}\n  // c\nbaz\n  // c\nbaz\nfoo\nfoo\nbar\nbaz\nbar\n}\nqux\nreturn x;\nqux\n\nqux\n\nfoo\nbaz\n}\n  // c\nbaz\n{\nbar\nbaz\n}\n{\n  // c\nfoo\n  // c\n  // c\n  // c\nbaz\n\nqux\nbaz\nfoo\nfoo\n}\nqux\n  // c\nreturn x;\n  // c\nreturn x;\n\nfoo\nbar\nqux\nfoo\nqux\nbar\n}\nbar\nqux\n  // c\nbar\n\n  // c\n\nqux\n{\n}\n  // c\nbar\nfoo\nbaz\nbar\nbaz\n\nbar\nbar\nbaz\n  // c\n{\nbaz\n}\n\nreturn x;\n}\n{\n}\nreturn x;\n}\nqux\nbaz\nreturn x;\nqux\nbar\n\nqux\n}\nfoo\n  // c\nfoo\n}\n{\n  // c\nbaz\nreturn x;\nfoo\nqux\n\n\n}\n}\nbaz\n{\n}\n\nqux\nreturn x;\nfoo\n  // c\nreturn x;\nbaz\nfoo\n{\nbaz\n\n  // c\nqux\nbaz\n\nbaz\nfoo\n{\n}\nbaz\nbar\nbaz\nbar\nbar\nbaz\n  // c\nbar\n  // c\n}\n{\n  // c\n{\nfoo\nqux\nbaz",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -27,216 +27,218 @@\n return x;\n foo\n qux\n-qux\n-  // c\n-foo\n-baz\n-baz\n-return x;\n-\n-foo\n-\n-}\n-}\n-return x;\n-bar\n-qux\n-}\n-foo\n-  // c\n-\n-qux\n-{\n-qux\n-bar\n-}\n-  // c\n-return x;\n-qux\n-baz\n-\n-qux\n-bar\n-bar\n-qux\n-return x;\n-\n-  // c\n-foo\n-qux\n-}\n-baz\n-qux\n-qux\n-baz\n-  // c\n-baz\n-foo\n-return x;\n-bar\n-return x;\n-qux\n-  // c\n-baz\n-return x;\n-return x;\n-baz\n-foo\n-{\n-bar\n-\n-\n-return x;\n-bar\n-\n-return x;\n-qux\n-foo\n-bar\n-\n-bar\n-return x;\n-}\n-}\n-}\n-  // c\n-baz\n-  // c\n-baz\n-foo\n-foo\n-bar\n-baz\n-bar\n-}\n-qux\n-return x;\n-qux\n-\n-qux\n-\n-foo\n-baz\n-}\n-  // c\n-baz\n-{\n-bar\n-baz\n-}\n-{\n-  // c\n-foo\n-  // c\n-  // c\n-  // c\n-baz\n-\n-qux\n-baz\n-foo\n-foo\n-}\n-qux\n-  // c\n-return x;\n-  // c\n-return x;\n-\n-foo\n-bar\n-qux\n-foo\n-qux\n-bar\n-}\n-bar\n-qux\n-  // c\n-bar\n-\n-  // c\n-\n-qux\n-{\n-}\n-  // c\n-bar\n-foo\n-baz\n-bar\n-baz\n-\n-bar\n-bar\n-baz\n-  // c\n-{\n-baz\n-}\n-\n-return x;\n-}\n-{\n-}\n-return x;\n-}\n-qux\n-baz\n-return x;\n-qux\n-bar\n-\n-qux\n-}\n-foo\n-  // c\n-foo\n-}\n-{\n-  // c\n-baz\n-return x;\n-foo\n-qux\n-\n-\n-}\n-}\n-baz\n-{\n-}\n-\n-qux\n-return x;\n-foo\n-  // c\n-return x;\n-baz\n-foo\n-baz\n-\n-  // c\n-qux\n-baz\n-\n-baz\n-foo\n-{\n-}\n-baz\n-bar\n-baz\n-bar\n-bar\n-baz\n-  // c\n-bar\n-  // c\n-}\n-{\n-  // c\n-{\n-foo\n-qux\n-baz\n+return x;\n+qux\n+  // c\n+foo\n+baz\n+baz\n+return x;\n+\n+foo\n+\n+}\n+}\n+return x;\n+bar\n+qux\n+}\n+foo\n+  // c\n+\n+qux\n+{\n+qux\n+bar\n+}\n+  // c\n+return x;\n+qux\n+}\n+\n+qux\n+bar\n+bar\n+qux\n+return x;\n+\n+  // c\n+foo\n+qux\n+}\n+baz\n+qux\n+qux\n+baz\n+  // c\n+baz\n+foo\n+return x;\n+bar\n+return x;\n+qux\n+  // c\n+baz\n+return x;\n+return x;\n+baz\n+{\n+{\n+bar\n+\n+\n+return x;\n+bar\n+\n+return x;\n+qux\n+foo\n+bar\n+\n+bar\n+return x;\n+}\n+}\n+}\n+  // c\n+baz\n+  // c\n+baz\n+foo\n+foo\n+bar\n+baz\n+bar\n+}\n+qux\n+return x;\n+qux\n+\n+qux\n+\n+foo\n+baz\n+}\n+  // c\n+baz\n+{\n+bar\n+baz\n+}\n+{\n+  // c\n+foo\n+  // c\n+  // c\n+  // c\n+baz\n+\n+qux\n+baz\n+foo\n+foo\n+}\n+qux\n+  // c\n+return x;\n+  // c\n+return x;\n+\n+foo\n+bar\n+qux\n+foo\n+qux\n+bar\n+}\n+bar\n+qux\n+  // c\n+bar\n+\n+  // c\n+\n+qux\n+{\n+}\n+  // c\n+bar\n+foo\n+baz\n+bar\n+baz\n+\n+bar\n+bar\n+baz\n+  // c\n+{\n+baz\n+}\n+\n+return x;\n+}\n+{\n+}\n+return x;\n+}\n+qux\n+baz\n+return x;\n+qux\n+bar\n+\n+qux\n+}\n+foo\n+  // c\n+foo\n+}\n+{\n+  // c\n+baz\n+return x;\n+foo\n+qux\n+\n+\n+}\n+}\n+baz\n+{\n+}\n+\n+qux\n+return x;\n+foo\n+  // c\n+return x;\n+baz\n+foo\n+{\n+baz\n+\n+  // c\n+qux\n+baz\n+\n+baz\n+foo\n+{\n+}\n+baz\n+bar\n+baz\n+bar\n+bar\n+baz\n+  // c\n+bar\n+  // c\n+}\n+{\n+  // c\n+{\n+foo\n+qux\n+baz"
+ },
+ {
+  "name": "random 21",
+  "before": "bar\n\nfoo\n  // c\nfoo\n",
+  "after": "bar\nbar\nfoo\n  // c\nfoo",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,5 +1,5 @@\n bar\n-\n+bar\n foo\n   // c\n foo"
+ },
+ {
+  "name": "random 22",
+  "before": "}\n{\nbaz\nfoo\nbar\n}\nqux\nqux\nbar\nfoo\n  // c\n  // c\n}\nbar\n\nqux\n  // c\nbaz\n  // c\nbaz\n\nreturn x;\n\nreturn x;\nbar\n\nbaz\n",
+  "after": "}\n{\nbar\n}\nqux\nqux\nfoo\n  // c\nbar\n  // c\n}\nbar\n\n\nfoo\n  // c\nbaz\n  // c\nbaz\n\nreturn x;\n\nreturn x;\n}\nbar\n\nfoo\nbaz\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,19 +1,18 @@\n }\n {\n-baz\n-foo\n bar\n }\n qux\n qux\n-bar\n foo\n   // c\n+bar\n   // c\n }\n bar\n \n-qux\n+\n+foo\n   // c\n baz\n   // c\n@@ -22,6 +21,8 @@\n return x;\n \n return x;\n+}\n bar\n \n+foo\n baz"
+ },
+ {
+  "name": "random 23",
+  "before": "  // c\n}\n  // c\nfoo\nqux\nbaz\nbaz\n}\nqux\nfoo\n{\nqux\nbar\nbar\n\n\n{\nbar\n",
+  "after": "  // c\n}\nqux\nqux\nbaz\nbaz\n}\nqux\nfoo\n{\nqux\nbar\nbar\n\n\n{\nbar",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,6 @@\n   // c\n }\n-  // c\n-foo\n+qux\n qux\n baz\n baz"
+ },
+ {
+  "name": "random 24",
+  "before": "bar\n\nbar\n{\nqux\n  // c",
+  "after": "bar\n\nbar\n{\nqux\n  // c",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 25",
+  "before": "{\nqux\nbar\n  // c\n}\n  // c\n{\nqux\n\n}\nfoo\nreturn x;\nqux\nbaz\n}\n\nbar\n}\nfoo\n}\nbar\nfoo\nfoo\nqux\n\n{\n\nreturn x;\nbar\nfoo\nreturn x;\n  // c\nfoo\n}\nbaz\n}\n\n\nreturn x;\n{\nfoo\nbaz\nreturn x;\nbaz\nfoo\n{\n{\nbar\nbaz\nbaz\nbaz\n\n}\nbar\nqux\n{\n  // c\nbar\nqux\nfoo\nreturn x;\nqux\nfoo\nqux\nqux\nbaz\nreturn x;\nqux\n{\nfoo\n  // c\n\nbar\nbar\n}\n\n\n\n\nfoo\nqux\n\n}\nqux\n\nqux\nbaz\n\n{\nbar\nfoo\n{\nbaz\n{\nbar\nbaz\nbaz\nfoo\nfoo\n}\nqux\nfoo\n  // c\nfoo\n  // c\nfoo\nbaz\n  // c\n  // c\nbaz\nbar\n}\nreturn x;\n  // c\nreturn x;\n  // c\n\n\n\nqux\n  // c\n}\n}\nreturn x;\n}\nbar\n  // c\nbaz\nbar\n}\nbaz\nfoo\nreturn x;\nqux\n  // c\nbar\nqux\n\n}\nbaz\n  // c\n  // c\nqux\n\n\nreturn x;\n  // c\n{\n  // c\n}\n\n{\nqux\nqux\nfoo\nbar\nfoo\n{\n  // c\nfoo\nreturn x;\nqux\n}\nbar\nfoo\nreturn x;\n  // c\nqux\nbaz\n\n  // c\nbar\n}\nfoo\nqux\nreturn x;\nreturn x;\n\n}\n{\n{\n{\n{\nfoo\nreturn x;\nreturn x;\nbaz\nreturn x;\n{\n",
+  "after": "{\nqux\nbar\n  // c\n}\n  // c\n{\nqux\n\n}\nfoo\nreturn x;\nqux\nbaz\n}\nbar\n}\nfoo\n}\nbar\nfoo\nfoo\nqux\n\n{\n\nreturn x;\nbar\nfoo\nreturn x;\n  // c\nfoo\n}\nbaz\n}\n\n\nreturn x;\n{\nfoo\nbaz\nreturn x;\nbaz\nfoo\n{\n{\nbar\nbaz\nbaz\nbaz\n\n}\n}\nbar\nqux\n{\n  // c\nbar\nqux\nfoo\nreturn x;\nqux\nfoo\nqux\nqux\nbaz\nreturn x;\nqux\n{\nfoo\n  // c\n\nbar\nbar\n}\n\n\n\n\nfoo\nqux\n\n}\nqux\n\nqux\nbaz\n\n{\nbar\nfoo\n{\nbaz\n{\nbar\nbaz\nbaz\nfoo\nfoo\n}\nqux\nfoo\n  // c\nfoo\n  // c\nfoo\nbaz\n  // c\n  // c\nbaz\nbar\n}\nreturn x;\n  // c\nreturn x;\n  // c\n\n\n\nbar\nqux\n  // c\n}\n}\nreturn x;\n}\nbar\n  // c\nbaz\nbar\n}\nbaz\nfoo\nreturn x;\nqux\n  // c\nbar\nqux\n\n}\nbaz\n  // c\n  // c\nqux\n\n\nreturn x;\n  // c\n{\n  // c\n}\n\n{\nqux\nqux\nfoo\nbar\nfoo\n{\n  // c\nfoo\nreturn x;\nqux\n}\nbar\nfoo\nreturn x;\n  // c\nqux\nbaz\n\n  // c\nbar\n}\nfoo\nqux\nreturn x;\nreturn x;\n\n}\n{\n{\n{\n{\nfoo\nreturn x;\nreturn x;\nbaz\nreturn x;\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -13,7 +13,6 @@\n qux\n baz\n }\n-\n bar\n }\n foo\n@@ -50,6 +49,7 @@\n baz\n baz\n \n+}\n }\n bar\n qux\n@@ -117,6 +117,7 @@\n \n \n \n+bar\n qux\n   // c\n }"
+ },
+ {
+  "name": "random 26",
+  "before": "bar\n{",
+  "after": "return x;\n{\n\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,2 +1,4 @@\n-bar\n+return x;\n {\n+\n+{"
+ },
+ {
+  "name": "random 27",
+  "before": "{\n}\n  // c\n{\nfoo\nbaz\nqux\n{\nbaz\n{\nqux\nreturn x;\n\n{\nbar\n}\n}\n}\n\nfoo\n\nbaz\n",
+  "after": "{\n}\n  // c\n{\nfoo\nbaz\nqux\n{\n{\nqux\nreturn x;\n\n{\nbar\n}\n}\n}\n\nfoo\n\nbaz",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -6,7 +6,6 @@\n baz\n qux\n {\n-baz\n {\n qux\n return x;"
+ },
+ {
+  "name": "random 28",
+  "before": "qux\n\nreturn x;\nreturn x;",
+  "after": "qux\nreturn x;\nqux\nbar",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,4 +1,4 @@\n qux\n-\n return x;\n-return x;\n+qux\n+bar"
+ },
+ {
+  "name": "random 29",
+  "before": "}\n\n  // c\n\n}\n{\nreturn x;\nfoo\nbar\nreturn x;\nfoo\n}\nqux\n\n  // c\n  // c\n\nbaz\nfoo\n  // c\nfoo\n}\nqux\n  // c\nreturn x;\n{\nbaz\n}\n",
+  "after": "}\n  // c\n\n}\n{\nreturn x;\nfoo\nbar\nreturn x;\nfoo\n}\n\n  // c\nbaz\n  // c\n\nbaz\n}\nfoo\nfoo\n}\nqux\n  // c\nreturn x;\n{\nbaz\n}",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,5 +1,4 @@\n }\n-\n   // c\n \n }\n@@ -10,14 +9,14 @@\n return x;\n foo\n }\n-qux\n \n   // c\n+baz\n   // c\n \n baz\n+}\n foo\n-  // c\n foo\n }\n qux"
+ },
+ {
+  "name": "random 30",
+  "before": "foo\n  // c\nbaz\n}\nfoo\nbar\n\nbaz\nreturn x;\nbar\n  // c\nfoo\n{\n}\n  // c\nqux\nqux\nreturn x;\nreturn x;\nreturn x;\nreturn x;\nbar\nbaz\nbaz",
+  "after": "foo\n{\nbaz\n}\nfoo\nbar\n\nbaz\nreturn x;\nbar\n  // c\nfoo\n{\n}\n  // c\nqux\nqux\nreturn x;\nreturn x;\nreturn x;\nbar\nbaz\nbaz",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,5 +1,5 @@\n foo\n-  // c\n+{\n baz\n }\n foo\n@@ -18,7 +18,6 @@\n return x;\n return x;\n return x;\n-return x;\n bar\n baz\n baz"
+ },
+ {
+  "name": "random 31",
+  "before": "qux\n}\nbar\nreturn x;\nqux\n\nfoo\n{\nbar\n\nbar\nbar\n{\nqux\n  // c\nreturn x;\nbar\nbar\nbar\nqux\n{\n",
+  "after": "qux\n}\nbar\nreturn x;\n\nfoo\n{\nbar\n\n  // c\n}\nbar\n{\nqux\n  // c\nreturn x;\nbar\nbar\nqux\n{",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -2,13 +2,13 @@\n }\n bar\n return x;\n-qux\n \n foo\n {\n bar\n \n-bar\n+  // c\n+}\n bar\n {\n qux\n@@ -16,6 +16,5 @@\n return x;\n bar\n bar\n-bar\n qux\n {"
+ },
+ {
+  "name": "random 32",
+  "before": "qux\n",
+  "after": "\nqux",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1 +1,2 @@\n+\n qux"
+ },
+ {
+  "name": "random 33",
+  "before": "  // c\n\nreturn x;\nreturn x;\nreturn x;\nbaz\nqux\n\n  // c\n{\nreturn x;\nfoo\n",
+  "after": "  // c\n\nreturn x;\nreturn x;\nreturn x;\nbaz\nqux\n\n  // c\n{\nreturn x;\nfoo",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 34",
+  "before": "  // c\nreturn x;\nbaz\nqux\nfoo\nfoo\n}\nqux\n\n\nbar\nqux\n{\n}\nbar\nfoo\n}\n  // c\n\nbar\nqux\nbaz\n  // c\nbaz\n}",
+  "after": "  // c\nreturn x;\nbaz\nbaz\nfoo\nfoo\nqux\n}\nqux\n\nqux\n}\nbar\nfoo\n}\n\nbar\nqux\nbaz\n  // c\nbaz\n\n}",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,25 +1,23 @@\n   // c\n return x;\n baz\n-qux\n+baz\n foo\n foo\n+qux\n }\n qux\n \n-\n-bar\n qux\n-{\n }\n bar\n foo\n }\n-  // c\n \n bar\n qux\n baz\n   // c\n baz\n+\n }"
+ },
+ {
+  "name": "random 35",
+  "before": "return x;\nreturn x;\nreturn x;\n{\nreturn x;\n\nfoo\n}\nreturn x;\n\n\nqux\n\nbar\nbar\n\n}\n",
+  "after": "return x;\nreturn x;\nreturn x;\n{\nreturn x;\n\nfoo\n}\nreturn x;\n\n\nqux\n\nbar\nbar\n\n}",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": ""
+ },
+ {
+  "name": "random 36",
+  "before": "qux\nreturn x;",
+  "after": "return x;",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,2 +1 @@\n-qux\n return x;"
+ },
+ {
+  "name": "random 37",
+  "before": "baz\nfoo\n\nfoo\nbaz\nbar\n  // c\nreturn x;\nbaz\nreturn x;\nbaz\n  // c\nbaz\nreturn x;\nfoo\nbaz\n\n{\nbar\nbar\n  // c\nfoo\n{\nbaz\n  // c\n\nbar\nbaz\nqux\n}\n",
+  "after": "baz\nfoo\n}\nfoo\nbaz\nreturn x;\n  // c\nbaz\nbaz\nreturn x;\nbar\nbaz\n  // c\nbaz\nreturn x;\nfoo\nbaz\n  // c\n\n{\nbar\nbar\n  // c\n{\n{\nbaz\n  // c\n\nbar\nbaz\n  // c\nqux",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,30 +1,32 @@\n baz\n foo\n-\n+}\n foo\n baz\n-bar\n+return x;\n   // c\n-return x;\n+baz\n baz\n return x;\n+bar\n baz\n   // c\n baz\n return x;\n foo\n baz\n+  // c\n \n {\n bar\n bar\n   // c\n-foo\n+{\n {\n baz\n   // c\n \n bar\n baz\n+  // c\n qux\n-}"
+ },
+ {
+  "name": "random 38",
+  "before": "  // c\nreturn x;\n}\nqux\nreturn x;\nreturn x;\nbar\nqux\nqux\nfoo\n\nbaz\nreturn x;\nfoo\n}\n  // c",
+  "after": "  // c\nreturn x;\n}\nreturn x;\nbar\nreturn x;\nbar\n{\nqux\nqux\nqux\nqux\n\nbaz\nreturn x;\nfoo\n}\n  // c",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,13 +1,15 @@\n   // c\n return x;\n }\n-qux\n-return x;\n return x;\n bar\n+return x;\n+bar\n+{\n qux\n qux\n-foo\n+qux\n+qux\n \n baz\n return x;"
+ },
+ {
+  "name": "random 39",
+  "before": "bar\nbaz\nbaz\n}\nqux\nqux\n  // c\n",
+  "after": "\nbaz\nfoo\nreturn x;\nfoo\nqux\nqux\n",
+  "fromFile": "before",
+  "toFile": "after",
+  "diff": "--- before\n+++ after\n@@ -1,7 +1,7 @@\n-bar\n+\n baz\n-baz\n-}\n+foo\n+return x;\n+foo\n qux\n qux\n-  // c"
+ }
+]

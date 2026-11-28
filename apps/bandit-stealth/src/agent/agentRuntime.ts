@@ -19,22 +19,18 @@ import { StealthPlannerAgent } from './plannerAgent';
 
 export type { FileChangeSnapshot, IUndoManager } from '@burtson-labs/stealth-core-runtime';
 
-const PYTHON_ERROR_MESSAGE = 'Bandit Stealth requires Python 3 to run agent tasks.';
-
 export class StealthAgentRuntime {
   private readonly plannerAgent = new StealthPlannerAgent();
   private readonly telemetry: ITelemetry;
   private readonly hostBindings: StealthHostBindings;
   private readonly runtime: StealthRuntime;
-  private missingPythonPrompted = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.telemetry = createTelemetry({
       post: (message) => environmentService.postToWebview(message)
     });
 
-    const pythonScriptPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'python', 'bandit_agent.py').fsPath;
-    this.hostBindings = this.createHostBindings({ pythonScriptPath });
+    this.hostBindings = this.createHostBindings();
     this.runtime = createStealthRuntime(this.hostBindings);
   }
 
@@ -70,7 +66,7 @@ export class StealthAgentRuntime {
     return this.runtime.replayStep(stepId, mode);
   }
 
-  private createHostBindings(deps: { pythonScriptPath: string }): StealthHostBindings {
+  private createHostBindings(): StealthHostBindings {
     const fsAdapter = createNodeFsAdapter(this.requireWorkspaceRoot());
     const shellAdapter = createShellAdapter();
     const getBanditConfiguration = () => vscode.workspace.getConfiguration('banditStealth');
@@ -87,10 +83,6 @@ export class StealthAgentRuntime {
       telemetry: this.telemetry,
       ui: {
         showError: async (message, detail) => {
-          if (message === PYTHON_ERROR_MESSAGE) {
-            await this.showPythonError(detail);
-            return;
-          }
           const text = detail ? `${message}\n\n${detail}` : message;
           await vscode.window.showErrorMessage(text);
         },
@@ -122,9 +114,10 @@ export class StealthAgentRuntime {
         getStoragePath: () => this.context.storageUri?.fsPath,
         getGlobalStoragePath: () => this.context.globalStorageUri?.fsPath
       },
+      // Plan file actions run in-process in stealth-core-runtime. Python is
+      // only detected (silently) to syntax-check .py files the agent writes;
+      // when it is missing that check is skipped.
       python: {
-        scriptPath: deps.pythonScriptPath,
-        getWorkingDirectory: () => this.context.extensionUri.fsPath,
         ensure: () => this.detectPython(),
         clearCache: async () => {
           clearPythonCache();
@@ -150,7 +143,6 @@ export class StealthAgentRuntime {
   }> {
     const result = await ensurePython({ force });
     if (result.info) {
-      this.missingPythonPrompted = false;
       return {
         ok: true,
         version: result.info.version,
@@ -161,40 +153,6 @@ export class StealthAgentRuntime {
       ok: false,
       error: result.error ?? 'Python runtime not detected.'
     };
-  }
-
-  private async showPythonError(detail?: string): Promise<void> {
-    if (this.missingPythonPrompted) {
-      return;
-    }
-    this.missingPythonPrompted = true;
-
-    const openDocs = 'Open Python Downloads';
-    const openSettings = 'Configure Path';
-    const retry = 'Retry Detection';
-
-    const choice = await vscode.window.showErrorMessage(
-      PYTHON_ERROR_MESSAGE,
-      { modal: true, detail },
-      retry,
-      openDocs,
-      openSettings
-    );
-
-    if (choice === openDocs) {
-      void vscode.env.openExternal(vscode.Uri.parse('https://www.python.org/downloads/'));
-      return;
-    }
-    if (choice === openSettings) {
-      void vscode.commands.executeCommand('workbench.action.openSettings', 'banditStealth.pythonPath');
-      return;
-    }
-    if (choice === retry) {
-      clearPythonCache();
-      this.missingPythonPrompted = false;
-      void this.detectPython(true);
-      return;
-    }
   }
 
   private requireWorkspaceRoot(): string {

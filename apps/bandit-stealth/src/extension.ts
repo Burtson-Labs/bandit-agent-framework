@@ -29,7 +29,6 @@ import {
 import { StealthAgentRuntime } from './agent/agentRuntime';
 import { PromptPipeline } from './agent/promptPipeline';
 import { environmentService } from './agent/environmentService';
-import { ensurePython } from './agent/pythonEnvironment';
 import { setBundledRecorderPath } from './extensionRecorder';
 import { DiffContentProvider } from './diffContentProvider';
 import {
@@ -338,28 +337,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // Update status bar when provider busy state changes.
   const statusChangeListener = provider.onDidChangeStatus(({ busy, text, contextBudget }) => {
     updateStatusBarText(busy, text, contextBudget);
-  });
-
-  void ensurePython().then((result) => {
-    if (result.info) {
-      console.info(`Bandit Stealth: detected Python ${result.info.version} via "${result.info.command}".`);
-      return;
-    }
-
-    const openDocs = 'Open Python Downloads';
-    const openSettings = 'Configure Python Path';
-
-    void vscode.window.showWarningMessage(
-      'Bandit Stealth agent features require Python 3. Install Python 3 or configure the `banditStealth.pythonPath` setting.',
-      openDocs,
-      openSettings
-    ).then((choice) => {
-      if (choice === openDocs) {
-        void vscode.env.openExternal(vscode.Uri.parse('https://www.python.org/downloads/'));
-      } else if (choice === openSettings) {
-        void vscode.commands.executeCommand('workbench.action.openSettings', 'banditStealth.pythonPath');
-      }
-    });
   });
 
   context.subscriptions.push(

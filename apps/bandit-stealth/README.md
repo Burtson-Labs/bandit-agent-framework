@@ -373,7 +373,7 @@ When you want to run a model your local hardware can't fit — or just want H100
 
 - VS Code 1.75+ or Cursor 0.40+
 - [Ollama](https://ollama.com) running locally or remotely (unless you use the Bandit cloud provider)
-- Python 3 on `PATH` (used by a few agent helpers)
+- Python is not required. If Python 3 is on `PATH`, Bandit uses it to syntax-check Python files the agent edits.
 
 ---
 
